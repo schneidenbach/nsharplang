@@ -3,6 +3,7 @@ namespace NSharpLang.AsyncTaskLike.Tests
 import System
 import System.Collections.Generic
 import System.Diagnostics
+import System.IO
 import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.CompilerServices
@@ -127,6 +128,17 @@ test "an async Task of int call result carries its awaited result" {
     assert actual == 41, "CountedWork returned " + actual.ToString()
 }
 
+test "a null assertion nested in an async call argument runs before the first suspension" {
+    directory := Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := CreateDirectoryBeforeAwait(directory, gate.Task)
+    assert Directory.Exists(directory)
+    assert !pending.IsCompleted
+    gate.SetResult(57)
+    assert pending.Result == 57
+    Directory.Delete(directory, true)
+}
+
 test "an async unit ValueTask call result converts to a waitable task" {
     converted := UnitValueWork().AsTask()
     converted.Wait()
@@ -183,6 +195,59 @@ test "awaits nested in call arguments preserve their values across suspension" {
     assert !pending.IsCompleted
     third.SetResult(30)
     assert pending.Result == 60
+}
+
+test "an interpolated string inside an awaited call argument is spilled and resumed" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitInterpolatedArgument(gate.Task)
+    assert !pending.IsCompleted
+
+    gate.SetResult(37)
+    assert pending.Result == "value 37"
+}
+
+test "an async method can register and await a task continuation with a lambda callback" {
+    source := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    counter := new ContinuationCounter()
+    pending := AwaitContinuationCallback(source.Task, gate.Task, counter)
+    assert !pending.IsCompleted
+
+    source.SetResult(1)
+    gate.SetResult(2)
+    assert pending.Result == 1
+}
+
+test "an async method discards a returned task before its next suspension" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitAfterDiscardedTask(gate.Task)
+    assert !pending.IsCompleted
+
+    gate.SetResult(42)
+    assert pending.Result == 42
+}
+
+test "an async method can discard a stream continuation and await its completion signal" {
+    source := new MemoryStream([72, 105, 33])
+    destination := new MemoryStream()
+    copied := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitDiscardedStreamContinuation(source, destination, copied, gate.Task)
+    assert !pending.IsCompleted
+
+    gate.SetResult(43)
+    assert pending.Result == 43
+    assert destination.Length == 3
+}
+
+test "a value-returning call is discarded in a void-compatible async lambda" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    counter := new ContinuationCounter()
+    pending := AwaitVoidCompatibleExpressionLambda(gate.Task, counter)
+    assert !pending.IsCompleted
+
+    gate.SetResult(7)
+    assert pending.Result == 7
 }
 
 test "awaits nested in a binary expression spill both values across suspension" {

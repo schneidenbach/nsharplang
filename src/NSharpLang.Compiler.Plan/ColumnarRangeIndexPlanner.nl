@@ -450,14 +450,22 @@ class ColumnarRangeIndexPlanner {
 
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression || kind == ColumnarExpressionNodeKind.FloatLiteralExpression || kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression {
             iteratorEmitter := bindings.IteratorMoveNextEmitter
-            if kind == ColumnarExpressionNodeKind.StringLiteralExpression && iteratorEmitter != null && !plan.IteratorTypeDiscovery {
+            if kind == ColumnarExpressionNodeKind.StringLiteralExpression && iteratorEmitter != null {
                 literal := ""
                 parts := new List<ColumnarInterpolationPart>()
                 holeNodes := new ColumnarNodeTable[](0)
                 holeSources := new string[](0)
                 holeRoots := new int[](0)
                 if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
-                    planned = ColumnarIteratorBodyPlanner.AppendIteratorInterpolatedString(iteratorEmitter, literal, parts, holeNodes, holeSources, holeRoots, out resultType)
+                    if plan.IteratorTypeDiscovery {
+                        // This plan is thrown away after call binding. Keep its stack shape and type
+                        // without evaluating interpolation holes; the selected live call emits them.
+                        resultType = typeof(string)
+                        plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), plan.AddString(""))
+                        planned = true
+                    } else {
+                        planned = ColumnarIteratorBodyPlanner.AppendIteratorInterpolatedString(iteratorEmitter, literal, parts, holeNodes, holeSources, holeRoots, out resultType)
+                    }
                 } else {
                     planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, node, plan, out resultType)
                 }

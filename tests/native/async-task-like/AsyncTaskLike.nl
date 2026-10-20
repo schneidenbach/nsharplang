@@ -2,6 +2,7 @@ namespace NSharpLang.AsyncTaskLike.Tests
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Runtime.CompilerServices
 import System.Threading
 import System.Threading.Tasks
@@ -13,6 +14,11 @@ async func AwaitValue(source: Task<int>): Task<int> {
 async func ReturnTaskValue(value: int): Task<int> {
     await Task.CompletedTask
     return value
+}
+
+async func CreateDirectoryBeforeAwait(path: string?, gate: Task<int>): Task<int> {
+    Directory.CreateDirectory(must path)
+    return await gate
 }
 
 func IdentityDouble(value: double): double {
@@ -31,6 +37,54 @@ async func AwaitTaskCallWithAwaitedArgument(source: Task<int>): Task<int> {
 async func AwaitTaskCallWithAwaitedArgumentStored(source: Task<int>): Task<int> {
     pending := ReturnTaskValue(await source)
     return await pending
+}
+
+func InterpolatedTask(value: string): Task<string> {
+    return Task.FromResult(value)
+}
+
+async func AwaitInterpolatedArgument(source: Task<int>): Task<string> {
+    value := await source
+    return await InterpolatedTask($"value {value}")
+}
+
+class ContinuationCounter {
+    Value: int
+
+    func Mark() {
+        Value += 1
+    }
+
+    func MarkAndReturn(value: int): int {
+        Value += value
+        return Value
+    }
+}
+
+async func AwaitContinuationCallback(source: Task, gate: Task<int>, counter: ContinuationCounter): Task<int> {
+    continuation := source.ContinueWith(completed => counter.Mark(), TaskScheduler.Default)
+    await gate
+    await continuation
+    return counter.Value
+}
+
+async func AwaitAfterDiscardedTask(gate: Task<int>): Task<int> {
+    _ = Task.FromResult(13)
+    return await gate
+}
+
+async func AwaitDiscardedStreamContinuation(source: Stream, destination: Stream, copied: TaskCompletionSource<int>, gate: Task<int>): Task<int> {
+    _ = source.CopyToAsync(destination).ContinueWith(pumped => copied.SetResult(1), TaskScheduler.Default)
+    await copied.Task
+    return await gate
+}
+
+async func AwaitVoidCompatibleExpressionLambda(gate: Task<int>, counter: ContinuationCounter): Task<int> {
+    value := await gate
+    values := new List<int>()
+    values.Add(value)
+    values.ForEach(item => counter.MarkAndReturn(item))
+    return counter.Value
 }
 
 async func ReturnAfterBranch(skip: bool, gate: Task<int>): Task<int> {

@@ -207,7 +207,7 @@ class ColumnarStoreTargetPlanner {
             if !TryAppendStoredValue(nodes, source, indexNode, bindings, plan, getterSelection.ParameterTypes[0], out declineReason) {
                 return false
             }
-            callOpcode := getterSelection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()
+            callOpcode := (short)(getterSelection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call())
             plan.AppendMethodInstruction(callOpcode, plan.AddMethod(getterSelection.Method))
             if !TryAppendStoredValue(nodes, source, valueNode, bindings, plan, elementType, out declineReason) {
                 return false
@@ -234,7 +234,7 @@ class ColumnarStoreTargetPlanner {
         if !TryAppendStoredValue(nodes, source, valueNode, bindings, plan, selection.ParameterTypes[1], out declineReason) {
             return false
         }
-        callOpcode := receiverType.IsValueType ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()
+        callOpcode := (short)(receiverType.IsValueType ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt())
         plan.AppendMethodInstruction(callOpcode, plan.AddMethod(selection.Method))
         return true
     }

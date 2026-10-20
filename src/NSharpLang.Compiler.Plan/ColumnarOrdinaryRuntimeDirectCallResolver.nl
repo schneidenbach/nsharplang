@@ -455,6 +455,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     throw new InvalidOperationException("Runtime method parameters cannot be null.")
                 }
 
+                if !ContextualLambdaReturnShapesMatch(parameters, argumentFacts) {
+                    continue
+                }
+
                 if IsIntrinsicExcludedShape(candidate, parameters) {
                     if ExcludedShapeCanOwnArity(candidate, parameters, argumentTypes.Length) {
                         hadExcludedShape = true
@@ -1110,6 +1114,39 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return false
     }
 
+    // A lambda with a known void body cannot target a Func delegate. This fact can remove a generic
+    // overload such as ContinueWith<TResult>(Func<Task,TResult>, ...) from the candidate set before
+    // it is classified as an excluded generic shape; otherwise it incorrectly blocks the applicable
+    // Action overload even though the lambda's body has no value to infer TResult from.
+    static func ContextualLambdaReturnShapesMatch(parameters: ParameterInfo[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+        if parameters == null || argumentFacts == null || parameters.Length != argumentFacts.ContextualLambdaReturnsVoid.Length {
+            return true
+        }
+
+        index := 0
+        while index < parameters.Length {
+            if argumentFacts.ContextualLambdaReturnsVoid[index] {
+                parameterType := parameters[index].ParameterType
+                if parameterType == null || parameterType.IsByRef {
+                    return false
+                }
+                invoke: MethodInfo? = null
+                try {
+                    invoke = parameterType.GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance)
+                } catch ex: NotSupportedException {
+                    return false
+                } catch ex: NotImplementedException {
+                    return false
+                }
+                if invoke == null || invoke.ReturnType != ColumnarTypeOfPlanner.RequiredVoidType() {
+                    return false
+                }
+            }
+            index += 1
+        }
+        return true
+    }
+
     // A RESOLVED SIGNATURE IS ONE THE EMITTER CAN SPELL, and after substitution the surviving generic
     // parameters are not all the same thing. `closedArguments` are the type arguments the RECEIVER was
     // closed over, and `ResolveParameterTypes` has already put them where the definition's own
@@ -1126,10 +1163,11 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
     static func HasUnsupportedResolvedSignature(parameters: ParameterInfo[], parameterTypes: Type[], returnType: Type, closedArguments: Type[], allowByRefReturn: bool): bool {
         if returnType.IsByRef && allowByRefReturn {
-            returnType = returnType.GetElementType()
-            if returnType == null || returnType.IsByRef || returnType.IsPointer {
+            elementType := returnType.GetElementType()
+            if elementType == null || elementType.IsByRef || elementType.IsPointer {
                 return true
             }
+            returnType = elementType
         }
         if parameters.Length != parameterTypes.Length || IsUnsupportedResolvedSignatureType(returnType, closedArguments) {
             return true

@@ -433,6 +433,16 @@ class ColumnarIteratorBodyScope {
     // nobody executes, the pattern `ColumnarDirectCallPlanner` and `ColumnarConstructionPlanner`
     // already use to type an argument before they commit to it.
     func TryDiscoverValueType(nodes: ColumnarNodeTable, source: string, node: int, out resultType: Type): bool {
+        if !TryDiscoverExpressionType(nodes, source, node, out resultType) {
+            return false
+        }
+        return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+    }
+
+    // Contextual overload selection sometimes needs to distinguish a void expression lambda from
+    // a value-producing one before it can choose Action versus Func. Keep the discovered void type
+    // available to that scorer while sharing the same method-body scratch used for ordinary values.
+    func TryDiscoverExpressionType(nodes: ColumnarNodeTable, source: string, node: int, out resultType: Type): bool {
         resultType = typeof(int)
         scratch := new ColumnarCodePlan()
         if ContainsPlanLocalReference(nodes, source, node, Bindings) {
@@ -443,7 +453,7 @@ class ColumnarIteratorBodyScope {
         if !TryAppendValue(nodes, source, node, scratch, out resultType) {
             return false
         }
-        return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+        return resultType != null
     }
 
     static func ContainsPlanLocalReference(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings): bool {

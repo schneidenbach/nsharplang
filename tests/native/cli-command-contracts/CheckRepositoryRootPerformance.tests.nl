@@ -672,12 +672,9 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert observedRoots.Count == expectedRoots.Count, "not every discovered project root had exactly one result"
     assert foundCoreProject, "the workspace omitted Compiler.Core's result"
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
-    // Issue #260's AtomicFile support, its estate row, and the nlc run project regression added
-    // three checked N# files. Making the default references mirror dotnet build then added five: the
-    // framework namespace index (`FrameworkNamespaceIndex`), its estate rows, the native
-    // default-references row, the on-demand load marks (`FrameworkOnDemandLoads`) and the daemon row
-    // that pins a retained session's framework-load history.
-    assert checkedFiles == 2067, "repository checked-source-file census changed"
+    // Issue #260's AtomicFile support and the default-reference parity work brought the census to
+    // 2067 checked N# files. The async state-machine slice adds four tracked source files.
+    assert checkedFiles == 2071, "repository checked-source-file census changed"
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"

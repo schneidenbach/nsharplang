@@ -250,6 +250,7 @@ class ColumnarNamedArgumentBinder {
         movedContextualUnionBases := new Type?[](count)
         movedContextualLambda := new bool[](count)
         movedContextualLambdaParameterCounts := new int[](count)
+        movedContextualLambdaReturnsVoid := new bool[](count)
         Array.Fill(movedContextualLambdaParameterCounts, -1)
 
         reorders := false
@@ -279,6 +280,7 @@ class ColumnarNamedArgumentBinder {
             movedContextualUnionBases[slot] = facts.ContextualGenericUnionBases[written]
             movedContextualLambda[slot] = facts.IsContextualLambda[written]
             movedContextualLambdaParameterCounts[slot] = facts.ContextualLambdaParameterCounts[written]
+            movedContextualLambdaReturnsVoid[slot] = facts.ContextualLambdaReturnsVoid[written]
             written = written + 1
         }
 
@@ -299,6 +301,7 @@ class ColumnarNamedArgumentBinder {
             facts.ContextualGenericUnionBases[copy] = movedContextualUnionBases[copy]
             facts.IsContextualLambda[copy] = movedContextualLambda[copy]
             facts.ContextualLambdaParameterCounts[copy] = movedContextualLambdaParameterCounts[copy]
+            facts.ContextualLambdaReturnsVoid[copy] = movedContextualLambdaReturnsVoid[copy]
             facts.WrittenOrderSlots[copy] = slotForWrittenArgument[copy]
             copy = copy + 1
         }
@@ -527,6 +530,7 @@ class ColumnarNamedArgumentBinder {
         Array.Copy(sourceFacts.ContextualGenericUnionBases, copy.ContextualGenericUnionBases, count)
         Array.Copy(sourceFacts.IsContextualLambda, copy.IsContextualLambda, count)
         Array.Copy(sourceFacts.ContextualLambdaParameterCounts, copy.ContextualLambdaParameterCounts, count)
+        Array.Copy(sourceFacts.ContextualLambdaReturnsVoid, copy.ContextualLambdaReturnsVoid, count)
         return copy
     }
 

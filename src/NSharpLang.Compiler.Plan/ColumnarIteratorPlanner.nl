@@ -1160,12 +1160,13 @@ class ColumnarIteratorPlanner {
                     return !state.Declined
                 }
                 name := nodes.Text(source, target)
-                if name == "_" && nodes.Text(source, inner) == "=" {
+                assignmentOperator := nodes.Text(source, inner)
+                if name == "_" && (assignmentOperator == "=" || assignmentOperator.Length == 0) {
                     WalkBoundValue(nodes, source, nodes.Child(inner, 1), state)
                     return !state.Declined
                 }
                 if state.LookupCanonical(name) == "" && state.LookupMemberFieldCanonical(name) == "" {
-                    state.Decline("emit.iterator.unsupported-shape", "assignment to an unbound identifier '" + name + "'")
+                    state.Decline("emit.iterator.unsupported-shape", "assignment to an unbound identifier '" + name + "' with operator '" + assignmentOperator + "'")
                     return false
                 }
                 WalkBoundValue(nodes, source, nodes.Child(inner, 1), state)
@@ -5184,10 +5185,19 @@ class ColumnarIteratorBodyPlanner {
         }
         captureNames := LambdaLoopCaptureNames(emit, node)
         parentOwnerType: Type? = null
-        nestedOwner := bindings.CurrentInstance != null && !Object.ReferenceEquals(bindings.CurrentInstance.ExactType, emit.Context.StateMachineType)
+        currentInstance := bindings.CurrentInstance
+        nestedOwner := currentInstance != null && !Object.ReferenceEquals(currentInstance.ExactType, emit.Context.StateMachineType)
         nestedOwnerBuilder: TypeBuilder? = null
         if nestedOwner {
-            parentOwnerType = bindings.CurrentInstance.ExactType
+            if currentInstance == null {
+                emit.Context.Decline("emit.iterator.lambda-nested-owner", "the enclosing lambda has no instance to own a nested delegate method")
+                return false
+            }
+            parentOwnerType = currentInstance.ExactType
+            if parentOwnerType == null {
+                emit.Context.Decline("emit.iterator.lambda-nested-owner", "the enclosing lambda instance has no runtime type to own a nested delegate method")
+                return false
+            }
             if isAsync || NestedLambdaCapturesOuterBinding(nodes, source, node, bindings) || NestedLambdaReferencesThis(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), 0) {
                 emit.Context.Decline("emit.iterator.lambda-nested-capture", "a nested lambda in an async closure may not capture its enclosing lambda's bindings or `this` yet")
                 return false
@@ -5321,6 +5331,10 @@ class ColumnarIteratorBodyPlanner {
         instantiation := emit.Context.GenericMemberType
         if nestedOwner {
             instantiation = null
+            if parentOwnerType == null {
+                emit.Context.Decline("emit.iterator.lambda-nested-owner", "the enclosing lambda has no runtime type to close its nested delegate method")
+                return false
+            }
             if parentOwnerType.IsGenericType {
                 instantiation = parentOwnerType
             }
@@ -5450,11 +5464,25 @@ class ColumnarIteratorBodyPlanner {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         previousPlan := emit.Plan
+        previousThisArg := emit.ThisArg
         emit.Plan = plan
+        if HasNestedLambdaNode(context.Nodes, bodyNode, 0) {
+            lambdaThisType := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(scope.StateMachineType), context.StructuralTypeReferences)
+            emit.ThisArg = plan.AddArgument(0, lambdaThisType, scope.StateMachineType.IsValueType)
+        }
         try {
             if context.Nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement {
                 if !AppendLambdaBlockBody(emit, scope, bodyNode, plan, bodyReturnType) {
                     return false
+                }
+            } else if ColumnarCodePlanExecutor.IsVoidType(bodyReturnType) && ColumnarExpressionSyntaxFacts.IsStatementExpression(context.Nodes, context.Source, bodyNode) {
+                expressionType := typeof(int)
+                if !scope.TryAppendValue(context.Nodes, context.Source, bodyNode, plan, out expressionType) {
+                    context.Decline("emit.iterator.lambda-unsupported", "the statement expression in a void-returning lambda in an iterator body could not be lowered")
+                    return false
+                }
+                if !ColumnarCodePlanExecutor.IsVoidType(expressionType) {
+                    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
                 }
             } else if !scope.TryAppendTargetTypedValue(context.Nodes, context.Source, bodyNode, plan, bodyReturnType) {
                 context.Decline("emit.iterator.lambda-unsupported", "the body of a lambda in an iterator body could not be lowered as '" + bodyReturnType.Name + "'")
@@ -5466,6 +5494,7 @@ class ColumnarIteratorBodyPlanner {
             return true
         } finally {
             emit.Plan = previousPlan
+            emit.ThisArg = previousThisArg
         }
     }
 
@@ -7038,7 +7067,8 @@ class ColumnarIteratorBodyPlanner {
             return EmitStoreTargetAssignment(emit, node, target)
         }
         name := nodes.Text(source, target)
-        if name == "_" && nodes.Text(source, node) == "=" {
+        discardOperator := nodes.Text(source, node)
+        if name == "_" && (discardOperator == "=" || discardOperator.Length == 0) {
             discardedType := typeof(int)
             if !AppendValue(emit, nodes.Child(node, 1), out discardedType) {
                 return false

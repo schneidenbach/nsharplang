@@ -581,6 +581,7 @@ class ColumnarDirectCallPlanner {
         targetFacts.ContextualGenericUnionBases[targetIndex] = sourceFacts.ContextualGenericUnionBases[sourceIndex]
         targetFacts.IsContextualLambda[targetIndex] = sourceFacts.IsContextualLambda[sourceIndex]
         targetFacts.ContextualLambdaParameterCounts[targetIndex] = sourceFacts.ContextualLambdaParameterCounts[sourceIndex]
+        targetFacts.ContextualLambdaReturnsVoid[targetIndex] = sourceFacts.ContextualLambdaReturnsVoid[sourceIndex]
     }
 
     static func TryAppendSparseNamedSiblingCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
@@ -663,6 +664,7 @@ class ColumnarDirectCallPlanner {
         copy.ContextualGenericUnionBases[0] = sourceFacts.ContextualGenericUnionBases[index]
         copy.IsContextualLambda[0] = sourceFacts.IsContextualLambda[index]
         copy.ContextualLambdaParameterCounts[0] = sourceFacts.ContextualLambdaParameterCounts[index]
+        copy.ContextualLambdaReturnsVoid[0] = sourceFacts.ContextualLambdaReturnsVoid[index]
         return copy
     }
 
@@ -2312,8 +2314,9 @@ class ColumnarDirectCallPlanner {
         // string-based external catalog cannot describe it. Keep the normal catalog as the owner
         // for closed, concrete calls; for builder-bound type arguments, select the exact reflected
         // generic method from the semantically resolved external owner and carry the open argument
-        // through the emitted call signature.
-        if HasBuilderBoundTypeArgument(typeArguments) {
+        // through the emitted call signature. Closed external calls remain owned by the reviewed
+        // call catalog; reflecting any generic method here would silently widen its accepted surface.
+        if HasBuilderBoundTypeArgument(typeArguments, bindings) {
             if TryAppendExplicitGenericExternalStaticCall(nodes, source, callNode, rootName, ownerName, memberName, typeArguments, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
                 ownership = ColumnarDirectCallOwnership.Planned
                 return true
@@ -2321,11 +2324,6 @@ class ColumnarDirectCallPlanner {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             plan.Rollback(checkpoint)
             return false
-        }
-
-        if TryAppendExplicitGenericExternalStaticCall(nodes, source, callNode, rootName, ownerName, memberName, typeArguments, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
-            ownership = ColumnarDirectCallOwnership.Planned
-            return true
         }
 
         externalPlan := ColumnarExternalBindingPlans.GetExplicitGenericStaticCallPlan(ownerName, memberName, TypeNames(typeArguments), TypeNames(argumentTypes))
@@ -2351,9 +2349,42 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    static func HasBuilderBoundTypeArgument(typeArguments: Type[]): bool {
+    static func HasBuilderBoundTypeArgument(typeArguments: Type[], bindings: ColumnarFragmentBindings): bool {
+        iteratorEmitter := bindings == null ? null : bindings.IteratorMoveNextEmitter
+        if iteratorEmitter == null || iteratorEmitter.Context == null {
+            return false
+        }
+
+        genericParameters := iteratorEmitter.Context.GenericParameters
         for typeArgument in typeArguments {
-            if typeArgument == null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(typeArgument) {
+            if typeArgument == null || ContainsActiveStateMachineGenericParameter(typeArgument, genericParameters) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func ContainsActiveStateMachineGenericParameter(valueType: Type, genericParameters: Type[]): bool {
+        if valueType == null || genericParameters == null {
+            return false
+        }
+        for genericParameter in genericParameters {
+            if Object.ReferenceEquals(valueType, genericParameter) {
+                return true
+            }
+        }
+
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
+            elementType := valueType.GetElementType()
+            return elementType != null && ContainsActiveStateMachineGenericParameter(elementType, genericParameters)
+        }
+
+        if !valueType.IsGenericType {
+            return false
+        }
+
+        for genericArgument in valueType.GetGenericArguments() {
+            if ContainsActiveStateMachineGenericParameter(genericArgument, genericParameters) {
                 return true
             }
         }
@@ -3812,7 +3843,16 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        return !IsVoidType(emittedType) && ColumnarExtensionMethodResolver.ReferenceAssignableFrom(expectedType, emittedType)
+        if IsVoidType(emittedType) || !ColumnarExtensionMethodResolver.ReferenceAssignableFrom(expectedType, emittedType) {
+            return false
+        }
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(emittedType, expectedType) {
+            return true
+        }
+
+        targetIndex := plan.AddType(expectedType)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Castclass(), targetIndex)
+        return true
     }
 
     // Emit a trailing-optional instance/static runtime call: emit the receiver (instance only), emit
@@ -4172,7 +4212,7 @@ class ColumnarDirectCallPlanner {
     }
 
     static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, parameterModifierKinds: int[]?, receiverType: Type?, receiverIsOnStack: bool, receiverIsReference: bool): bool {
-        if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != parameterTypes.Length || argumentFacts.IsContextualLambda.Length != parameterTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != parameterTypes.Length || argumentFacts.ArgumentNodes.Length != parameterTypes.Length || argumentFacts.WrittenOrderSlots.Length != parameterTypes.Length {
+        if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != parameterTypes.Length || argumentFacts.IsContextualLambda.Length != parameterTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != parameterTypes.Length || argumentFacts.ContextualLambdaReturnsVoid.Length != parameterTypes.Length || argumentFacts.ArgumentNodes.Length != parameterTypes.Length || argumentFacts.WrittenOrderSlots.Length != parameterTypes.Length {
             return false
         }
         if parameterModifierKinds != null && parameterModifierKinds.Length != 0 && parameterModifierKinds.Length != parameterTypes.Length {
@@ -4801,6 +4841,18 @@ class ColumnarDirectCallPlanner {
                 argumentTypes[index] = typeof(Delegate)
                 argumentFacts.IsContextualLambda[index] = true
                 argumentFacts.ContextualLambdaParameterCounts[index] = nodes.ChildCount(argumentCandidate) - 1
+                if !ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(argumentCandidate)) {
+                    lambdaBody := nodes.Child(argumentCandidate, nodes.ChildCount(argumentCandidate) - 1)
+                    if nodes.Kind(lambdaBody) == ColumnarStatementNodeKind.BlockStatement {
+                        argumentFacts.ContextualLambdaReturnsVoid[index] = !ContainsValueReturnOutsideNestedLambdas(nodes, lambdaBody, 0)
+                    } else if bindings.IteratorMoveNextEmitter != null {
+                        lambdaReturnType := typeof(int)
+                        scope := bindings.IteratorMoveNextEmitter.Context.RequiredScope()
+                        if scope.TryDiscoverExpressionType(nodes, source, lambdaBody, out lambdaReturnType) {
+                            argumentFacts.ContextualLambdaReturnsVoid[index] = IsVoidType(lambdaReturnType)
+                        }
+                    }
+                }
                 index += 1
                 continue
             }
@@ -4978,6 +5030,20 @@ class ColumnarDirectCallPlanner {
     static func TryGetPlannableValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, allowPrimitiveBinary: bool, methodBodySchema: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(int)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        if bindings != null && bindings.IteratorMoveNextEmitter != null && nodes != null && node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.StringLiteralExpression {
+            literal := ""
+            parts := new List<ColumnarInterpolationPart>()
+            holeNodes := new ColumnarNodeTable[](0)
+            holeSources := new string[](0)
+            holeRoots := new int[](0)
+            if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+                // Interpolation is always a string. Type discovery must not lower its holes into a
+                // schema-v3 scratch; the live async expression planner emits them in source order.
+                resultType = typeof(string)
+                return true
+            }
+        }
+
         syntaxAdmitted := IsAdmittedValueSyntax(nodes, source, node, depth)
         if allowPrimitiveBinary && !syntaxAdmitted {
             syntaxAdmitted = ColumnarPrimitiveBinaryPlanner.IsAdmittedSyntax(nodes, source, node, depth)
@@ -5015,7 +5081,7 @@ class ColumnarDirectCallPlanner {
         // the call has been selected.
         scratch.IteratorTypeDiscovery = true
         valuePlanned := false
-        requiresMethodBodyScratch := methodBodySchema && ContainsAsExpression(nodes, node, 0)
+        requiresMethodBodyScratch := methodBodySchema && (ContainsAsExpression(nodes, node, 0) || ContainsMustExpression(nodes, node, 0))
         if requiresMethodBodyScratch {
             scratch.PrepareMethodBody()
             fragment := scratch.BeginFragment(-1, nodes.Kind(ColumnarPlannerSupport.UnwrapParentheses(nodes, node)), ColumnarPlannerSupport.UnwrapParentheses(nodes, node))
@@ -5061,6 +5127,23 @@ class ColumnarDirectCallPlanner {
         return false
     }
 
+    static func ContainsMustExpression(nodes: ColumnarNodeTable, node: int, depth: int): bool {
+        if nodes == null || node < 0 || node >= nodes.Kinds.Length || depth > 200 {
+            return false
+        }
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.MustExpression {
+            return true
+        }
+        childIndex := 0
+        while childIndex < nodes.ChildCount(node) {
+            if ContainsMustExpression(nodes, nodes.Child(node, childIndex), depth + 1) {
+                return true
+            }
+            childIndex += 1
+        }
+        return false
+    }
+
     // THE GATE TAKES `source` BECAUSE THREE VALUE FORMS ARE SPELLED IN THE SOURCE TEXT, NOT IN THE KIND.
     // `a && b`, `a || b` and `a ?? b` are all node kind 12 — the operator TEXT is what separates them
     // from `a + b`, and it lives in the source span, so a gate with no `source` could not tell a
@@ -5092,6 +5175,10 @@ class ColumnarDirectCallPlanner {
         }
 
         if kind == ColumnarExpressionNodeKind.ParenthesizedExpression {
+            return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, source, nodes.Child(node, 0), depth + 1)
+        }
+
+        if kind == ColumnarExpressionNodeKind.MustExpression {
             return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, source, nodes.Child(node, 0), depth + 1)
         }
 
