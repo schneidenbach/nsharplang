@@ -112,6 +112,11 @@ class AsyncService {
         await gate
         return Value
     }
+
+    public async func ClassWrite(gate: Task<int>): Task<int> {
+        Value = await gate
+        return Value
+    }
 }
 
 async func IsSourceReferenceNonNullAfterAwait(value: AsyncService?, gate: Task): Task<bool> {
@@ -520,6 +525,14 @@ async func CaptureAsyncLambda(gate: Task): Task<int> {
     pending := read()
     captured = 9
     return await pending
+}
+
+async func CaptureSynchronousLambdaAcrossAwait(gate: Task): Task<int> {
+    captured := 4
+    read: Func<int> = () => captured
+    await gate
+    captured = 16
+    return read()
 }
 
 async func CaptureAsyncLocalFunction(gate: Task): Task<int> {

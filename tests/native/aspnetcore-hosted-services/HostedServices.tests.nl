@@ -16,7 +16,6 @@ import NSharpLang.AspNetCoreHostedServices
 // before its first line with `Could not load file or assembly 'Microsoft.Extensions.Hosting.
 // Abstractions, Version=10.0.0.0'`: the build references the framework but never copies it, and
 // the tests run inside the CLI's own process, whose host bound only `Microsoft.NETCore.App`.
-
 func WithinTenSeconds<T>(task: Task<T>): Task<T> {
     return task.WaitAsync(TimeSpan.FromSeconds(10))
 }
@@ -46,13 +45,10 @@ test "a BackgroundService subclass starts, runs and observes its stop" {
 }
 
 test "a generic host activates a hosted service through dependency injection" {
-    builder := Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings())
-    builder.Services.AddSingleton<StartupProbe>()
-    builder.Services.AddHostedService<ProbeWorker>()
-    using host := builder.Build()
+    using host := CreateProbeHost()
 
     await host.StartAsync()
-    probe := host.Services.GetRequiredService<StartupProbe>()
+    probe := ResolveProbe(host)
     message := await WithinTenSeconds(probe.Started)
     await host.StopAsync()
 
@@ -67,11 +63,12 @@ test "a conventional middleware runs in an ApplicationBuilder pipeline" {
     app := new ApplicationBuilder(services)
     app.UseMiddleware(typeof(RequestStampMiddleware))
     terminalRan := false
-    app.Run(context => {
+    terminal: RequestDelegate = context => {
         terminalRan = true
         context.Response.StatusCode = 204
         return Task.CompletedTask
-    })
+    }
+    app.Run(terminal)
     pipeline := app.Build()
 
     context := new DefaultHttpContext()

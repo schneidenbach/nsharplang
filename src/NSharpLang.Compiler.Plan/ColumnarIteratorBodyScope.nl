@@ -251,6 +251,13 @@ class ColumnarIteratorBodyScope {
         instanceFacts.Fields[name] = field
     }
 
+    // A local dead at every suspension belongs to this MoveNext invocation's IL frame. Its plan slot
+    // and name binding are published together only after its initializer has been evaluated.
+    func PublishPlanLocal(name: string, index: int, valueType: Type) {
+        Bindings.DeclarePlanLocal(name, index, valueType)
+        HideEnclosingMember(name)
+    }
+
     func PublishBoxedCapture(name: string, boxField: FieldInfo, valueType: Type) {
         if name == null || name.Length == 0 || boxField == null || valueType == null {
             throw new InvalidOperationException("A published iterator box requires a name, field and value type.")
@@ -357,6 +364,7 @@ class ColumnarIteratorBodyScope {
             last := hidingNames.Count - 1
             name := hidingNames[last]
             hidingNames.RemoveAt(last)
+            Bindings.PlanLocals.Remove(name)
             if IsEnclosingMemberVisible(name) {
                 Reveal(name)
             }
@@ -427,12 +435,32 @@ class ColumnarIteratorBodyScope {
     func TryDiscoverValueType(nodes: ColumnarNodeTable, source: string, node: int, out resultType: Type): bool {
         resultType = typeof(int)
         scratch := new ColumnarCodePlan()
+        if ContainsPlanLocalReference(nodes, source, node, Bindings) {
+            scratch.EnablePlanLocalMirror(Bindings.PlanLocalMirrorTypes())
+        }
         scratch.PrepareMethodBody()
         scratch.IteratorTypeDiscovery = true
         if !TryAppendValue(nodes, source, node, scratch, out resultType) {
             return false
         }
         return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+    }
+
+    static func ContainsPlanLocalReference(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings): bool {
+        if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression && bindings.PlanLocals.ContainsKey(nodes.Text(source, node)) {
+            return true
+        }
+        childIndex := 0
+        while childIndex < nodes.ChildCount(node) {
+            if ContainsPlanLocalReference(nodes, source, nodes.Child(node, childIndex), bindings) {
+                return true
+            }
+            childIndex += 1
+        }
+        return false
     }
 
     // A value at a position whose type is known — a hoisted field, the current field a `yield` writes.

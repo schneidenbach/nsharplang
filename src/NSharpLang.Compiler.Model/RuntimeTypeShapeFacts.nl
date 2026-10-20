@@ -147,6 +147,11 @@ static class RuntimeTypeShapeFacts {
             return false
         }
 
+        definition := valueType.GetGenericTypeDefinition()
+        if definition is TypeBuilder {
+            return true
+        }
+
         for argument in valueType.GetGenericArguments() {
             if ContainsBuilderBoundTypeThroughElements(argument) {
                 return true

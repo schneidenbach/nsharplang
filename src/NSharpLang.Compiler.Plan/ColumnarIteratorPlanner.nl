@@ -66,6 +66,8 @@ class ColumnarIteratorShape {
     FieldNames: string[]
     FieldCanonicals: string[]
     FieldRoles: int[]
+    // Locals proven dead before every suspension stay in the MoveNext frame instead of becoming fields.
+    StackLocalNames: string[]
     MemberCount: int
     MemberNames: string[]
     MemberSignatures: string[]
@@ -102,6 +104,7 @@ class ColumnarIteratorShape {
         FieldNames = fieldNames
         FieldCanonicals = fieldCanonicals
         FieldRoles = fieldRoles
+        StackLocalNames = new string[](0)
         MemberCount = memberCount
         MemberNames = memberNames
         MemberSignatures = memberSignatures
@@ -168,6 +171,10 @@ class ColumnarIteratorWalkState {
     LocalNames: string[]
     LocalCanonicals: string[]
     LocalRoles: int[]
+    SourceLocalBindings: bool[]
+    LocalDeclarationEnds: int[]
+    StackLocalNames: string[]
+    StackLocalCount: int
     // The LOOP NESTING each hoisted local was declared at. Every local in a generator body lives in
     // ONE field of the machine, so a local declared inside a loop is the SAME storage on every
     // iteration. That is invisible until something captures it: a lambda created inside the loop
@@ -208,6 +215,10 @@ class ColumnarIteratorWalkState {
         LocalNames = new string[](capacity)
         LocalCanonicals = new string[](capacity)
         LocalRoles = new int[](capacity)
+        SourceLocalBindings = new bool[](capacity)
+        LocalDeclarationEnds = new int[](capacity)
+        StackLocalNames = new string[](capacity)
+        StackLocalCount = 0
         LocalLoopDepths = new int[](capacity)
         LoopCaptureCount = 0
         LoopCaptureNames = new string[](capacity)
@@ -309,6 +320,39 @@ class ColumnarIteratorWalkState {
         AddHoistedLocal(name, canonical, ColumnarIteratorPlanner.HoistedLocalFieldRole())
     }
 
+    func AddSourceLocal(name: string, canonical: string, declarationEnd: int) {
+        AddLocal(name, canonical)
+        if Declined {
+            return
+        }
+        index := 0
+        while index < LocalCount {
+            if LocalNames[index] == name {
+                SourceLocalBindings[index] = true
+                if LocalDeclarationEnds[index] == 0 || declarationEnd < LocalDeclarationEnds[index] {
+                    LocalDeclarationEnds[index] = declarationEnd
+                }
+                return
+            }
+            index += 1
+        }
+    }
+
+    func IsStackLocal(name: string): bool {
+        index := 0
+        while index < StackLocalCount {
+            if StackLocalNames[index] == name {
+                return true
+            }
+            index += 1
+        }
+        return false
+    }
+
+    func HoistedLocalCount(): int {
+        return LocalCount - StackLocalCount
+    }
+
     func AddHoistedLocal(name: string, canonical: string, role: int) {
         // A local that re-declares a parameter name collides with its captured field.
         for paramName2 in ParamNames {
@@ -341,6 +385,7 @@ class ColumnarIteratorWalkState {
 }
 
 class ColumnarIteratorPlanner {
+
     // Canonicalize a resolved runtime type at the plan layer, where the semantic type resolver owns
     // the source/runtime identity bridge. Emitters consume the canonical rather than rebuilding it
     // from CLR names.
@@ -511,6 +556,10 @@ class ColumnarIteratorPlanner {
             return Declined(state.DeclineSite, state.DeclineMessage)
         }
 
+        if isAsync {
+            ClassifyAsyncStackLocals(nodes, source, state)
+        }
+
         // THE DISPOSE FLAG IS A FIELD, so it is decided before either shape counts its fields — and
         // an async machine needs it for exactly the same reason a synchronous one does: a consumer
         // that abandons the sequence while the machine stands inside a `try` must still run every
@@ -540,6 +589,11 @@ class ColumnarIteratorPlanner {
         state.IsAsyncMethod = true
         if nodes.Kind(bodyRoot) == ColumnarStatementNodeKind.BlockStatement {
             WalkStatement(nodes, source, bodyRoot, state)
+        } else if nodes.Kind(bodyRoot) == ColumnarStatementNodeKind.ReturnStatement && nodes.ChildCount(bodyRoot) == 1 {
+            // Lambda and local-function expression bodies are represented by a value-bearing
+            // ReturnStatement in the columnar tree. Walk its value as the method's result expression
+            // so nested awaits reserve their resume and spill fields.
+            WalkBoundValue(nodes, source, nodes.Child(bodyRoot, 0), state)
         } else {
             // Async expression-bodied lambdas have the same body result contract as a one-value
             // async function. Classify the value here so nested awaits reserve the same resume and
@@ -549,12 +603,130 @@ class ColumnarIteratorPlanner {
         if state.Declined {
             return Declined(state.DeclineSite, state.DeclineMessage)
         }
+        ClassifyAsyncStackLocals(nodes, source, state)
         return BuildSupportedAsyncMethodShape(funcName, funcOrdinal, returnCanonical, paramNames, paramCanonicals, state, isInstance ? receiverCanonical : "")
+    }
+
+    static func ClassifyAsyncStackLocals(nodes: ColumnarNodeTable, source: string, state: ColumnarIteratorWalkState) {
+        // Async iterators already own a distinct resumable iterator layout whose lexical locals and
+        // foreach bindings are part of its established state machine contract. This stack-local
+        // optimization serves async method lowering, where dead-across-await locals must stay in the
+        // kickoff frame and ref-like locals cannot be fields.
+        if nodes == null || source == null || state == null || !state.IsAsyncMethod {
+            return
+        }
+
+        suspensionStarts := new List<int>()
+        awaitExpressionEnds := new List<int>()
+        hasClosure := false
+        nodeIndex := 0
+        while nodeIndex < nodes.Kinds.Length {
+            kind := nodes.Kind(nodeIndex)
+            if kind == ColumnarExpressionNodeKind.AwaitExpression {
+                start := nodes.SpanStart(nodeIndex)
+                length := nodes.SpanLength(nodeIndex)
+                if start >= 0 && length >= 0 {
+                    awaitExpressionEnds.Add(start + length)
+                }
+            } else if kind == ColumnarStatementNodeKind.AwaitForeachStatement || kind == ColumnarStatementNodeKind.AwaitUsingStatement {
+                start := nodes.SpanStart(nodeIndex)
+                if start >= 0 {
+                    suspensionStarts.Add(start)
+                }
+            }
+            if ColumnarLambdaNodeFacts.IsLambda(kind) || kind == ColumnarStatementNodeKind.LocalFunctionDeclaration {
+                hasClosure = true
+            }
+            nodeIndex += 1
+        }
+        suspensionStarts.Sort()
+        awaitExpressionEnds.Sort()
+
+        localIndex := 0
+        while localIndex < state.LocalCount {
+            if !state.SourceLocalBindings[localIndex] || IsLoopCapturedName(state, state.LocalNames[localIndex]) || IsUsingResourceName(nodes, source, state.LocalNames[localIndex]) {
+                localIndex += 1
+                continue
+            }
+
+            localName := state.LocalNames[localIndex]
+            declarationEnd := state.LocalDeclarationEnds[localIndex]
+            // Local-function bodies are stored in separate node tables, and a nested lambda can be
+            // outside the source span of its declaration node. Keeping locals hoisted in any body
+            // that declares a closure preserves the shared storage those separately planned bodies
+            // need, without making the liveness walk guess at closure references by source text.
+            isLiveAcrossSuspension := hasClosure
+            nodeIndex = 0
+            while nodeIndex < nodes.Kinds.Length && !isLiveAcrossSuspension {
+                if nodes.Kind(nodeIndex) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(nodeIndex) >= 0 && nodes.Text(source, nodeIndex) == localName {
+                    useStart := nodes.SpanStart(nodeIndex)
+                    if useStart > declarationEnd {
+                        if !isLiveAcrossSuspension && HasSuspensionBetween(suspensionStarts, awaitExpressionEnds, declarationEnd, useStart) {
+                            isLiveAcrossSuspension = true
+                        }
+                    }
+                }
+                nodeIndex += 1
+            }
+
+            if !isLiveAcrossSuspension {
+                state.StackLocalNames[state.StackLocalCount] = localName
+                state.StackLocalCount += 1
+            }
+            localIndex += 1
+        }
+    }
+
+    static func IsUsingResourceName(nodes: ColumnarNodeTable, source: string, name: string): bool {
+        nodeIndex := 0
+        while nodeIndex < nodes.Kinds.Length {
+            kind := nodes.Kind(nodeIndex)
+            if (kind == ColumnarStatementNodeKind.UsingStatement || kind == ColumnarStatementNodeKind.AwaitUsingStatement) && nodes.ChildCount(nodeIndex) > 0 {
+                resource := nodes.Child(nodeIndex, 0)
+                if nodes.Kind(resource) == ColumnarStatementNodeKind.VariableDeclarationStatement && nodes.Text(source, resource) == name {
+                    return true
+                }
+                if nodes.Kind(resource) == ColumnarStatementNodeKind.TypedLocalDeclaration && nodes.ChildCount(resource) > 0 && nodes.Text(source, nodes.Child(resource, 0)) == name {
+                    return true
+                }
+            }
+            nodeIndex += 1
+        }
+        return false
+    }
+
+    static func HasSuspensionBetween(suspensionStarts: List<int>, awaitExpressionEnds: List<int>, declarationEnd: int, useStart: int): bool {
+        return HasPositionBetween(suspensionStarts, declarationEnd, useStart) || HasPositionBetween(awaitExpressionEnds, declarationEnd, useStart)
+    }
+
+    static func HasPositionBetween(positions: List<int>, declarationEnd: int, useStart: int): bool {
+        low := 0
+        high := positions.Count
+        while low < high {
+            middle := low + (high - low) / 2
+            if positions[middle] <= declarationEnd {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low < positions.Count && positions[low] < useStart
+    }
+
+    static func IsLoopCapturedName(state: ColumnarIteratorWalkState, name: string): bool {
+        index := 0
+        while index < state.LoopCaptureCount {
+            if state.LoopCaptureNames[index] == name {
+                return true
+            }
+            index += 1
+        }
+        return false
     }
 
     static func BuildSupportedAsyncMethodShape(funcName: string, funcOrdinal: int, resultCanonical: string, paramNames: string[], paramCanonicals: string[], state: ColumnarIteratorWalkState, receiverCanonical: string): ColumnarIteratorShape {
         receiverCount := receiverCanonical.Length > 0 ? 1 : 0
-        fieldCount := 1 + receiverCount + paramNames.Length + state.LocalCount + state.LoopCaptureCount + state.AwaitCount + 2
+        fieldCount := 1 + receiverCount + paramNames.Length + state.HoistedLocalCount() + state.LoopCaptureCount + state.AwaitCount + 2
         fieldNames := new string[](fieldCount)
         fieldCanonicals := new string[](fieldCount)
         fieldRoles := new int[](fieldCount)
@@ -578,10 +750,12 @@ class ColumnarIteratorPlanner {
         }
         l := 0
         while l < state.LocalCount {
-            fieldNames[cursor] = state.LocalNames[l]
-            fieldCanonicals[cursor] = state.LocalCanonicals[l]
-            fieldRoles[cursor] = state.LocalRoles[l]
-            cursor += 1
+            if !state.IsStackLocal(state.LocalNames[l]) {
+                fieldNames[cursor] = state.LocalNames[l]
+                fieldCanonicals[cursor] = state.LocalCanonicals[l]
+                fieldRoles[cursor] = state.LocalRoles[l]
+                cursor += 1
+            }
             l += 1
         }
         capture := 0
@@ -613,6 +787,7 @@ class ColumnarIteratorPlanner {
         shape.TryRegionParents = CopyInts(state.TryRegionParents, state.TryRegionCount)
         shape.ResumeRegions = CopyInts(state.ResumeRegions, state.ResumeCount + 1)
         shape.LoopCaptureNames = CopyStrings(state.LoopCaptureNames, state.LoopCaptureCount)
+        shape.StackLocalNames = CopyStrings(state.StackLocalNames, state.StackLocalCount)
         return shape
     }
 
@@ -724,7 +899,7 @@ class ColumnarIteratorPlanner {
     // one shared counter, and MoveNextCore's dispatch treats both kinds identically.
     static func BuildSupportedAsyncShape(funcName: string, funcOrdinal: int, element: string, paramNames: string[], paramCanonicals: string[], state: ColumnarIteratorWalkState, receiverCanonical: string): ColumnarIteratorShape {
         receiverCount := receiverCanonical.Length > 0 ? 1 : 0
-        fieldCount := 2 + receiverCount + paramNames.Length + state.LocalCount + state.LoopCaptureCount + state.AwaitCount + 3
+        fieldCount := 2 + receiverCount + paramNames.Length + state.HoistedLocalCount() + state.LoopCaptureCount + state.AwaitCount + 3
         fieldNames := new string[](fieldCount)
         fieldCanonicals := new string[](fieldCount)
         fieldRoles := new int[](fieldCount)
@@ -751,10 +926,12 @@ class ColumnarIteratorPlanner {
         }
         l := 0
         while l < state.LocalCount {
-            fieldNames[cursor] = state.LocalNames[l]
-            fieldCanonicals[cursor] = state.LocalCanonicals[l]
-            fieldRoles[cursor] = state.LocalRoles[l]
-            cursor = cursor + 1
+            if !state.IsStackLocal(state.LocalNames[l]) {
+                fieldNames[cursor] = state.LocalNames[l]
+                fieldCanonicals[cursor] = state.LocalCanonicals[l]
+                fieldRoles[cursor] = state.LocalRoles[l]
+                cursor = cursor + 1
+            }
             l = l + 1
         }
         capture := 0
@@ -800,6 +977,7 @@ class ColumnarIteratorPlanner {
         shape.TryRegionParents = CopyInts(state.TryRegionParents, state.TryRegionCount)
         shape.ResumeRegions = CopyInts(state.ResumeRegions, state.ResumeCount + 1)
         shape.LoopCaptureNames = CopyStrings(state.LoopCaptureNames, state.LoopCaptureCount)
+        shape.StackLocalNames = CopyStrings(state.StackLocalNames, state.StackLocalCount)
         return shape
     }
 
@@ -927,7 +1105,10 @@ class ColumnarIteratorPlanner {
             if nodes.ChildCount(node) >= 1 {
                 WalkBoundValue(nodes, source, nodes.Child(node, 0), state)
             }
-            state.AddLocal(name, UnresolvedCanonical())
+            declarationStart := nodes.SpanStart(node)
+            declarationLength := nodes.SpanLength(node)
+            declarationEnd := declarationStart >= 0 && declarationLength >= 0 ? declarationStart + declarationLength : nodes.ValueStart(node) + nodes.Text(source, node).Length
+            state.AddSourceLocal(name, UnresolvedCanonical(), declarationEnd)
             return true
         }
         if kind == ColumnarStatementNodeKind.ExpressionStatement {
@@ -979,6 +1160,10 @@ class ColumnarIteratorPlanner {
                     return !state.Declined
                 }
                 name := nodes.Text(source, target)
+                if name == "_" && nodes.Text(source, inner) == "=" {
+                    WalkBoundValue(nodes, source, nodes.Child(inner, 1), state)
+                    return !state.Declined
+                }
                 if state.LookupCanonical(name) == "" && state.LookupMemberFieldCanonical(name) == "" {
                     state.Decline("emit.iterator.unsupported-shape", "assignment to an unbound identifier '" + name + "'")
                     return false
@@ -1138,6 +1323,14 @@ class ColumnarIteratorPlanner {
             }
             return true
         }
+        if kind == ColumnarStatementNodeKind.PrintStatement {
+            if nodes.ChildCount(node) != 1 {
+                state.Decline("emit.print.shape", "print statement has an unsupported shape")
+                return false
+            }
+            WalkExpression(nodes, source, nodes.Child(node, 0), state)
+            return !state.Declined
+        }
         if kind == ColumnarStatementNodeKind.OffStatement {
             // `off <handle>`: one expression in statement position, exactly like `throw`'s operand.
             // Nothing about it is hoisted — the handle is an ordinary value the expression owner
@@ -1207,7 +1400,12 @@ class ColumnarIteratorPlanner {
                 // The LOOP VARIABLE is a fresh binding per iteration in the language and one field in
                 // the machine, so it is recorded at the loop's own depth.
                 state.LoopDepth = state.LoopDepth + 1
-                state.AddLocal(varName, declaredCanonical == "" ? arrayElement : declaredCanonical)
+                if declaredCanonical == "" {
+                    declarationEnd := nodes.SpanStart(bodyNode)
+                    state.AddSourceLocal(varName, arrayElement, declarationEnd)
+                } else {
+                    state.AddLocal(varName, declaredCanonical)
+                }
                 state.LoopDepth = state.LoopDepth - 1
                 if state.Declined {
                     return false
@@ -1224,7 +1422,12 @@ class ColumnarIteratorPlanner {
         state.AddHoistedLocal("<>__enum" + state.EnumeratorCount.ToString(), UnresolvedCanonical(), HoistedEnumeratorFieldRole())
         state.EnumeratorCount = state.EnumeratorCount + 1
         state.LoopDepth = state.LoopDepth + 1
-        state.AddLocal(varName, declaredCanonical == "" ? UnresolvedCanonical() : declaredCanonical)
+        if declaredCanonical == "" {
+            declarationEnd := nodes.SpanStart(bodyNode)
+            state.AddSourceLocal(varName, UnresolvedCanonical(), declarationEnd)
+        } else {
+            state.AddLocal(varName, declaredCanonical)
+        }
         state.LoopDepth = state.LoopDepth - 1
         if state.Declined {
             return false
@@ -2334,7 +2537,12 @@ class ColumnarIteratorEmitContext {
     // builder-bound handle cannot answer `IsAssignableFrom` at all under persisted emit, so identity is
     // the only answer it gets).
     static func IsStorableInField(fieldType: Type, valueType: Type): bool {
-        if fieldType == valueType {
+        if fieldType == valueType || RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(fieldType, valueType) {
+            return true
+        }
+        // Reflection.Emit's constructed source types throw from IsAssignableFrom, including for
+        // the universally valid reference conversion to object. Keep that exact widening explicit.
+        if fieldType == typeof(object) && valueType != null && !valueType.IsValueType {
             return true
         }
         // A BUILDER-BOUND handle cannot answer an assignability question at all under persisted emit —
@@ -2520,6 +2728,15 @@ class ColumnarIteratorEmitContext {
     func HasHoistedField(name: string): bool {
         for fieldName2 in FieldNames {
             if fieldName2 == name {
+                return true
+            }
+        }
+        return false
+    }
+
+    func IsStackLocal(name: string): bool {
+        for stackName in Shape.StackLocalNames {
+            if stackName == name {
                 return true
             }
         }
@@ -2938,18 +3155,29 @@ class ColumnarIteratorBodyPlanner {
         AppendMoveNextDispatch(emit, resumeCount)
 
         if context.Shape.IsAsyncTaskMethod && context.Nodes.Kind(context.BodyRoot) != ColumnarStatementNodeKind.BlockStatement {
+            expressionRoot := context.BodyRoot
+            if context.Nodes.Kind(expressionRoot) == ColumnarStatementNodeKind.ReturnStatement && context.Nodes.ChildCount(expressionRoot) == 1 {
+                expressionRoot = context.Nodes.Child(expressionRoot, 0)
+            }
             resultType := context.AsyncResultType
             if resultType == null || ColumnarCodePlanExecutor.IsVoidType(resultType) {
-                expressionType := VoidReturnType()
-                if !context.RequiredScope().TryAppendValue(context.Nodes, context.Source, context.BodyRoot, plan, out expressionType) {
-                    context.Decline("emit.async.lambda-expression-body", "the expression body of an async lambda could not be lowered")
-                    return plan
+                if context.Nodes.Kind(expressionRoot) == ColumnarExpressionNodeKind.AwaitExpression {
+                    EmitUnitAwait(emit, expressionRoot)
+                    if context.Declined {
+                        return plan
+                    }
+                } else {
+                    expressionType := VoidReturnType()
+                    if !context.RequiredScope().TryAppendValue(context.Nodes, context.Source, expressionRoot, plan, out expressionType) {
+                        context.Decline("emit.async.lambda-expression-body", "the expression body of an async lambda could not be lowered")
+                        return plan
+                    }
+                    if !ColumnarCodePlanExecutor.IsVoidType(expressionType) {
+                        context.Decline("emit.async.lambda-unit-body", "an async lambda returning a unit task must produce no value")
+                        return plan
+                    }
                 }
-                if !ColumnarCodePlanExecutor.IsVoidType(expressionType) {
-                    context.Decline("emit.async.lambda-unit-body", "an async lambda returning a unit task must produce no value")
-                    return plan
-                }
-            } else if !AppendBoundFieldStore(emit, context.BodyRoot, FieldPool(emit, "<>__result"), resultType) {
+            } else if !AppendBoundFieldStore(emit, expressionRoot, "<>__result", resultType) {
                 context.Decline("emit.async.lambda-expression-body", "the expression body of an async lambda could not be converted to its task result type")
                 return plan
             }
@@ -3969,7 +4197,7 @@ class ColumnarIteratorBodyPlanner {
             return ColumnarNullableArgumentLowering.TryAppendNullArgument(emit.Plan, parentFragment, nodes.Kind(nullNode), nullNode, storageType)
         }
         if ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(node)) {
-            return AppendLambda(emit, node, storageType)
+            return AppendLambda(emit, node, storageType, emit.Context.RequiredScope().Bindings, emit.Plan)
         }
         if nodes.Kind(node) == ColumnarExpressionNodeKind.DefaultExpression {
             if storageType == null || storageType.IsByRef || ColumnarCodePlanExecutor.IsVoidType(storageType) {
@@ -4090,7 +4318,31 @@ class ColumnarIteratorBodyPlanner {
     // own store already pushed. The await therefore runs FIRST, parks its result in a plan local, and
     // only then is `this` loaded and the field written. Every other value keeps the ordinary order:
     // receiver, value, store.
-    static func AppendBoundFieldStore(emit: ColumnarMoveNextEmit, valueNode: int, fieldPool: int, storageType: Type): bool {
+    static func AppendBoundFieldStore(emit: ColumnarMoveNextEmit, valueNode: int, fieldName: string, storageType: Type): bool {
+        if ColumnarThrowExpressionPlanner.IsThrowExpression(CurrentExpressionNodes(emit), valueNode) {
+            parentFragment := -1
+            if emit.Plan.OpenFragmentCount > 0 {
+                parentFragment = emit.Plan.OpenFragmentIndices[emit.Plan.OpenFragmentCount - 1]
+            }
+            bindings := emit.Context.RequiredScope().Bindings
+            previousEmitter := bindings.IteratorMoveNextEmitter
+            bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
+            try {
+                return ColumnarThrowExpressionPlanner.TryAppendThrow(
+                    CurrentExpressionNodes(emit),
+                    CurrentExpressionSource(emit),
+                    valueNode,
+                    bindings,
+                    ColumnarRangeIndexHandles.Resolve(),
+                    emit.Plan,
+                    parentFragment,
+                    0
+                )
+            } finally {
+                bindings.IteratorMoveNextEmitter = previousEmitter
+            }
+        }
+        fieldPool := FieldPool(emit, fieldName)
         // The field receiver is part of the evaluation stack until `stfld`. A nested await inside a
         // call, binary or interpolation therefore has to finish before that receiver is loaded; the
         // expression's converted value is kept in a method local until the machine field write.
@@ -4177,6 +4429,14 @@ class ColumnarIteratorBodyPlanner {
             resultType = typeof(NSharpLang.Runtime.NSharpEventSubscription)
             return true
         }
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.AsExpression && nodes.ChildCount(node) == 2 {
+            canonical := ""
+            targetNode := nodes.Child(node, 1)
+            if !ColumnarTypeOfPlanner.TryBuildTypeCanonical(nodes, emit.Context.Source, targetNode, 0, out canonical) || !ColumnarConstructionPlanner.TryResolveExactType(nodes, canonical, emit.Context.RequiredScope().Bindings, out resultType) {
+                return false
+            }
+            return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+        }
         if nodes.Kind(node) != ColumnarExpressionNodeKind.AwaitExpression {
             return TryDiscoverScopedValueType(emit, nodes, emit.Context.Source, node, out resultType)
         }
@@ -4200,13 +4460,13 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "the awaited operand type '" + operandType.Name + "' has no resolvable `GetAwaiter()`")
             return false
         }
-        awaiterType := AwaitPatternReturnType(emit, operandType, getAwaiter)
+        awaiterType := AwaitPatternReturnType(operandType, getAwaiter)
         getResult := AwaitPatternMethodOrNull(emit, awaiterType, "GetResult")
         if getResult == null {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "the awaiter type '" + awaiterType.Name + "' has no resolvable `GetResult()`")
             return false
         }
-        resultType = AwaitPatternReturnType(emit, awaiterType, getResult)
+        resultType = AwaitPatternReturnType(awaiterType, getResult)
         if ColumnarCodePlanExecutor.IsVoidType(resultType) {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "a value-producing await of '" + operandType.Name + "' uses awaiter '" + awaiterType.Name + "', whose `GetResult()` returns no value")
             return false
@@ -4303,7 +4563,7 @@ class ColumnarIteratorBodyPlanner {
         }
 
         if ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(handlerNode)) {
-            if !AppendLambda(emit, handlerNode, handlerType) {
+            if !AppendLambda(emit, handlerNode, handlerType, emit.Context.RequiredScope().Bindings, emit.Plan) {
                 return false
             }
         } else if !AppendSiblingMethodGroupHandler(emit, handlerNode, handlerType) && !AppendStoredValue(emit, handlerNode, handlerType) {
@@ -4574,10 +4834,10 @@ class ColumnarIteratorBodyPlanner {
         return result
     }
 
-    // Every async lambda owns a separate task machine. Captured machine locals therefore travel
-    // through shared StrongBox fields on its display; the lambda must never retain a pointer into a
-    // value-type task machine or read a stale copy of a captured local after suspension.
-    static func AsyncLambdaCaptureNames(emit: ColumnarMoveNextEmit, node: int): string[] {
+    // A lambda that closes over an async task machine cannot retain a pointer to its value-type
+    // owner. Captured parameters and locals travel through shared StrongBox fields on the display so
+    // assignments in the state machine and reads from the closure use the same storage.
+    static func StateMachineLambdaCaptureNames(emit: ColumnarMoveNextEmit, node: int): string[] {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
         childCount := nodes.ChildCount(node)
@@ -4620,6 +4880,79 @@ class ColumnarIteratorBodyPlanner {
         }
         System.Array.Sort(filtered, StringComparer.Ordinal)
         return filtered
+    }
+
+    // A simple nested delegate can live as an instance method on its parent display only when it does
+    // not need any of that method's parameters, locals, or lexical receiver. Those bindings belong to
+    // the parent method's activation; this shape uses a separate closure conversion and must be
+    // declined before IL is appended when it would need those values.
+    static func NestedLambdaCapturesOuterBinding(nodes: ColumnarNodeTable, source: string, lambdaNode: int, bindings: ColumnarFragmentBindings): bool {
+        if nodes == null || source == null || bindings == null || nodes.ChildCount(lambdaNode) < 1 {
+            return true
+        }
+        parameterCount := nodes.ChildCount(lambdaNode) - 1
+        boundNames := new HashSet<string>(StringComparer.Ordinal)
+        index := 0
+        while index < parameterCount {
+            boundNames.Add(nodes.Text(source, nodes.Child(lambdaNode, index)))
+            index += 1
+        }
+        body := nodes.Child(lambdaNode, parameterCount)
+        return HasNestedLambdaNode(nodes, body, 0) || NestedLambdaReadsOuterBinding(nodes, source, body, boundNames, bindings, 0)
+    }
+
+    static func HasNestedLambdaNode(nodes: ColumnarNodeTable, node: int, depth: int): bool {
+        if depth > 200 {
+            return true
+        }
+        if ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(node)) {
+            return true
+        }
+        index := 0
+        while index < nodes.ChildCount(node) {
+            if HasNestedLambdaNode(nodes, nodes.Child(node, index), depth + 1) {
+                return true
+            }
+            index += 1
+        }
+        return false
+    }
+
+    static func NestedLambdaReadsOuterBinding(nodes: ColumnarNodeTable, source: string, node: int, boundNames: HashSet<string>, bindings: ColumnarFragmentBindings, depth: int): bool {
+        if depth > 200 {
+            return true
+        }
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(node) >= 0 {
+            name := nodes.Text(source, node)
+            if !boundNames.Contains(name) && bindings.IsValueBinding(name) {
+                return true
+            }
+        }
+        index := 0
+        while index < nodes.ChildCount(node) {
+            if NestedLambdaReadsOuterBinding(nodes, source, nodes.Child(node, index), boundNames, bindings, depth + 1) {
+                return true
+            }
+            index += 1
+        }
+        return false
+    }
+
+    static func NestedLambdaReferencesThis(nodes: ColumnarNodeTable, source: string, node: int, depth: int): bool {
+        if depth > 200 {
+            return true
+        }
+        if ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node) {
+            return true
+        }
+        index := 0
+        while index < nodes.ChildCount(node) {
+            if NestedLambdaReferencesThis(nodes, source, nodes.Child(node, index), depth + 1) {
+                return true
+            }
+            index += 1
+        }
+        return false
     }
 
     static func TryCreateLambdaDisplay(emit: ColumnarMoveNextEmit, captureNames: string[], out placement: ColumnarIteratorLambdaDisplay): bool {
@@ -4811,6 +5144,26 @@ class ColumnarIteratorBodyPlanner {
     // by the shared expression door against the selected capture scope and its own parameter slots.
     // Async wrapping is applied after selecting this owner, preserving per-iteration storage.
     static func AppendLambda(emit: ColumnarMoveNextEmit, node: int, delegateType: Type): bool {
+        return AppendLambda(emit, node, delegateType, emit.Context.RequiredScope().Bindings, emit.Plan)
+    }
+
+    // Nested delegates are created in the method that owns the call site, which may be a generated
+    // closure method instead of MoveNext. Keep the emitter's active plan aligned with that method
+    // while appending the delegate construction.
+    static func AppendLambda(emit: ColumnarMoveNextEmit, node: int, delegateType: Type, bindings: ColumnarFragmentBindings, targetPlan: ColumnarCodePlan): bool {
+        if emit == null || bindings == null || targetPlan == null {
+            throw new InvalidOperationException("Lambda emission requires its owning method plan and bindings.")
+        }
+        previousPlan := emit.Plan
+        emit.Plan = targetPlan
+        try {
+            return AppendLambdaCore(emit, node, delegateType, bindings)
+        } finally {
+            emit.Plan = previousPlan
+        }
+    }
+
+    static func AppendLambdaCore(emit: ColumnarMoveNextEmit, node: int, delegateType: Type, bindings: ColumnarFragmentBindings): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
         isAsync := ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(node))
@@ -4830,23 +5183,46 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         captureNames := LambdaLoopCaptureNames(emit, node)
-        if isAsync {
-            allAsyncCaptures := new SortedSet<string>(StringComparer.Ordinal)
+        parentOwnerType: Type? = null
+        nestedOwner := bindings.CurrentInstance != null && !Object.ReferenceEquals(bindings.CurrentInstance.ExactType, emit.Context.StateMachineType)
+        nestedOwnerBuilder: TypeBuilder? = null
+        if nestedOwner {
+            parentOwnerType = bindings.CurrentInstance.ExactType
+            if isAsync || NestedLambdaCapturesOuterBinding(nodes, source, node, bindings) || NestedLambdaReferencesThis(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), 0) {
+                emit.Context.Decline("emit.iterator.lambda-nested-capture", "a nested lambda in an async closure may not capture its enclosing lambda's bindings or `this` yet")
+                return false
+            }
+            nestedOwnerBuilder = parentOwnerType as TypeBuilder
+            if nestedOwnerBuilder == null && parentOwnerType.IsGenericType {
+                nestedOwnerBuilder = parentOwnerType.GetGenericTypeDefinition() as TypeBuilder
+            }
+            if nestedOwnerBuilder == null {
+                emit.Context.Decline("emit.iterator.lambda-nested-owner", "the enclosing lambda type cannot own a nested delegate method")
+                return false
+            }
+        }
+        if isAsync || emit.Context.StateMachineIsValueType {
+            allMachineCaptures := new SortedSet<string>(StringComparer.Ordinal)
             for loopCapture in captureNames {
-                allAsyncCaptures.Add(loopCapture)
+                allMachineCaptures.Add(loopCapture)
             }
-            for asyncCapture in AsyncLambdaCaptureNames(emit, node) {
-                allAsyncCaptures.Add(asyncCapture)
+            for machineCapture in StateMachineLambdaCaptureNames(emit, node) {
+                allMachineCaptures.Add(machineCapture)
             }
-            captureNames = new string[](allAsyncCaptures.Count)
+            captureNames = new string[](allMachineCaptures.Count)
             captureIndex := 0
-            for asyncCaptureName in allAsyncCaptures {
-                captureNames[captureIndex] = asyncCaptureName
+            for machineCaptureName in allMachineCaptures {
+                captureNames[captureIndex] = machineCaptureName
                 captureIndex += 1
             }
         }
+        if nestedOwner && captureNames.Length > 0 {
+            emit.Context.Decline("emit.iterator.lambda-nested-capture", "a nested lambda in an async closure may not capture its enclosing lambda's bindings or `this` yet")
+            return false
+        }
         let display: ColumnarIteratorLambdaDisplay? = null
-        if (captureNames.Length > 0 || isAsync) && !TryCreateLambdaDisplay(emit, captureNames, out display) {
+        needsDisplay := captureNames.Length > 0 || isAsync || (emit.Context.StateMachineIsValueType && !nestedOwner)
+        if needsDisplay && !TryCreateLambdaDisplay(emit, captureNames, out display) {
             return false
         }
 
@@ -4860,7 +5236,10 @@ class ColumnarIteratorBodyPlanner {
         parameterOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
         parameterTypeMap := new Dictionary<string, Type>(StringComparer.Ordinal)
         parameterNames := new string[](invokeParameters.Length)
-        ownerBuilder := builder
+        ownerBuilder: TypeBuilder = builder
+        if nestedOwner {
+            ownerBuilder = nestedOwnerBuilder
+        }
         if display != null {
             ownerBuilder = display.Definition
         }
@@ -4902,7 +5281,13 @@ class ColumnarIteratorBodyPlanner {
         lambdaVisibility := display == null ? MethodAttributes.Private : MethodAttributes.Assembly
         lambdaMethod := ownerBuilder.DefineMethod(lambdaName, lambdaVisibility | MethodAttributes.HideBySig, returnType, parameterTypes)
         ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(lambdaMethod, parameterNames)
-        lambdaScope := CreateLambdaBodyScope(emit, display, parameterOrdinals, parameterTypeMap)
+        lambdaScope: ColumnarIteratorBodyScope? = null
+        if nestedOwner {
+            lambdaScope = ColumnarIteratorBodyScope.Create(parentOwnerType, emit.Context.RequiredScope().Facts, emit.Context.TypeParameters, parameterOrdinals, parameterTypeMap)
+            lambdaScope.Bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
+        } else {
+            lambdaScope = CreateLambdaBodyScope(emit, display, parameterOrdinals, parameterTypeMap)
+        }
         if lambdaScope == null {
             return false
         }
@@ -4934,15 +5319,19 @@ class ColumnarIteratorBodyPlanner {
 
         lambdaHandle: MethodInfo = lambdaMethod
         instantiation := emit.Context.GenericMemberType
+        if nestedOwner {
+            instantiation = null
+            if parentOwnerType.IsGenericType {
+                instantiation = parentOwnerType
+            }
+        }
         if display != null {
             if smParameters.Length > 0 {
                 lambdaHandle = TypeBuilder.GetMethod(display.RuntimeOwnerType, lambdaMethod)
             }
-            if isAsync {
-                for captureName in display.CaptureNames {
-                    if !emit.Context.IsLoopCaptured(captureName) && !AppendEnsureAsyncCaptureBox(emit, captureName) {
-                        return false
-                    }
+            for captureName in display.CaptureNames {
+                if !emit.Context.IsLoopCaptured(captureName) && !AppendEnsureAsyncCaptureBox(emit, captureName) {
+                    return false
                 }
             }
             displayTypePool := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(display.RuntimeOwnerType), emit.Context.StructuralTypeReferences)
@@ -4987,6 +5376,7 @@ class ColumnarIteratorBodyPlanner {
         context := emit.Context
         if display == null {
             scope := ColumnarIteratorBodyScope.Create(context.StateMachineType, context.RequiredScope().Facts, context.TypeParameters, parameterOrdinals, parameterTypes, context.StateMachineIsValueType)
+            scope.Bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
             index := 0
             while index < context.FieldNames.Length && index < context.Fields.Length {
                 if context.Fields[index] != null {
@@ -5014,6 +5404,7 @@ class ColumnarIteratorBodyPlanner {
         }
 
         scope := ColumnarIteratorBodyScope.Create(display.MethodOwnerType, context.RequiredScope().Facts, display.TypeParameters, parameterOrdinals, parameterTypes)
+        scope.Bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
         index := 0
         while index < context.FieldNames.Length && index < context.Fields.Length {
             definitionField := context.DefinitionFields[index]
@@ -5058,18 +5449,24 @@ class ColumnarIteratorBodyPlanner {
         context := emit.Context
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        if context.Nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement {
-            if !AppendLambdaBlockBody(emit, scope, bodyNode, plan, bodyReturnType) {
+        previousPlan := emit.Plan
+        emit.Plan = plan
+        try {
+            if context.Nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement {
+                if !AppendLambdaBlockBody(emit, scope, bodyNode, plan, bodyReturnType) {
+                    return false
+                }
+            } else if !scope.TryAppendTargetTypedValue(context.Nodes, context.Source, bodyNode, plan, bodyReturnType) {
+                context.Decline("emit.iterator.lambda-unsupported", "the body of a lambda in an iterator body could not be lowered as '" + bodyReturnType.Name + "'")
                 return false
             }
-        } else if !scope.TryAppendTargetTypedValue(context.Nodes, context.Source, bodyNode, plan, bodyReturnType) {
-            context.Decline("emit.iterator.lambda-unsupported", "the body of a lambda in an iterator body could not be lowered as '" + bodyReturnType.Name + "'")
-            return false
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+            plan.CompleteMethodBody(methodReturnType)
+            ColumnarCodePlanExecutor.Execute(plan, lambdaMethod.GetILGenerator(), context.RequiredScope().Facts.ModifiedMemberReferences)
+            return true
+        } finally {
+            emit.Plan = previousPlan
         }
-        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
-        plan.CompleteMethodBody(methodReturnType)
-        ColumnarCodePlanExecutor.Execute(plan, lambdaMethod.GetILGenerator(), context.RequiredScope().Facts.ModifiedMemberReferences)
-        return true
     }
 
     static func TryGetAsyncLambdaResultType(returnType: Type, out resultType: Type): bool {
@@ -5191,7 +5588,13 @@ class ColumnarIteratorBodyPlanner {
         discardedType := typeof(int)
         appendedExpression := scope.TryAppendValue(nodes, source, inner, plan, out discardedType)
         if !appendedExpression {
-            context.Decline("emit.iterator.lambda-unsupported", "an expression statement inside a block-bodied lambda in an iterator body could not be lowered")
+            expressionText := nodes.Kind(inner).ToString()
+            expressionStart := nodes.SpanStart(inner)
+            expressionLength := nodes.SpanLength(inner)
+            if expressionStart >= 0 && expressionLength >= 0 && expressionStart + expressionLength <= source.Length {
+                expressionText = source.Substring(expressionStart, expressionLength)
+            }
+            context.Decline("emit.iterator.lambda-unsupported", "the expression statement '" + expressionText + "' inside a block-bodied lambda in an iterator body could not be lowered")
             return false
         }
         if !ColumnarCodePlanExecutor.IsVoidType(discardedType) {
@@ -5407,7 +5810,7 @@ class ColumnarIteratorBodyPlanner {
                     if !AppendFreshLoopCaptureBox(emit, typedName, nodes.Child(node, 1), fieldType, true) {
                         return false
                     }
-                } else if !AppendBoundFieldStore(emit, nodes.Child(node, 1), FieldPool(emit, typedName), fieldType) {
+                } else if !AppendBoundFieldStore(emit, nodes.Child(node, 1), typedName, fieldType) {
                     return false
                 }
             } else if emit.Context.IsLoopCaptured(typedName) && !AppendFreshLoopCaptureBox(emit, typedName, 0, emit.Context.FieldForName(typedName).FieldType, false) {
@@ -5427,6 +5830,17 @@ class ColumnarIteratorBodyPlanner {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "the initializer of local '" + name + "' could not be lowered in an iterator body")
                 return false
             }
+            if emit.Context.IsStackLocal(name) {
+                localIndex := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(initializerType), emit.Context.StructuralTypeReferences))
+                actualType := typeof(int)
+                if !AppendValue(emit, nodes.Child(node, 0), out actualType) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualType, initializerType) {
+                    emit.Context.Decline("emit.iterator.unsupported-shape", "the initializer of stack local '" + name + "' changed type from '" + initializerType.ToString() + "' to '" + actualType.ToString() + "' while it was being lowered")
+                    return false
+                }
+                emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
+                scope.PublishPlanLocal(name, localIndex, initializerType)
+                return true
+            }
             hoisted: FieldInfo? = null
             if !emit.Context.TryEnsureHoistedField(name, initializerType, out hoisted) {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "local '" + name + "' cannot be hoisted as '" + initializerType.Name + "' in an iterator body")
@@ -5436,7 +5850,7 @@ class ColumnarIteratorBodyPlanner {
                 if !AppendFreshLoopCaptureBox(emit, name, nodes.Child(node, 0), initializerType, true) {
                     return false
                 }
-            } else if !AppendBoundFieldStore(emit, nodes.Child(node, 0), FieldPool(emit, name), initializerType) {
+            } else if !AppendBoundFieldStore(emit, nodes.Child(node, 0), name, initializerType) {
                 return false
             }
             scope.HideEnclosingMember(name)
@@ -5616,6 +6030,30 @@ class ColumnarIteratorBodyPlanner {
         if kind == ColumnarStatementNodeKind.AssertStatement {
             return EmitAssertStatement(emit, node)
         }
+        if kind == ColumnarStatementNodeKind.PrintStatement {
+            if nodes.ChildCount(node) != 1 {
+                emit.Context.Decline("emit.print.shape", "print statement has an unsupported shape")
+                return false
+            }
+            valueType := typeof(int)
+            if !AppendValue(emit, nodes.Child(node, 0), out valueType) {
+                return false
+            }
+            if ColumnarCodePlanExecutor.IsVoidType(valueType) || valueType.IsByRef || valueType.IsPointer {
+                emit.Context.Decline("emit.print.type", "print expression type is not printable")
+                return false
+            }
+            if valueType.IsValueType {
+                emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Box(), emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(valueType), emit.Context.StructuralTypeReferences))
+            }
+            writeLine := typeof(Console).GetMethod(nameof(Console.WriteLine), [typeof(object)])
+            if writeLine == null {
+                emit.Context.Decline("emit.print.method", "the CLR Console.WriteLine(object) method could not be resolved")
+                return false
+            }
+            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(writeLine))
+            return true
+        }
         if kind == ColumnarStatementNodeKind.ReturnStatement {
             if !emit.Context.Shape.IsAsyncTaskMethod {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "a `return` statement cannot appear in an iterator body; use `yield` to produce a value and `yield break` to stop")
@@ -5632,8 +6070,7 @@ class ColumnarIteratorBodyPlanner {
                     emit.Context.Decline("emit.async.return-shape", "an async function returning '" + resultType.Name + "' must return a value")
                     return false
                 }
-                resultField := FieldPool(emit, "<>__result")
-                if !AppendBoundFieldStore(emit, nodes.Child(node, 0), resultField, resultType) {
+                if !AppendBoundFieldStore(emit, nodes.Child(node, 0), "<>__result", resultType) {
                     return false
                 }
             } else if nodes.ChildCount(node) != 0 {
@@ -5652,9 +6089,20 @@ class ColumnarIteratorBodyPlanner {
 
     // A `for..in` variable is in scope for the loop body alone.
     static func EmitLoopVariableBody(emit: ColumnarMoveNextEmit, bodyNode: int, varName: string): bool {
+        return EmitLoopVariableBody(emit, bodyNode, varName, -1, null)
+    }
+
+    static func EmitLoopVariableBody(emit: ColumnarMoveNextEmit, bodyNode: int, varName: string, planLocalIndex: int, planLocalType: Type?): bool {
         scope := emit.Context.RequiredScope()
         mark := scope.EnterBindingScope()
-        scope.HideEnclosingMember(varName)
+        if planLocalIndex >= 0 {
+            if planLocalType == null {
+                throw new InvalidOperationException("A stack-local loop binding must have its exact element type.")
+            }
+            scope.PublishPlanLocal(varName, planLocalIndex, planLocalType)
+        } else {
+            scope.HideEnclosingMember(varName)
+        }
         falls := EmitStatement(emit, bodyNode)
         scope.ExitBindingScope(mark)
         return falls
@@ -5793,7 +6241,7 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
 
-        if !AppendBoundFieldStore(emit, resourceNode, FieldPool(emit, name), resourceType) {
+        if !AppendBoundFieldStore(emit, resourceNode, name, resourceType) {
             return false
         }
 
@@ -6590,6 +7038,45 @@ class ColumnarIteratorBodyPlanner {
             return EmitStoreTargetAssignment(emit, node, target)
         }
         name := nodes.Text(source, target)
+        if name == "_" && nodes.Text(source, node) == "=" {
+            discardedType := typeof(int)
+            if !AppendValue(emit, nodes.Child(node, 1), out discardedType) {
+                return false
+            }
+            if !ColumnarCodePlanExecutor.IsVoidType(discardedType) {
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+            }
+            return true
+        }
+        scopeBindings := emit.Context.RequiredScope().Bindings
+        if !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, target) && scopeBindings.PlanLocals.ContainsKey(name) {
+            planLocal := scopeBindings.PlanLocals[name]
+            localIndex := planLocal.Item1
+            localType := planLocal.Item2
+            assignOperator := nodes.Text(source, node)
+            if assignOperator == "=" || assignOperator.Length == 0 {
+                if !AppendStoredValue(emit, nodes.Child(node, 1), localType) {
+                    return false
+                }
+                emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
+                return true
+            }
+            if assignOperator.Length != 2 || assignOperator[1] != '=' {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "the assignment operator '" + assignOperator + "' is not yet lowered for stack local '" + name + "'")
+                return false
+            }
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), localIndex)
+            if !AppendStoredValue(emit, nodes.Child(node, 1), localType) {
+                return false
+            }
+            resultType := typeof(int)
+            if !ColumnarPrimitiveBinaryPlanner.TryAppendArithmeticOperator(assignOperator.Substring(0, 1), localType, scopeBindings, emit.Plan, out resultType) || resultType != localType {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "a compound assignment of '" + localType.Name + "' with '" + assignOperator + "' is not yet lowered for stack local '" + name + "'")
+                return false
+            }
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
+            return true
+        }
         if !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, target) && emit.Context.RequiredScope().Bindings.BoxedCaptures.ContainsKey(name) {
             return EmitBoxedCaptureAssignment(emit, node, name)
         }
@@ -6634,15 +7121,15 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), valuePool)
             return true
         }
-        fieldPool := FieldPool(emit, name)
         if assignOperator == "=" || assignOperator.Length == 0 {
-            return AppendBoundFieldStore(emit, nodes.Child(node, 1), fieldPool, fieldType)
+            return AppendBoundFieldStore(emit, nodes.Child(node, 1), name, fieldType)
         }
         if assignOperator.Length != 2 || assignOperator[1] != '=' {
             emit.Context.Decline("emit.iterator.unsupported-shape", "the assignment operator '" + assignOperator + "' is not yet lowered in an iterator body")
             return false
         }
         binaryOperator := assignOperator.Substring(0, 1)
+        fieldPool := FieldPool(emit, name)
         LoadThis(emit)
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
@@ -6745,10 +7232,22 @@ class ColumnarIteratorBodyPlanner {
             return true
         }
 
-        LoadThis(emit)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverPool)
-        if !AppendStoredValue(emit, nodes.Child(node, 1), fieldType) {
-            return false
+        valueNode := nodes.Child(node, 1)
+        if emit.IsAsync && ExpressionContainsAwait(emit, valueNode) {
+            if !AppendStoredValue(emit, valueNode, fieldType) {
+                return false
+            }
+            valueLocal := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(fieldType), emit.Context.StructuralTypeReferences))
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueLocal)
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverPool)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), valueLocal)
+        } else {
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverPool)
+            if !AppendStoredValue(emit, valueNode, fieldType) {
+                return false
+            }
         }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), memberPool)
         return true
@@ -6807,6 +7306,9 @@ class ColumnarIteratorBodyPlanner {
     // already reported NL330 for the same pair.
     static func TryResolveLoopVariableStorage(emit: ColumnarMoveNextEmit, varName: string, elementType: Type, out storageType: Type): bool {
         storageType = elementType
+        if emit.Context.IsStackLocal(varName) {
+            return true
+        }
         loopField: FieldInfo? = null
         if emit.Context.TryEnsureHoistedField(varName, elementType, out loopField) {
             return true
@@ -6821,6 +7323,26 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         storageType = declared
+        return true
+    }
+
+    static func DeclareLoopStackLocal(emit: ColumnarMoveNextEmit, varName: string, valueType: Type): int {
+        if !emit.Context.IsStackLocal(varName) {
+            return -1
+        }
+        typeIndex := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(valueType), emit.Context.StructuralTypeReferences)
+        return emit.Plan.DeclarePlanLocal(typeIndex)
+    }
+
+    static func AppendLoopVariableStore(emit: ColumnarMoveNextEmit, varName: string, storageType: Type, planLocalIndex: int): bool {
+        if planLocalIndex >= 0 {
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), planLocalIndex)
+            return true
+        }
+        if emit.Context.IsLoopCaptured(varName) {
+            return AppendFreshLoopCaptureBoxFromStack(emit, varName, storageType)
+        }
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, varName))
         return true
     }
 
@@ -6848,6 +7370,7 @@ class ColumnarIteratorBodyPlanner {
         if !TryResolveLoopVariableStorage(emit, varName, elementType, out storageType) {
             return false
         }
+        loopLocalIndex := DeclareLoopStackLocal(emit, varName, storageType)
         // index = 0
         LoadThis(emit)
         EmitInt(emit, 0)
@@ -6865,7 +7388,9 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
         // var = array[index]
-        LoadThis(emit)
+        if loopLocalIndex < 0 || emit.Context.IsLoopCaptured(varName) {
+            LoadThis(emit)
+        }
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), arrayPool)
         LoadThis(emit)
@@ -6874,17 +7399,13 @@ class ColumnarIteratorBodyPlanner {
         if !AppendLoopVariableConversion(emit, elementType, storageType) {
             return false
         }
-        if emit.Context.IsLoopCaptured(varName) {
-            if !AppendFreshLoopCaptureBoxFromStack(emit, varName, storageType) {
-                return false
-            }
-        } else {
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, varName))
+        if !AppendLoopVariableStore(emit, varName, storageType, loopLocalIndex) {
+            return false
         }
         // A `continue` targets the index step, so the next element is read rather than the same one.
         stepLabel := emit.Plan.DefineLabel()
         emit.PushLoop(stepLabel, afterLabel, true)
-        bodyFalls := EmitLoopVariableBody(emit, bodyNode, varName)
+        bodyFalls := EmitLoopVariableBody(emit, bodyNode, varName, loopLocalIndex, storageType)
         continued := emit.PopLoop()
         if bodyFalls || continued {
             // index = index + 1
@@ -7092,6 +7613,7 @@ class ColumnarIteratorBodyPlanner {
         }
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), getEnumeratorPool)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), enumPool)
+        loopLocalIndex := DeclareLoopStackLocal(emit, varName, storageType)
         condLabel := emit.Plan.DefineLabel()
         afterLabel := emit.Plan.DefineLabel()
         emit.Plan.AppendMarkLabel(condLabel)
@@ -7101,24 +7623,22 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), moveNextPool)
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
         // var = enum.Current
-        LoadThis(emit)
+        if loopLocalIndex < 0 || emit.Context.IsLoopCaptured(varName) {
+            LoadThis(emit)
+        }
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), enumPool)
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), currentPool)
         if !AppendLoopVariableConversion(emit, elementType, storageType) {
             return false
         }
-        if emit.Context.IsLoopCaptured(varName) {
-            if !AppendFreshLoopCaptureBoxFromStack(emit, varName, storageType) {
-                return false
-            }
-        } else {
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, varName))
+        if !AppendLoopVariableStore(emit, varName, storageType, loopLocalIndex) {
+            return false
         }
         // There is no step to run, so `continue` targets the MoveNext condition. `break` targets the
         // label the enumerator is disposed at, which is what makes an early exit release it.
         emit.PushLoop(condLabel, afterLabel, true)
-        bodyFalls := EmitLoopVariableBody(emit, bodyNode, varName)
+        bodyFalls := EmitLoopVariableBody(emit, bodyNode, varName, loopLocalIndex, storageType)
         emit.PopLoop()
         if bodyFalls {
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
@@ -7580,7 +8100,7 @@ class ColumnarIteratorBodyPlanner {
     static func EmitAsyncYieldReturn(emit: ColumnarMoveNextEmit, valueNode: int) {
         emit.NextResume = emit.NextResume + 1
         resumeState := emit.NextResume
-        if !AppendBoundFieldStore(emit, valueNode, FieldPool(emit, "<>__current"), emit.Context.ElementType) {
+        if !AppendBoundFieldStore(emit, valueNode, "<>__current", emit.Context.ElementType) {
             return
         }
         StoreState(emit, resumeState)
@@ -7675,7 +8195,7 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + operandType.Name + "' is not awaitable: it has no `GetAwaiter()`")
             return false
         }
-        awaiterType := AwaitPatternReturnType(emit, operandType, getAwaiter)
+        awaiterType := AwaitPatternReturnType(operandType, getAwaiter)
         isCompleted := AwaitPatternIsCompletedGetterOrNull(emit, awaiterType)
         getResult := AwaitPatternMethodOrNull(emit, awaiterType, "GetResult")
         onCompleted := AwaitPatternActionMethodOrNull(emit, awaiterType, "OnCompleted")
@@ -7753,7 +8273,7 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendMarkLabel(fastLabel)
         AppendAwaiterReceiver(emit, awPool, byAddress)
         emit.Plan.AppendMethodInstruction(AwaiterCallOpcode(byAddress), emit.Plan.AddMethod(getResult))
-        resultType = AwaitPatternReturnType(emit, awaiterType, getResult)
+        resultType = AwaitPatternReturnType(awaiterType, getResult)
 
         // Release whatever the awaiter held: a struct awaiter is re-initialized in place, a reference
         // one is nulled out, so a completed suspension never keeps its continuation state alive.
@@ -7812,7 +8332,7 @@ class ColumnarIteratorBodyPlanner {
         return owner.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
     }
 
-    static func AwaitPatternReturnType(emit: ColumnarMoveNextEmit, owner: Type, method: MethodInfo): Type {
+    static func AwaitPatternReturnType(owner: Type, method: MethodInfo): Type {
         if owner.IsGenericType && !owner.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(owner) {
             definition := owner.GetGenericTypeDefinition()
             definitionParameters := definition.GetGenericArguments()
@@ -8017,6 +8537,24 @@ class ColumnarIteratorBodyPlanner {
         name := nodes.Text(source, nodes.Child(node, 0))
         if emit.Context.NamesEnclosingMember(nodes.Child(node, 0), name) {
             EmitEnclosingMemberPostfixStep(emit, node, name, keepValue)
+            return
+        }
+        scopeBindings := emit.Context.RequiredScope().Bindings
+        if scopeBindings.PlanLocals.ContainsKey(name) {
+            planLocal := scopeBindings.PlanLocals[name]
+            localIndex := planLocal.Item1
+            localType := planLocal.Item2
+            if localType != typeof(int) {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step over stack local '" + name + "' of type '" + localType.Name + "' is not yet lowered in an iterator body")
+                return
+            }
+            if keepValue {
+                emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), localIndex)
+            }
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), localIndex)
+            EmitInt(emit, 1)
+            emit.Plan.AppendInstructionWithoutOperand((short)(nodes.Text(source, node) == "++" ? ColumnarCodePlanContract.Add() : ColumnarCodePlanContract.Sub()))
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
             return
         }
         if !emit.Context.HasHoistedField(name) {

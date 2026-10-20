@@ -72,9 +72,18 @@ class ProbeWorker: BackgroundService {
 
     protected override async func ExecuteAsync(stoppingToken: CancellationToken): Task {
         probe.Report("started by the host")
-        await Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_completed => { })
+        await Task.Delay(Timeout.Infinite, stoppingToken)
     }
 }
+
+func CreateProbeHost(): IHost {
+    builder := Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings())
+    builder.Services.AddSingleton<StartupProbe>()
+    builder.Services.AddHostedService<ProbeWorker>()
+    return builder.Build()
+}
+
+func ResolveProbe(host: IHost): StartupProbe => host.Services.GetRequiredService<StartupProbe>()
 
 // A conventional middleware: a `RequestDelegate` constructor and an `InvokeAsync(HttpContext)`.
 class RequestStampMiddleware {

@@ -307,6 +307,15 @@ test "async lambda and local function captures remain shared across their awaits
     assert localTask.Result == 10
 }
 
+test "a synchronous lambda captures an async local across suspension" {
+    gate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := CaptureSynchronousLambdaAcrossAwait(gate.Task)
+    assert !pending.IsCompleted
+
+    gate.SetResult()
+    assert pending.Result == 16
+}
+
 test "a captured async local function in a synchronous owner returns before its await completes" {
     gate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
     pending := StartCapturedAsyncLocalFunction(gate.Task)
@@ -568,6 +577,17 @@ test "an instance async method captures its class receiver across suspension" {
     service.Value = 39
     gate.SetResult()
     assert pending.Result == 39
+}
+
+test "an awaited assignment to an instance field resumes without retaining its receiver on the stack" {
+    service := new AsyncService(37)
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := service.ClassWrite(gate.Task)
+    assert !pending.IsCompleted
+
+    gate.SetResult(41)
+    assert pending.Result == 41
+    assert service.Value == 41
 }
 
 test "an instance async method copies its struct receiver across suspension" {
