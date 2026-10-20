@@ -50,6 +50,9 @@ jobs:
       - name: Build playground WebAssembly
         run: ./scripts/build-playground-wasm.sh
 
+      - name: Verify async playground WebAssembly execution
+        run: node --test website/tests/playground-wasm-async.test.mjs
+
       - name: Install dependencies
         working-directory: website
         run: npm ci

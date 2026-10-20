@@ -3,6 +3,7 @@ namespace NSharpLang.Playground
 import System
 import System.Collections.Generic
 import System.IO
+import System.Threading.Tasks
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
@@ -21,7 +22,7 @@ sealed class PlaygroundCompiler {
         limitations := new string[](4)
         limitations[0] = "The hosted playground runs compiler analysis, formatting, completions, hover, syntax highlighting, and a bounded execution subset entirely in the browser."
         limitations[1] = "The Run button supports tutorial-scale code: functions, print, simple control flow, records/classes, object initializers, string/numeric helpers, and selected match patterns."
-        limitations[2] = "Full build, test execution, NuGet restore, filesystem workflows, async, LINQ, and unrestricted .NET interop require the local nlc toolchain."
+        limitations[2] = "Full build, test execution, NuGet restore, filesystem workflows, LINQ, and unrestricted .NET interop require the local nlc toolchain. The browser runner supports async functions using Task.Delay and Task.FromResult."
         limitations[3] = "External assembly resolution is intentionally bounded for browser reliability."
         capabilities := new PlaygroundCapabilities(true, true, true, true, true, true, true, false, limitations)
         examples := PlaygroundExamples.get_All()
@@ -132,8 +133,8 @@ sealed class PlaygroundCompiler {
         return new PlaygroundHoverResponse(schemaVersion, true, normalizedFileName, hover, diagnostics, summary)
     }
 
-    func RunProject(files: IEnumerable<PlaygroundFile>?, activeFile: string? = null): PlaygroundRunResponse {
-        schemaVersion := SchemaVersion
+    async func RunProject(files: IEnumerable<PlaygroundFile>?, activeFile: string? = null): Task<PlaygroundRunResponse> {
+        schemaVersion := PlaygroundCompiler.SchemaVersion
         normalizedFiles := NormalizeFiles(files)
         normalizedActiveFile := NormalizeExistingFileName(activeFile, normalizedFiles)
         analysis := AnalyzeProject(normalizedFiles)
@@ -166,7 +167,7 @@ sealed class PlaygroundCompiler {
                 }
             }
             runner := new PlaygroundRunner(orderedUnits)
-            run := runner.Run()
+            run := await runner.RunAsync()
             return new PlaygroundRunResponse(schemaVersion, run.ExitCode == 0, normalizedActiveFile, run.ExitCode, run.Stdout, run.Stderr, null, diagnostics, summary)
         } catch caught: Exception {
             unsupported := caught as PlaygroundRunUnsupportedException

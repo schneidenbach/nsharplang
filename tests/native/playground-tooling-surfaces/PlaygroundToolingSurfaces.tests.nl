@@ -3,6 +3,7 @@ namespace NSharpLang.PlaygroundToolingSurfaces.Tests
 import System
 import System.Collections
 import System.Reflection
+import System.Threading.Tasks
 
 
 // THE PLAYGROUND'S FOUR NON-CHECK RESPONSE RECORDS, IN N#.
@@ -573,6 +574,20 @@ func PgRunFiles(code: string, activeFile: string): object {
         throw new InvalidOperationException("The production RunProject entry point returned no result.")
     }
 
+    responseTask := response as Task
+    if responseTask != null {
+        responseTask.GetAwaiter().GetResult()
+        resultProperty := response.GetType().GetProperty("Result")
+        if resultProperty == null {
+            throw new InvalidOperationException("The production RunProject task returned no result property.")
+        }
+        completedResponse := resultProperty.GetValue(response)
+        if completedResponse == null {
+            throw new InvalidOperationException("The production RunProject task returned no response.")
+        }
+        return completedResponse
+    }
+
     return response
 }
 
@@ -631,9 +646,9 @@ func PgRunDuplicateEntryPoint(): object {
     SetPgObject(constructorArguments, 0, units)
     runner := constructors[0].Invoke(constructorArguments)
 
-    runMethod := runnerType.GetMethod("Run", new Type[](0))
+    runMethod := runnerType.GetMethod("RunAsync", new Type[](0))
     if runMethod == null {
-        throw new InvalidOperationException("The production playground runner Run entry point was not found.")
+        throw new InvalidOperationException("The production playground runner RunAsync entry point was not found.")
     }
     runArguments := new object?[](0)
     response := runMethod.Invoke(runner, runArguments)
@@ -641,7 +656,21 @@ func PgRunDuplicateEntryPoint(): object {
         throw new InvalidOperationException("The production playground runner returned no result.")
     }
 
-    return response
+    responseTask := response as Task
+    if responseTask == null {
+        throw new InvalidOperationException("The production playground runner did not return a task.")
+    }
+    responseTask.GetAwaiter().GetResult()
+    resultProperty := response.GetType().GetProperty("Result")
+    if resultProperty == null {
+        throw new InvalidOperationException("The production playground runner task returned no result property.")
+    }
+    completedResponse := resultProperty.GetValue(response)
+    if completedResponse == null {
+        throw new InvalidOperationException("The production playground runner task returned no result.")
+    }
+
+    return completedResponse
 }
 
 func PgExitCode(response: object): string {
@@ -710,7 +739,7 @@ test "020 s38 playground tooling surfaces: Catalog StatesBrowserCapabilitiesAndE
     assert PgLimitationCount(catalog) == 4
     assert PgLimitation(catalog, 0) == "The hosted playground runs compiler analysis, formatting, completions, hover, syntax highlighting, and a bounded execution subset entirely in the browser."
     assert PgLimitation(catalog, 1) == "The Run button supports tutorial-scale code: functions, print, simple control flow, records/classes, object initializers, string/numeric helpers, and selected match patterns."
-    assert PgLimitation(catalog, 2) == "Full build, test execution, NuGet restore, filesystem workflows, async, LINQ, and unrestricted .NET interop require the local nlc toolchain."
+    assert PgLimitation(catalog, 2) == "Full build, test execution, NuGet restore, filesystem workflows, LINQ, and unrestricted .NET interop require the local nlc toolchain. The browser runner supports async functions using Task.Delay and Task.FromResult."
     assert PgLimitation(catalog, 3) == "External assembly resolution is intentionally bounded for browser reliability."
     assert PgLimitation(catalog, 4) == "<no-such-limitation>"
     assert PgListCount(catalog, "Examples") == 10
@@ -936,6 +965,18 @@ test "020 s38 playground tooling surfaces: RunProject ValidProgram ProducesStdou
     assert PgCount(response) == 0
     assert PgCensus(response) == ""
     assert PgRow(response, 0) == "<no-such-diagnostic>"
+}
+
+test "020 s38 playground tooling surfaces: RunProject awaits async functions through the browser task path" {
+    source := "import System.Threading.Tasks\n\nasync func AddOne(value: int): int {\n    await Task.Delay(1)\n    return value + 1\n}\n\nasync func main() {\n    result := await AddOne(41)\n    print result\n}\n"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True", PgCensus(response)
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "42\n"
+    assert PgStderr(response) == "<null>"
+    assert PgUnsupportedReason(response) == "<null>"
+    assert PgSummary(response) == "0/0/0"
+    assert PgCount(response) == 0, PgCensus(response)
 }
 
 test "020 s38 playground tooling surfaces: Complete ReturnsKeywordAndSemanticCompletions — 1 site(s), 73 items, 0 of them compiler-generated accessors (was PlaygroundCompilerTests.Complete_ReturnsKeywordAndSemanticCompletions)" {

@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Globalization
 import System.Linq
 import System.Text
+import System.Threading.Tasks
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
@@ -42,12 +43,14 @@ internal sealed class PlaygroundRunner {
         }
     }
 
-    func Run(): PlaygroundRunResult {
+    // Browser execution is a bounded interpreter rather than emitted user assemblies. Its async
+    // entry path uses CLR tasks for suspension so the WebAssembly export can return a JavaScript
+    // Promise instead of holding the browser thread until an await completes.
+    async func RunAsync(): Task<PlaygroundRunResult> {
         entryPoint: FunctionDeclaration? = null
         for pair in functions {
             functionDeclaration := pair.Value
-            functionName := functionDeclaration.Name
-            if PlaygroundRunFacts.IsEntryPointFunctionName(functionName) {
+            if PlaygroundRunFacts.IsEntryPointFunctionName(functionDeclaration.Name) {
                 entryPoint = functionDeclaration
                 break
             }
@@ -58,7 +61,7 @@ internal sealed class PlaygroundRunner {
 
         try {
             emptyArguments := new object?[](0)
-            InvokeFunction(entryPoint, emptyArguments, null, 0)
+            await InvokeFunctionAsync(entryPoint, emptyArguments, null, 0)
             return new PlaygroundRunResult(stdout.ToString(), null, 0)
         } catch caught: Exception {
             thrown := caught as PlaygroundThrownException
@@ -67,6 +70,290 @@ internal sealed class PlaygroundRunner {
             }
             throw caught
         }
+    }
+
+    async func InvokeFunctionAsync(function: FunctionDeclaration, arguments: IReadOnlyList<object?>, receiver: RuntimeObject?, depth: int): Task<object?> {
+        if depth > PlaygroundRunFacts.MaxCallDepth() {
+            throw Unsupported(PlaygroundRunFacts.CallDepthExceeded())
+        }
+        if function.Parameters.Count != arguments.Count {
+            throw Unsupported(PlaygroundRunFacts.WrongArgumentCount(function.Name, arguments.Count))
+        }
+
+        parentEnvironment: RuntimeEnvironment? = null
+        if receiver != null {
+            parentEnvironment = receiver.Environment
+        }
+        environment := new RuntimeEnvironment(parentEnvironment)
+        if receiver != null {
+            environment.Declare(PlaygroundRunFacts.ReceiverBindingName(), receiver)
+        }
+
+        i := 0
+        while i < function.Parameters.Count {
+            environment.Declare(function.Parameters[i].Name, arguments[i])
+            i = i + 1
+        }
+
+        try {
+            if function.ExpressionBody != null {
+                return await EvaluateAsync(function.ExpressionBody, environment, depth + 1)
+            }
+            if function.Body != null {
+                await ExecuteAsyncBlock(function.Body, environment, depth + 1)
+            }
+        } catch caught: Exception {
+            signal := caught as ReturnSignal
+            if signal != null {
+                return signal.Value
+            }
+            throw caught
+        }
+        return null
+    }
+
+    async func ExecuteAsyncBlock(block: BlockStatement, environment: RuntimeEnvironment, depth: int): Task {
+        for statement in block.Statements {
+            await ExecuteAsyncStatement(statement, environment, depth)
+        }
+    }
+
+    async func ExecuteAsyncStatement(statement: Statement, environment: RuntimeEnvironment, depth: int): Task {
+        Step(statement)
+
+        block := statement as BlockStatement
+        variable := statement as VariableDeclarationStatement
+        expressionStatement := statement as ExpressionStatement
+        printStatement := statement as PrintStatement
+        returnStatement := statement as ReturnStatement
+        ifStatement := statement as IfStatement
+        foreachStatement := statement as ForeachStatement
+        throwStatement := statement as ThrowStatement
+        if block != null {
+            await ExecuteAsyncBlock(block, new RuntimeEnvironment(environment), depth + 1)
+        } else if statement as EmptyStatement != null {
+            // Empty statements complete without an interpreter action.
+        } else if variable != null {
+            declaredValue: object? = null
+            if variable.Initializer != null {
+                declaredValue = await EvaluateAsync(variable.Initializer, environment, depth)
+            }
+            environment.Declare(variable.Name, declaredValue)
+        } else if expressionStatement != null {
+            await EvaluateAsync(expressionStatement.Expression, environment, depth)
+        } else if printStatement != null {
+            printValue := await EvaluateAsync(printStatement.Value, environment, depth)
+            WriteLine(FormatValue(printValue))
+        } else if returnStatement != null {
+            returnValue: object? = null
+            if returnStatement.Value != null {
+                returnValue = await EvaluateAsync(returnStatement.Value, environment, depth)
+            }
+            throw new ReturnSignal(returnValue)
+        } else if ifStatement != null {
+            if IsTruthy(await EvaluateAsync(ifStatement.Condition, environment, depth)) {
+                await ExecuteAsyncStatement(ifStatement.ThenStatement, environment, depth + 1)
+            } else if ifStatement.ElseStatement != null {
+                await ExecuteAsyncStatement(ifStatement.ElseStatement, environment, depth + 1)
+            }
+        } else if foreachStatement != null {
+            collection := await EvaluateAsync(foreachStatement.Collection, environment, depth)
+            foreachValues := collection as IReadOnlyList<object?>
+            if foreachValues == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedForeachCollection())
+            }
+            for foreachValue in foreachValues {
+                loopEnvironment := new RuntimeEnvironment(environment)
+                loopEnvironment.Declare(foreachStatement.VariableName, foreachValue)
+                await ExecuteAsyncStatement(foreachStatement.Body, loopEnvironment, depth + 1)
+            }
+        } else if throwStatement != null {
+            thrown := throwStatement.Expression
+            if thrown == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedStatement("a bare rethrow"))
+            }
+            thrownValue := await EvaluateAsync(thrown, environment, depth)
+            throw new PlaygroundThrownException(thrownValue)
+        } else {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedStatement(statement.GetType().Name))
+        }
+    }
+
+    async func EvaluateAsync(expression: Expression, environment: RuntimeEnvironment, depth: int): Task<object?> {
+        Step(expression)
+
+        awaited := expression as AwaitExpression
+        if awaited != null {
+            return await AwaitTaskValue(await EvaluateAsync(awaited.Expression, environment, depth))
+        }
+
+        parenthesized := expression as ParenthesizedExpression
+        if parenthesized != null {
+            return await EvaluateAsync(parenthesized.Inner, environment, depth)
+        }
+
+        binary := expression as BinaryExpression
+        if binary != null {
+            left := await EvaluateAsync(binary.Left, environment, depth)
+            if binary.Operator == BinaryOperator.And && !IsTruthy(left) {
+                return false
+            }
+            if binary.Operator == BinaryOperator.Or && IsTruthy(left) {
+                return true
+            }
+            right := await EvaluateAsync(binary.Right, environment, depth)
+            return EvaluateBinaryValues(binary, left, right)
+        }
+
+        unary := expression as UnaryExpression
+        if unary != null {
+            unaryValue := await EvaluateAsync(unary.Operand, environment, depth)
+            if unary.Operator == UnaryOperator.Negate {
+                return -ToNumber(unaryValue)
+            }
+            if unary.Operator == UnaryOperator.Not {
+                return !IsTruthy(unaryValue)
+            }
+            unaryOperatorValue := unary.Operator as object
+            throw Unsupported(PlaygroundRunFacts.UnsupportedUnaryOperator(unaryOperatorValue.ToString() ?? ""))
+        }
+
+        interpolated := expression as InterpolatedStringExpression
+        if interpolated != null {
+            builder := new StringBuilder()
+            for part in interpolated.Parts {
+                textPart := part as InterpolatedStringText
+                if textPart != null {
+                    builder.Append(textPart.Text)
+                } else {
+                    hole := part as InterpolatedStringHole
+                    if hole != null {
+                        builder.Append(FormatValue(await EvaluateAsync(hole.Expression, environment, depth)))
+                    }
+                }
+            }
+            return builder.ToString()
+        }
+
+        call := expression as CallExpression
+        if call != null {
+            return await EvaluateAsyncCall(call, environment, depth)
+        }
+
+        member := expression as MemberAccessExpression
+        if member != null {
+            taskType := member.Object as IdentifierExpression
+            if taskType != null && taskType.Name == "Task" && member.MemberName == "CompletedTask" {
+                return Task.CompletedTask
+            }
+            target := await EvaluateAsync(member.Object, environment, depth)
+            runtimeObject := target as RuntimeObject
+            if runtimeObject != null {
+                fieldValue: object? = null
+                if runtimeObject.Fields.TryGetValue(member.MemberName, out fieldValue) {
+                    return fieldValue
+                }
+            }
+            return EvaluateMemberAccess(member, environment, depth)
+        }
+
+        array := expression as ArrayLiteralExpression
+        if array != null {
+            values := new object?[](array.Elements.Count)
+            i := 0
+            while i < array.Elements.Count {
+                arrayElement := await EvaluateAsync(array.Elements[i], environment, depth)
+                values[i] = arrayElement
+                i = i + 1
+            }
+            return values
+        }
+
+        return Evaluate(expression, environment, depth)
+    }
+
+    async func EvaluateAsyncCall(call: CallExpression, environment: RuntimeEnvironment, depth: int): Task<object?> {
+        arguments := new object?[](call.Arguments.Count)
+        i := 0
+        while i < call.Arguments.Count {
+            callArgument := await EvaluateAsync(call.Arguments[i].Value, environment, depth)
+            arguments[i] = callArgument
+            i = i + 1
+        }
+
+        identifier := call.Callee as IdentifierExpression
+        if identifier != null {
+            function: FunctionDeclaration? = null
+            if functions.TryGetValue(identifier.Name, out function) {
+                if AnalyzerAmbientContext.HasModifier(function, Modifiers.Async) {
+                    return InvokeFunctionAsync(function, arguments, null, depth)
+                }
+                return InvokeFunction(function, arguments, null, depth)
+            }
+            throw Unsupported(PlaygroundRunFacts.UnknownFunction(identifier.Name))
+        }
+
+        member := call.Callee as MemberAccessExpression
+        if member == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedCallee())
+        }
+
+        taskType := member.Object as IdentifierExpression
+        if taskType != null && taskType.Name == "Task" {
+            if member.MemberName == "Delay" && arguments.Length == 1 {
+                return Task.Delay(ToInt(arguments[0]))
+            }
+            if member.MemberName == "FromResult" && arguments.Length == 1 {
+                return Task.FromResult(arguments[0])
+            }
+            throw Unsupported(PlaygroundRunFacts.UnsupportedReceiverMember(member.MemberName))
+        }
+
+        target := await EvaluateAsync(member.Object, environment, depth)
+        runtimeObject := target as RuntimeObject
+        if runtimeObject != null {
+            method := FindMethod(runtimeObject.Declaration, member.MemberName, arguments.Length, false)
+            if method == null {
+                throw Unsupported(PlaygroundRunFacts.MethodNotFound(member.MemberName))
+            }
+            if AnalyzerAmbientContext.HasModifier(method, Modifiers.Async) {
+                return InvokeFunctionAsync(method, arguments, runtimeObject, depth)
+            }
+            return InvokeFunction(method, arguments, runtimeObject, depth)
+        }
+
+        runtimeType := target as RuntimeType
+        if runtimeType != null {
+            method := FindMethod(runtimeType.Declaration, member.MemberName, arguments.Length, true)
+            if method == null {
+                throw Unsupported(PlaygroundRunFacts.StaticMethodNotFound(member.MemberName))
+            }
+            if AnalyzerAmbientContext.HasModifier(method, Modifiers.Async) {
+                return InvokeFunctionAsync(method, arguments, null, depth)
+            }
+            return InvokeFunction(method, arguments, null, depth)
+        }
+
+        return CallClrLikeMember(target, member.MemberName, arguments)
+    }
+
+    async func AwaitTaskValue(value: object?): Task<object?> {
+        genericValue := value as Task<object?>
+        if genericValue != null {
+            return await genericValue
+        }
+        task := value as Task
+        if task == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand without a task value"))
+        }
+        await task
+        if task.GetType().IsGenericType {
+            resultProperty := task.GetType().GetProperty("Result")
+            if resultProperty != null {
+                return resultProperty.GetValue(task)
+            }
+        }
+        return null
     }
 
     private func InvokeFunction(function: FunctionDeclaration, arguments: IReadOnlyList<object?>, receiver: RuntimeObject?, depth: int): object? {
@@ -371,6 +658,10 @@ internal sealed class PlaygroundRunner {
     private func EvaluateBinary(binary: BinaryExpression, environment: RuntimeEnvironment, depth: int): object? {
         left := Evaluate(binary.Left, environment, depth)
         right := Evaluate(binary.Right, environment, depth)
+        return EvaluateBinaryValues(binary, left, right)
+    }
+
+    private func EvaluateBinaryValues(binary: BinaryExpression, left: object?, right: object?): object? {
         if binary.Operator == BinaryOperator.Add {
             if left as string != null || right as string != null {
                 return FormatValue(left) + FormatValue(right)
