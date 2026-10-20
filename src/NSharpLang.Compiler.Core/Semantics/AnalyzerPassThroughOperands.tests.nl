@@ -345,12 +345,7 @@ test "EVERY FORM ASKS FOR KIND 1 AND NOTHING ELSE" {
     while index < nodes.Count {
         state := harness.Operands.Begin(nodes[index], harness.Reachability)
         awaitNode := nodes[index] as AwaitExpression
-        steps: List<OperandStep>
-        if awaitNode != null {
-            steps = OperandRunInAsyncBody(harness, state, OperandOne(BuiltInTypes.Int))
-        } else {
-            steps = OperandRun(harness, state, OperandOne(BuiltInTypes.Int))
-        }
+        steps := awaitNode != null ? OperandRunInAsyncBody(harness, state, OperandOne(BuiltInTypes.Int)) : OperandRun(harness, state, OperandOne(BuiltInTypes.Int))
         assert steps.Count == 1
         assert steps[0].Kind == 1
         index = index + 1

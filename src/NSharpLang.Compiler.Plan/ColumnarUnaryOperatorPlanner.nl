@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Reflection
 
 
 // Prefix numeric negation over a planned method-body value. Literal operands stay with the

@@ -1379,7 +1379,6 @@ class Analyzer: IDisposable {
         localFunction := statement as LocalFunctionStatement
         if localFunction != null {
             localDeclaration := localFunction.Function
-            enclosingFunction := Ambient.CurrentFunction
             localFunctionIsGeneric := localDeclaration.TypeParameters != null && localDeclaration.TypeParameters.Count > 0
             if Ambient.CurrentFunctionIsAsync && AnalyzerAmbientContext.HasModifier(localDeclaration, Modifiers.Async) && (Ambient.CurrentFunctionIsGeneric || Ambient.CurrentTypeIsGeneric || localFunctionIsGeneric) {
                 Diagnostics.Report(

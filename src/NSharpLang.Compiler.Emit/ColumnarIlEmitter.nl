@@ -450,13 +450,13 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldloca, resourceLocal)
             _il.Emit(OpCodes.Constrained, plan.ResourceType)
             _il.Emit(OpCodes.Callvirt, plan.Method)
-            return AwaitUsingReleaseIfNeeded(plan, isAsyncUsing)
+            return AwaitUsingReleaseIfNeeded(isAsyncUsing)
         }
 
         if (plan.Kind == 4) {
             _il.Emit(OpCodes.Ldloca, resourceLocal)
             _il.Emit(OpCodes.Call, plan.Method)
-            return AwaitUsingReleaseIfNeeded(plan, isAsyncUsing)
+            return AwaitUsingReleaseIfNeeded(isAsyncUsing)
         }
 
         if (plan.Kind == 2 || plan.Kind == 5) {
@@ -465,7 +465,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Brfalse, skipDispose)
             _il.Emit(OpCodes.Ldloc, resourceLocal)
             _il.Emit(OpCodes.Callvirt, plan.Method)
-            if (!AwaitUsingReleaseIfNeeded(plan, isAsyncUsing)) {
+            if (!AwaitUsingReleaseIfNeeded(isAsyncUsing)) {
                 return false
             }
 
@@ -486,7 +486,7 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Brfalse, skipRuntimeDispose)
         _il.Emit(OpCodes.Ldloc, disposableLocal)
         _il.Emit(OpCodes.Callvirt, plan.Method)
-        if (!AwaitUsingReleaseIfNeeded(plan, isAsyncUsing)) {
+        if (!AwaitUsingReleaseIfNeeded(isAsyncUsing)) {
             return false
         }
 
@@ -496,7 +496,7 @@ sealed class ColumnarIlEmitter {
 
     // Awaiting disposal belongs to the resumable state-machine planner. This synchronous body emitter
     // must never turn DisposeAsync into a blocking call.
-    private func AwaitUsingReleaseIfNeeded(plan: ColumnarUsingDisposalPlan, isAsyncUsing: bool): bool {
+    private func AwaitUsingReleaseIfNeeded(isAsyncUsing: bool): bool {
         return !isAsyncUsing
     }
 
@@ -9004,38 +9004,38 @@ sealed class ColumnarIlEmitter {
         // region, and its LOCALS live in the plan's own pool, so none of this emitter's live maps is
         // written. The claim is total — the planner produces every byte or declines and this method emits
         // as ever. ASYNC is excluded: its returns wrap and leave to a shared tail (below).
-            bodyPlan := new ColumnarCodePlan()
-            if (ColumnarMethodBodyPlanner.TryPlanBody(
-                _nodes,
-                _source,
-                bodyRoot,
-                _returnType,
-                isVoid,
-                _paramOrdinals,
-                _paramTypes,
-                _locals,
-                _enumRegistry,
-                _liftedLocals,
-                _boxedCaptures,
-                _currentStruct,
-                _enclosingType,
-                _structRegistry.Values,
-                _unionRegistry.Values,
-                _tupleNamesByVariable,
-                _labeledTypeByVariable,
-                _enclosingBindingNames,
-                SiblingNames(),
-                _visibleLocalFuncs,
-                _typeParameters,
-                ExactSourceTypesForBody(),
-                _overflowCheckingEnabled,
-                SiblingCallFacts(),
-                bodyPlan,
-                _typeResolutionStructs.StructuralTypeReferences
-            )) {
-                ColumnarCodePlanExecutor.Execute(bodyPlan, _il, _modifiedMemberReferences)
-                return true
-            }
+        bodyPlan := new ColumnarCodePlan()
+        if (ColumnarMethodBodyPlanner.TryPlanBody(
+            _nodes,
+            _source,
+            bodyRoot,
+            _returnType,
+            isVoid,
+            _paramOrdinals,
+            _paramTypes,
+            _locals,
+            _enumRegistry,
+            _liftedLocals,
+            _boxedCaptures,
+            _currentStruct,
+            _enclosingType,
+            _structRegistry.Values,
+            _unionRegistry.Values,
+            _tupleNamesByVariable,
+            _labeledTypeByVariable,
+            _enclosingBindingNames,
+            SiblingNames(),
+            _visibleLocalFuncs,
+            _typeParameters,
+            ExactSourceTypesForBody(),
+            _overflowCheckingEnabled,
+            SiblingCallFacts(),
+            bodyPlan,
+            _typeResolutionStructs.StructuralTypeReferences
+        )) {
+            ColumnarCodePlanExecutor.Execute(bodyPlan, _il, _modifiedMemberReferences)
+            return true
+        }
         // The body root anchors the never-mutated capture scan (L3a): a lambda may capture an enclosing
         // local/param only when NOTHING in this whole body writes it. Null inside a lambda's own
         // sub-emitter (EmitExpression is entered directly), so nested capture chains decline.
