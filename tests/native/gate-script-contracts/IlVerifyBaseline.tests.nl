@@ -52,6 +52,8 @@ test "the product gate hands ilverify the directories it already built rather th
 
     assert ilverifyScript.Contains("--built-dirs-file")
     assert ilverifyScript.Contains("Using existing example/template/fixture build outputs")
+    assert ilverifyScript.Contains("async state machine")
+    assert ilverifyScript.Contains("tests/native/async-task-like")
     assert gateScript.Contains("ILVERIFY_BUILT_DIRS_FILE")
     assert gateScript.Contains("--built-dirs-file \"$ILVERIFY_BUILT_DIRS_FILE\"")
 }
