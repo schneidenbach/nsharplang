@@ -1515,3 +1515,20 @@ test "the literal's score ranks with constant adoption, below the identity a raw
     // An element the constants do not fit is still a non-binding.
     assert ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(SourceCallOneType(typeof(byte[])), actual, SourceCallArrayLiteralFacts(0, 256)) < 0
 }
+
+test "a contextual lambda scores only delegate parameters with its declared arity" {
+    expected := new Type[](1)
+    expected[0] = typeof(Action<int>)
+    actual := new Type[](1)
+    actual[0] = typeof(Delegate)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.IsContextualLambda[0] = true
+    facts.ContextualLambdaParameterCounts[0] = 1
+
+    assert ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, facts) == 4
+
+    expected[0] = typeof(Action)
+    assert ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, facts) < 0
+    expected[0] = typeof(int)
+    assert ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, facts) < 0
+}

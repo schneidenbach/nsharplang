@@ -567,6 +567,9 @@ class ColumnarConstructionPlanner {
             return false
         }
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate >= 0 && ColumnarThrowExpressionPlanner.IsThrowExpression(nodes, candidate) {
+            return ColumnarThrowExpressionPlanner.TryAppendThrow(nodes, source, candidate, bindings, handles, plan, fragment, depth)
+        }
         if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
             return TryAppendTargetTypedArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType)
         }

@@ -71,6 +71,11 @@ class ColumnarDirectCallArgumentFacts {
     ArrayLiteralMaximumValues: long[]
     IsContextualGenericUnionConstruction: bool[]
     ContextualGenericUnionBases: Type?[]
+    // A lambda gets its type from the selected delegate parameter. Calls inside a resumable body
+    // cannot defer that choice to the ordinary expression emitter, so candidate scoring carries a
+    // syntax marker until `AppendArgumentSlot` has the selected parameter type.
+    IsContextualLambda: bool[]
+    ContextualLambdaParameterCounts: int[]
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
 
     // THE EXPRESSION NODE THAT SUPPLIES EACH SLOT, with a `name:` wrapper already removed. Every other
@@ -111,6 +116,9 @@ class ColumnarDirectCallArgumentFacts {
         ArrayLiteralMaximumValues = new long[](isUnsuffixedIntegerLiteral.Length)
         IsContextualGenericUnionConstruction = new bool[](isUnsuffixedIntegerLiteral.Length)
         ContextualGenericUnionBases = new Type?[](isUnsuffixedIntegerLiteral.Length)
+        IsContextualLambda = new bool[](isUnsuffixedIntegerLiteral.Length)
+        ContextualLambdaParameterCounts = new int[](isUnsuffixedIntegerLiteral.Length)
+        Array.Fill(ContextualLambdaParameterCounts, -1)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
         ArgumentNodes = new int[](isUnsuffixedIntegerLiteral.Length)
         WrittenOrderSlots = new int[](isUnsuffixedIntegerLiteral.Length)
@@ -1102,6 +1110,16 @@ class ColumnarSourceDirectCallResolver {
         score := 0
         index := 0
         while index < expected.Length {
+            if argumentFacts.IsContextualLambda[index] {
+                if argumentFacts.IsByRefArgument[index] || expected[index].IsByRef || !IsContextualLambdaTarget(expected[index], argumentFacts.ContextualLambdaParameterCounts[index]) {
+                    return -1
+                }
+                // The lambda is checked against this exact signature when it is appended. Equal
+                // delegate conversions stay tied here, leaving overload selection to its body.
+                score += 4
+                index += 1
+                continue
+            }
 
             // A BY-REFERENCE POSITION ON EITHER SIDE MAKES THIS A BY-REFERENCE MATCH. The argument
             // aliases the caller's storage, so there is no conversion to make: the parameter's element
@@ -1264,7 +1282,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.IsContextualGenericUnionConstruction == null || argumentFacts.ContextualGenericUnionBases == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length || argumentFacts.IsContextualGenericUnionConstruction.Length != argumentTypes.Length || argumentFacts.ContextualGenericUnionBases.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.IsContextualGenericUnionConstruction == null || argumentFacts.ContextualGenericUnionBases == null || argumentFacts.IsContextualLambda == null || argumentFacts.ContextualLambdaParameterCounts == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length || argumentFacts.IsContextualGenericUnionConstruction.Length != argumentTypes.Length || argumentFacts.ContextualGenericUnionBases.Length != argumentTypes.Length || argumentFacts.IsContextualLambda.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 
@@ -1286,6 +1304,10 @@ class ColumnarSourceDirectCallResolver {
                 throw new InvalidOperationException("A direct-call argument cannot be both null and an integer literal.")
             }
 
+            if argumentFacts.IsContextualLambda[index] != (argumentFacts.ContextualLambdaParameterCounts[index] >= 0) {
+                throw new InvalidOperationException("A contextual lambda argument must carry its declared parameter count.")
+            }
+
             if argumentFacts.IsByRefArgument[index] && (argumentFacts.IsNullLiteral[index] || argumentFacts.IsUnsuffixedIntegerLiteral[index] || argumentFacts.IsNegativeIntegerLiteral[index]) {
                 throw new InvalidOperationException("A by-reference direct-call argument names storage, so it cannot also be a literal.")
             }
@@ -1301,6 +1323,30 @@ class ColumnarSourceDirectCallResolver {
             }
 
             index += 1
+        }
+    }
+
+    static func IsContextualLambdaTarget(targetType: Type, parameterCount: int): bool {
+        if targetType == null || targetType.IsByRef || targetType.IsGenericParameter || targetType == typeof(Delegate) || targetType == typeof(MulticastDelegate) {
+            return false
+        }
+        candidate := targetType
+        try {
+            if candidate.IsGenericType && !candidate.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(candidate) {
+                candidate = candidate.GetGenericTypeDefinition()
+            }
+            if candidate is TypeBuilder {
+                return candidate.BaseType != null && typeof(Delegate).IsAssignableFrom(candidate.BaseType)
+            }
+            if !typeof(Delegate).IsAssignableFrom(candidate) {
+                return false
+            }
+            invoke := candidate.GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance)
+            return invoke != null && invoke.GetParameters().Length == parameterCount
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
         }
     }
 

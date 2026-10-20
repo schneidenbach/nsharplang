@@ -60,7 +60,9 @@ class ColumnarTypeTestPlanner {
             try {
                 sourceType = valueType.GetGenericTypeDefinition()
             } catch ex: NotSupportedException {
+                sourceType = valueType
             } catch ex: NotImplementedException {
+                sourceType = valueType
             }
         }
         for sourceDefinition in bindings.SourceTypeDefinitions {

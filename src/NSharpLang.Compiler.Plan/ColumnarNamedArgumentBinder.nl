@@ -248,6 +248,9 @@ class ColumnarNamedArgumentBinder {
         movedArrayMaximums := new long[](count)
         movedContextualUnion := new bool[](count)
         movedContextualUnionBases := new Type?[](count)
+        movedContextualLambda := new bool[](count)
+        movedContextualLambdaParameterCounts := new int[](count)
+        Array.Fill(movedContextualLambdaParameterCounts, -1)
 
         reorders := false
         written := 0
@@ -274,6 +277,8 @@ class ColumnarNamedArgumentBinder {
             movedArrayMaximums[slot] = facts.ArrayLiteralMaximumValues[written]
             movedContextualUnion[slot] = facts.IsContextualGenericUnionConstruction[written]
             movedContextualUnionBases[slot] = facts.ContextualGenericUnionBases[written]
+            movedContextualLambda[slot] = facts.IsContextualLambda[written]
+            movedContextualLambdaParameterCounts[slot] = facts.ContextualLambdaParameterCounts[written]
             written = written + 1
         }
 
@@ -292,6 +297,8 @@ class ColumnarNamedArgumentBinder {
             facts.ArrayLiteralMaximumValues[copy] = movedArrayMaximums[copy]
             facts.IsContextualGenericUnionConstruction[copy] = movedContextualUnion[copy]
             facts.ContextualGenericUnionBases[copy] = movedContextualUnionBases[copy]
+            facts.IsContextualLambda[copy] = movedContextualLambda[copy]
+            facts.ContextualLambdaParameterCounts[copy] = movedContextualLambdaParameterCounts[copy]
             facts.WrittenOrderSlots[copy] = slotForWrittenArgument[copy]
             copy = copy + 1
         }
@@ -518,6 +525,8 @@ class ColumnarNamedArgumentBinder {
         Array.Copy(sourceFacts.ArrayLiteralMaximumValues, copy.ArrayLiteralMaximumValues, count)
         Array.Copy(sourceFacts.IsContextualGenericUnionConstruction, copy.IsContextualGenericUnionConstruction, count)
         Array.Copy(sourceFacts.ContextualGenericUnionBases, copy.ContextualGenericUnionBases, count)
+        Array.Copy(sourceFacts.IsContextualLambda, copy.IsContextualLambda, count)
+        Array.Copy(sourceFacts.ContextualLambdaParameterCounts, copy.ContextualLambdaParameterCounts, count)
         return copy
     }
 

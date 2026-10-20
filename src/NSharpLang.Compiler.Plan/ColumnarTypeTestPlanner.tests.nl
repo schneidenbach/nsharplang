@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Reflection.Emit
 
-
 func TypeTestAsPlan(source: string, parameterType: Type): ColumnarCodePlan {
     nodes: ColumnarNodeTable? = null
     root := -1
