@@ -1674,31 +1674,49 @@ sealed class ColumnarIlEmitter {
                     bodyOrdinals[pair.Key] = pair.Value + placement.OrdinalShift
                 }
             }
-            subEmitter := new ColumnarIlEmitter(
-                _context.ForLambdaBody(placement.OwnerTypeForBody),
-                _nodes,
-                _source,
-                bodyOrdinals,
-                paramTypeMap,
-                bodyReturnType,
-                bodyIl,
-                placement.CurrentStructForBody,
-                _enclosingType,
-                false,
-                false,
-                null,
-                null,
-                null,
-                null,
-                null,
-                ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
-                asyncReturnType,
-                placement.TypeParametersForBody,
-                null,
-                null
-            )
-            if (!subEmitter.EmitLambdaBody(bodyIl, bodyNode, bodyReturnType)) {
-                return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda")
+            if asyncReturnType != null {
+                if !TryEmitAsyncLambdaStateMachine(
+                    lambdaIdx,
+                    bodyNode,
+                    placement.Method,
+                    bodyReturnType,
+                    delegateReturnType,
+                    lambdaSignature.ParameterNames,
+                    signatureTypes,
+                    placement.CurrentStructForBody ?? staticOwner,
+                    placement.Mode == ColumnarLambdaPlacementMode.InstanceThis,
+                    placement.OwnerTypeForBody,
+                    null
+                ) {
+                    return false
+                }
+            } else {
+                subEmitter := new ColumnarIlEmitter(
+                    _context.ForLambdaBody(placement.OwnerTypeForBody),
+                    _nodes,
+                    _source,
+                    bodyOrdinals,
+                    paramTypeMap,
+                    bodyReturnType,
+                    bodyIl,
+                    placement.CurrentStructForBody,
+                    _enclosingType,
+                    false,
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+                    null,
+                    placement.TypeParametersForBody,
+                    null,
+                    null
+                )
+                if (!subEmitter.EmitLambdaBody(bodyIl, bodyNode, bodyReturnType)) {
+                    return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda")
+                }
             }
             if (placement.Mode == ColumnarLambdaPlacementMode.InstanceThis) {
                 _il.Emit(OpCodes.Ldarg_0)
@@ -1761,31 +1779,49 @@ sealed class ColumnarIlEmitter {
         closureIl := closureMethod.GetILGenerator()
         closureBoxedCaptures := displayBuild.BoxedCapturesOrNull()
         closureEnclosingType := LambdaBodyEnclosingType(displayBuild.CapturesEnclosingThis)
-        closureEmitter := new ColumnarIlEmitter(
-            _context.ForLambdaBody(display),
-            _nodes,
-            _source,
-            shiftedOrdinals,
-            paramTypeMap,
-            bodyReturnType,
-            closureIl,
-            displayBuild.DisplayDef,
-            closureEnclosingType,
-            false,
-            false,
-            closureBoxedCaptures,
-            null,
-            null,
-            null,
-            null,
-            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
-            asyncReturnType,
-            null,
-            null,
-            null
-        )
-        if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
-            return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
+        if asyncReturnType != null {
+            if !TryEmitAsyncLambdaStateMachine(
+                lambdaIdx,
+                bodyNode,
+                closureMethod,
+                bodyReturnType,
+                delegateReturnType,
+                lambdaSignature.ParameterNames,
+                signatureTypes,
+                displayBuild.DisplayDef,
+                true,
+                display,
+                displayBuild
+            ) {
+                return false
+            }
+        } else {
+            closureEmitter := new ColumnarIlEmitter(
+                _context.ForLambdaBody(display),
+                _nodes,
+                _source,
+                shiftedOrdinals,
+                paramTypeMap,
+                bodyReturnType,
+                closureIl,
+                displayBuild.DisplayDef,
+                closureEnclosingType,
+                false,
+                false,
+                closureBoxedCaptures,
+                null,
+                null,
+                null,
+                null,
+                ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+                null,
+                null,
+                null,
+                null
+            )
+            if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
+                return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
+            }
         }
         (must _displayClasses).Add(display)
         if (!TryEmitLambdaDisplayConstruction(displayBuild)) {
@@ -1894,6 +1930,152 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Ldftn, closureMethod)
         _il.Emit(OpCodes.Newobj, delegateCtor)
         return true
+    }
+
+    // Realize an async lambda method with the same task state-machine owner used by source async
+    // functions. The lambda's already selected method remains the kickoff and keeps the delegate's
+    // signature; only its body moves to the shared async MoveNext planner.
+    private func TryEmitAsyncLambdaStateMachine(
+        lambdaNode: int,
+        bodyNode: int,
+        kickoff: MethodBuilder,
+        bodyResultType: Type,
+        methodReturnType: Type,
+        parameterNames: string[],
+        parameterTypes: Type[],
+        ownerDefinition: ColumnarStructDef?,
+        isInstance: bool,
+        ownerType: TypeBuilder,
+        displayBuild: ColumnarLambdaDisplayBuild?
+    ): bool {
+        typeResolution := _context.TypeResolution
+        if typeResolution == null || _lambdaCounter == null || _displayClasses == null {
+            return DeclineMember("emit.lambda.async-context", "the async lambda is missing its task state-machine emission context", lambdaNode, "lambda")
+        }
+        if ownerType == null || (ownerType.IsGenericTypeDefinition && ownerType.GetGenericArguments().Length > 0) || (_typeParameters != null && _typeParameters.Count > 0) {
+            return DeclineMember("emit.lambda.async-generic-owner", "an async lambda inside a generic type or method cannot yet be rebound to its state machine", lambdaNode, "lambda")
+        }
+
+        resultCanonical := "void"
+        if bodyResultType != ColumnarTypeOfPlanner.RequiredVoidType() && !ColumnarIteratorPlanner.TryBuildRuntimeTypeCanonical(typeResolution, bodyResultType, out resultCanonical) {
+            return DeclineMember("emit.lambda.async-result-type", "the result type '" + bodyResultType.Name + "' of this async lambda cannot be represented in its state machine", lambdaNode, "lambda")
+        }
+        parameterCanonicals := new string[](parameterTypes.Length)
+        parameterIndex := 0
+        while parameterIndex < parameterTypes.Length {
+            parameterCanonical := ""
+            if !ColumnarIteratorPlanner.TryBuildRuntimeTypeCanonical(typeResolution, parameterTypes[parameterIndex], out parameterCanonical) {
+                return DeclineMember("emit.lambda.async-parameter-type", "parameter '" + parameterNames[parameterIndex] + "' of this async lambda cannot be represented in its state machine", lambdaNode, "lambda")
+            }
+            parameterCanonicals[parameterIndex] = parameterCanonical
+            parameterIndex += 1
+        }
+
+        enclosingFieldNames := new string[](0)
+        enclosingFieldHandles := new FieldInfo[](0)
+        enclosingFieldCanonicals := new string[](0)
+        closureBoxNames := new string[](0)
+        closureBoxSourceFields := new FieldBuilder[](0)
+        if ownerDefinition != null {
+            fieldNames := new List<string>()
+            fieldHandles := new List<FieldInfo>()
+            fieldCanonicals := new List<string>()
+            for fieldName in ownerDefinition.FieldOrder {
+                fieldHandle: FieldBuilder? = null
+                if !ownerDefinition.Fields.TryGetValue(fieldName, out fieldHandle) || fieldHandle == null {
+                    continue
+                }
+                fieldCanonical := ""
+                if !ColumnarIteratorPlanner.TryBuildRuntimeTypeCanonical(typeResolution, fieldHandle.FieldType, out fieldCanonical) {
+                    return DeclineMember("emit.lambda.async-capture-type", "captured field '" + fieldName + "' cannot be represented in this async lambda's state machine", lambdaNode, "lambda")
+                }
+                fieldNames.Add(fieldName)
+                fieldHandles.Add(fieldHandle)
+                fieldCanonicals.Add(fieldCanonical)
+            }
+            enclosingFieldNames = fieldNames.ToArray()
+            enclosingFieldHandles = fieldHandles.ToArray()
+            enclosingFieldCanonicals = fieldCanonicals.ToArray()
+        }
+        if displayBuild != null && displayBuild.BoxedNames.Count > 0 {
+            closureBoxNames = displayBuild.BoxedNames.ToArray()
+            closureBoxSourceFields = displayBuild.BoxedFields
+        }
+
+        receiverCanonical := ""
+        if isInstance {
+            if ownerDefinition == null {
+                return DeclineMember("emit.lambda.async-receiver", "this async lambda's instance receiver has no source type definition", lambdaNode, "lambda")
+            }
+            receiverCanonical = ownerDefinition.DeclaredTypeName
+        }
+        fn := new ColumnarFunctionInput(
+            kickoff.Name,
+            resultCanonical,
+            parameterNames,
+            parameterCanonicals,
+            _nodes,
+            bodyNode,
+            !isInstance,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            true,
+            0,
+            _context.SourceFileId
+        )
+        bodyFacts := ColumnarIteratorBodyFacts.FromEmissionFacts(
+            _context.Enums,
+            _context.Structs,
+            _context.Unions,
+            _context.Siblings,
+            typeResolution.Structs.Resolver.ExactSourceTypes,
+            ownerDefinition,
+            typeResolution.StructuralTypeReferences
+        )
+        bodyFacts.ModifiedMemberReferences = _context.ModifiedMemberReferences
+        ordinal := _lambdaCounter[0]
+        _lambdaCounter[0] = ordinal + 1
+        module := _context.Module()
+        if module == null {
+            return DeclineMember("emit.lambda.async-module", "the async lambda's module is unavailable for state-machine realization", lambdaNode, "lambda")
+        }
+        machineParent: TypeBuilder? = null
+        if kickoff.IsStatic || ownerType != null {
+            machineParent = ownerType
+        }
+        receiverIsValueType := isInstance && ownerDefinition != null && !ownerDefinition.IsReference
+        result := ColumnarIteratorRealization.EmitTask(
+            module,
+            fn,
+            ordinal,
+            _source,
+            typeResolution,
+            kickoff,
+            _displayClasses,
+            bodyFacts,
+            bodyResultType,
+            isInstance,
+            receiverCanonical,
+            machineParent,
+            enclosingFieldNames,
+            enclosingFieldHandles,
+            enclosingFieldCanonicals,
+            receiverIsValueType,
+            AsyncWrapperUsesTaskBuilder(methodReturnType),
+            AsyncWrapperUsesTaskBuilder(methodReturnType),
+            isInstance ? ownerType : null,
+            closureBoxNames,
+            closureBoxSourceFields
+        )
+        if result.Succeeded {
+            return true
+        }
+        return DeclineMember(result.DeclineSite, result.DeclineMessage, lambdaNode, "lambda")
     }
 
     // THE DISPLAY CLASS A CAPTURING LAMBDA RUNS ON, built once for both arms that need one.
@@ -2022,6 +2204,13 @@ sealed class ColumnarIlEmitter {
                 TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
             )
         }
+        _typeResolutionStructs.StructuralTypeReferences.RegisterSynthesizedType(
+            _context.SourceFileId,
+            displayTypeName,
+            displayOrdinal,
+            display,
+            null
+        )
         displayCtor := display.DefineDefaultConstructor(MethodAttributes.Public)
         // SNAPSHOT fields go into the synthetic def (the closure's `_currentStruct` field-chain fallback IS
         // the snapshot-read emission); BOX fields are deliberately kept OUT of it — boxed names route
@@ -4762,6 +4951,8 @@ sealed class ColumnarIlEmitter {
             false,
             usesTaskBuilder,
             defaultUsesTaskBuilder,
+            null,
+            null,
             null
         )
         if result.Succeeded {

@@ -862,12 +862,15 @@ class ColumnarBoundIdentifierPlanner {
             }
 
             currentInstanceType := boxField.DeclaringType
-            if currentInstanceType == null || currentInstanceType.IsValueType || boxField.IsStatic {
+            if currentInstanceType == null || boxField.IsStatic {
                 throw new InvalidOperationException("Boxed-capture facts do not identify an exact current-instance field.")
             }
 
             valueField := ResolveStrongBoxValueField(boxField.FieldType, valueType)
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BoxedCapture, valueType, -1, -1, null, boxField, valueField, null, null, currentInstanceType, false)
+            // A task state machine is a struct, so its own field is reached through the managed
+            // address of argument zero. Closure displays remain reference types and use the same
+            // selection with an ordinary object argument.
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BoxedCapture, valueType, -1, -1, null, boxField, valueField, null, null, currentInstanceType, currentInstanceType.IsValueType)
 
             return true
         }

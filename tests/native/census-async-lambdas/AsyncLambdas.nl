@@ -66,6 +66,17 @@ func capturingFactory(seed: int): Func<Task<int>> {
     }
 }
 
+// The closure and every invocation's state machine share one box, so a mutation after suspension is
+// visible to the next invocation just as it is for a synchronous closure.
+func mutableCapturingFactory(seed: int): Func<Task<int>> {
+    value := seed
+    return async () => {
+        await Task.Yield()
+        value = value + 1
+        return value
+    }
+}
+
 // PER-ITERATION CAPTURE. Each turn of the loop declares its own `seed`, so each lambda closes over a
 // DIFFERENT variable and the three tasks answer three different values.
 func perIterationFactories(): List<Func<Task<int>>> {
@@ -83,9 +94,9 @@ func perIterationFactories(): List<Func<Task<int>>> {
 
 // A FAULT. The exception does NOT reach the caller that built the delegate or the caller that
 // invoked it — it is delivered through the task, which is the whole difference an `async` body makes.
-func faultingFactory(): Func<Task<int>> {
+func faultingFactory(source: Task<int>): Func<Task<int>> {
     return async () => {
-        await Task.Delay(1)
+        await source
         throw new InvalidOperationException("async lambda boom")
     }
 }

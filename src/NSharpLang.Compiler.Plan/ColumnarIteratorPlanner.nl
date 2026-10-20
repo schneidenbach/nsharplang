@@ -341,6 +341,17 @@ class ColumnarIteratorWalkState {
 }
 
 class ColumnarIteratorPlanner {
+    // Canonicalize a resolved runtime type at the plan layer, where the semantic type resolver owns
+    // the source/runtime identity bridge. Emitters consume the canonical rather than rebuilding it
+    // from CLR names.
+    static func TryBuildRuntimeTypeCanonical(typeResolution: ColumnarSemanticTypeResolution, valueType: Type, out canonical: string): bool {
+        canonical = ""
+        if typeResolution == null || valueType == null {
+            return false
+        }
+        return typeResolution.Structs.Resolver.TryBuildValidationArgumentCanonical(valueType, out canonical)
+    }
+
     static func InitialState(): int {
         return 0
     }
@@ -396,6 +407,63 @@ class ColumnarIteratorPlanner {
     }
     static func AsyncBuilderFieldRole(): int {
         return 12
+    }
+
+    // A closure box captured by an async lambda is copied into the lambda's state machine so the
+    // resumed body continues to share storage with the closure and every other capture of it.
+    static func AsyncClosureBoxFieldRole(): int {
+        return 13
+    }
+
+    static func AsyncClosureBoxFieldName(captureName: string): string {
+        return "<>__asyncClosureBox_" + captureName
+    }
+
+    static func AsyncClosureBoxCaptureName(fieldName: string): string {
+        prefix := "<>__asyncClosureBox_"
+        if fieldName == null || !fieldName.StartsWith(prefix, StringComparison.Ordinal) {
+            return ""
+        }
+        return fieldName.Substring(prefix.Length)
+    }
+
+    // Keep the builder as the final shape field because task-machine realization uses that layout
+    // contract. Hidden closure boxes are inserted immediately before it.
+    static func AppendAsyncClosureBoxFields(shape: ColumnarIteratorShape, captureNames: string[], captureCanonicals: string[]) {
+        if shape == null || captureNames == null || captureCanonicals == null || captureNames.Length != captureCanonicals.Length || captureNames.Length == 0 {
+            return
+        }
+        oldCount := shape.FieldCount
+        newCount := oldCount + captureNames.Length
+        names := new string[](newCount)
+        canonicals := new string[](newCount)
+        roles := new int[](newCount)
+        insertionIndex := oldCount - 1
+        i := 0
+        while i < insertionIndex {
+            names[i] = shape.FieldNames[i]
+            canonicals[i] = shape.FieldCanonicals[i]
+            roles[i] = shape.FieldRoles[i]
+            i += 1
+        }
+        capture := 0
+        while capture < captureNames.Length {
+            names[insertionIndex + capture] = AsyncClosureBoxFieldName(captureNames[capture])
+            canonicals[insertionIndex + capture] = captureCanonicals[capture]
+            roles[insertionIndex + capture] = AsyncClosureBoxFieldRole()
+            capture += 1
+        }
+        while i < oldCount {
+            destination := i + captureNames.Length
+            names[destination] = shape.FieldNames[i]
+            canonicals[destination] = shape.FieldCanonicals[i]
+            roles[destination] = shape.FieldRoles[i]
+            i += 1
+        }
+        shape.FieldCount = newCount
+        shape.FieldNames = names
+        shape.FieldCanonicals = canonicals
+        shape.FieldRoles = roles
     }
 
     static func LoopCaptureBoxFieldName(name: string): string {
@@ -470,7 +538,14 @@ class ColumnarIteratorPlanner {
         capacity := nodes.Kinds.Length + 1
         state := new ColumnarIteratorWalkState(capacity, paramNames, paramCanonicals, typeParamNames, enclosingFieldNames ?? new string[](0), enclosingFieldCanonicals ?? new string[](0), true)
         state.IsAsyncMethod = true
-        WalkStatement(nodes, source, bodyRoot, state)
+        if nodes.Kind(bodyRoot) == ColumnarStatementNodeKind.BlockStatement {
+            WalkStatement(nodes, source, bodyRoot, state)
+        } else {
+            // Async expression-bodied lambdas have the same body result contract as a one-value
+            // async function. Classify the value here so nested awaits reserve the same resume and
+            // spill slots as a block-bodied body.
+            WalkBoundValue(nodes, source, bodyRoot, state)
+        }
         if state.Declined {
             return Declined(state.DeclineSite, state.DeclineMessage)
         }
@@ -2122,6 +2197,17 @@ class ColumnarIteratorEmitContext {
                 bodyScope.PublishBoxedCapture(captureName, Fields[boxIndex], Fields[valueIndex].FieldType)
             }
         }
+        index = 0
+        while index < Shape.FieldNames.Length && index < Fields.Length {
+            if Shape.FieldRoles[index] == ColumnarIteratorPlanner.AsyncClosureBoxFieldRole() && Fields[index] != null {
+                captureName := ColumnarIteratorPlanner.AsyncClosureBoxCaptureName(Shape.FieldNames[index])
+                boxType := Fields[index].FieldType
+                if captureName.Length > 0 && boxType.IsGenericType && boxType.GetGenericArguments().Length == 1 {
+                    bodyScope.PublishBoxedCapture(captureName, Fields[index], boxType.GetGenericArguments()[0])
+                }
+            }
+            index += 1
+        }
         if bodyScope.HasField("<>__this") {
             // A parameter is in scope for the whole body, so it hides a member of its spelling from
             // the first statement on.
@@ -2731,7 +2817,25 @@ class ColumnarIteratorBodyPlanner {
         plan.AppendBeginExceptionBlock(regionEnd)
         AppendMoveNextDispatch(emit, resumeCount)
 
-        EmitStatement(emit, context.BodyRoot)
+        if context.Shape.IsAsyncTaskMethod && context.Nodes.Kind(context.BodyRoot) != ColumnarStatementNodeKind.BlockStatement {
+            resultType := context.AsyncResultType
+            if resultType == null || ColumnarCodePlanExecutor.IsVoidType(resultType) {
+                expressionType := VoidReturnType()
+                if !context.RequiredScope().TryAppendValue(context.Nodes, context.Source, context.BodyRoot, plan, out expressionType) {
+                    context.Decline("emit.async.lambda-expression-body", "the expression body of an async lambda could not be lowered")
+                    return plan
+                }
+                if !ColumnarCodePlanExecutor.IsVoidType(expressionType) {
+                    context.Decline("emit.async.lambda-unit-body", "an async lambda returning a unit task must produce no value")
+                    return plan
+                }
+            } else if !AppendBoundFieldStore(emit, context.BodyRoot, FieldPool(emit, "<>__result"), resultType) {
+                context.Decline("emit.async.lambda-expression-body", "the expression body of an async lambda could not be converted to its task result type")
+                return plan
+            }
+        } else {
+            EmitStatement(emit, context.BodyRoot)
+        }
         if context.Declined {
             // A declined body leaves the plan half-built on purpose: the caller reports the decline and
             // never executes it, and completing a plan whose labels and regions were abandoned mid-walk
@@ -6248,6 +6352,9 @@ class ColumnarIteratorBodyPlanner {
             return EmitStoreTargetAssignment(emit, node, target)
         }
         name := nodes.Text(source, target)
+        if !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, target) && emit.Context.RequiredScope().Bindings.BoxedCaptures.ContainsKey(name) {
+            return EmitBoxedCaptureAssignment(emit, node, name)
+        }
         if !emit.Context.HasHoistedField(name) || emit.Context.NamesEnclosingMember(target, name) {
             return EmitEnclosingMemberAssignment(emit, node, name)
         }
@@ -6310,6 +6417,48 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+        return true
+    }
+
+    static func EmitBoxedCaptureAssignment(emit: ColumnarMoveNextEmit, node: int, name: string): bool {
+        nodes := emit.Context.Nodes
+        boxed := emit.Context.RequiredScope().Bindings.BoxedCaptures[name]
+        boxField := boxed.BoxField
+        valueType := boxed.ValueType
+        if boxField == null || valueType == null {
+            emit.Context.Decline("emit.iterator.boxed-capture", "captured mutable local '" + name + "' has no shared box in this async body")
+            return false
+        }
+        assignOperator := nodes.Text(emit.Context.Source, node)
+        boxPool := emit.Plan.AddField(boxField)
+        valuePool := emit.Plan.AddField(StrongBoxValueField(boxField.FieldType))
+        if assignOperator == "=" || assignOperator.Length == 0 {
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), boxPool)
+            if !AppendStoredValue(emit, nodes.Child(node, 1), valueType) {
+                return false
+            }
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), valuePool)
+            return true
+        }
+        if assignOperator.Length != 2 || assignOperator[1] != '=' {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "the assignment operator '" + assignOperator + "' is not yet lowered for captured local '" + name + "'")
+            return false
+        }
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), boxPool)
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), boxPool)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), valuePool)
+        if !AppendStoredValue(emit, nodes.Child(node, 1), valueType) {
+            return false
+        }
+        resultType := typeof(int)
+        if !ColumnarPrimitiveBinaryPlanner.TryAppendArithmeticOperator(assignOperator.Substring(0, 1), valueType, emit.Context.RequiredScope().Bindings, emit.Plan, out resultType) || resultType != valueType {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a compound assignment of '" + valueType.Name + "' with '" + assignOperator + "' is not yet lowered for captured local '" + name + "'")
+            return false
+        }
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), valuePool)
         return true
     }
 

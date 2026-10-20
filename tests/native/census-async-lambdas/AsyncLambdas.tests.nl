@@ -50,6 +50,10 @@ test "an async lambda captures like an ordinary closure" {
     factory := capturingFactory(5)
     assert await factory() == 6
 
+    mutableFactory := mutableCapturingFactory(10)
+    assert await mutableFactory() == 11
+    assert await mutableFactory() == 12
+
     counter := new Counter(41)
     next := counter.NextFactory()
     assert await next() == 42
@@ -78,10 +82,20 @@ test "each turn of a loop captures its own local" {
 }
 
 test "an exception inside an async lambda lands on the returned task" {
-    factory := faultingFactory()
-    // Building the delegate raises nothing, and neither does invoking it: the body's exception is
-    // captured by the task the invocation returns.
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    factory := faultingFactory(gate.Task)
+    // Invoking the delegate returns while its awaited work is still incomplete. The exception is
+    // captured by the returned task after that work resumes the lambda's state machine.
     task := factory()
+    assert !task.IsCompleted
+    gate.SetResult(1)
+    let waitCaught: bool = false
+    try {
+        task.Wait()
+    } catch error: AggregateException {
+        waitCaught = true
+    }
+    assert waitCaught
     assert task.IsFaulted
 
     let caught: Exception? = null

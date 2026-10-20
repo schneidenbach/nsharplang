@@ -33,6 +33,7 @@ sealed class ColumnarEmitContext {
     TypeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>?
     TypeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>?
     TypeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>?
+    TypeResolution: ColumnarSemanticTypeResolution?
     ReferenceAssemblyPaths: IReadOnlyList<string>?
     ReferenceMetadata: SharedReferenceMetadata?
     GenericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>?
@@ -71,6 +72,7 @@ sealed class ColumnarEmitContext {
         TypeResolutionEnums = null
         TypeResolutionStructs = null
         TypeResolutionUnions = null
+        TypeResolution = null
         Siblings = s_noSiblings
         SiblingOverloads = s_noSiblingOverloads
         SiblingReturnLabeledCanonicals = null
@@ -83,6 +85,7 @@ sealed class ColumnarEmitContext {
         clone.TypeResolutionEnums = TypeResolutionEnums
         clone.TypeResolutionStructs = TypeResolutionStructs
         clone.TypeResolutionUnions = TypeResolutionUnions
+        clone.TypeResolution = TypeResolution
         clone.Siblings = Siblings
         clone.SiblingOverloads = SiblingOverloads
         clone.SiblingReturnLabeledCanonicals = SiblingReturnLabeledCanonicals
@@ -176,6 +179,7 @@ sealed class ColumnarEmitContext {
         clone.TypeResolutionEnums = resolution.Enums
         clone.TypeResolutionStructs = resolution.Structs
         clone.TypeResolutionUnions = resolution.Unions
+        clone.TypeResolution = resolution
         return clone
     }
 
@@ -184,6 +188,7 @@ sealed class ColumnarEmitContext {
         clone.TypeResolutionEnums = enums
         clone.TypeResolutionStructs = structs
         clone.TypeResolutionUnions = unions
+        clone.TypeResolution = null
         return clone
     }
 

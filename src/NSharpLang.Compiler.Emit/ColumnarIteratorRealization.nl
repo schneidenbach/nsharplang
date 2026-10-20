@@ -901,6 +901,8 @@ class ColumnarIteratorRealization {
             !structDef.IsReference,
             usesTaskBuilder,
             defaultUsesTaskBuilder,
+            null,
+            null,
             null
         )
     }
@@ -924,7 +926,9 @@ class ColumnarIteratorRealization {
         receiverIsValueType: bool = false,
         usesTaskBuilder: bool = false,
         defaultUsesTaskBuilder: bool = false,
-        receiverTypeOverride: Type? = null
+        receiverTypeOverride: Type? = null,
+        asyncClosureBoxNames: string[]? = null,
+        asyncClosureBoxSourceFields: FieldBuilder[]? = null
     ): ColumnarIteratorRealizationResult {
         kickoffMethodTypeParameters := System.Type.EmptyTypes
         if kickoff.IsGenericMethodDefinition {
@@ -932,6 +936,33 @@ class ColumnarIteratorRealization {
         }
         if kickoffMethodTypeParameters.Length != fn.TypeParamNames.Length {
             return Declined("emit.async.generic-arity", "async function '" + fn.Name + "' has " + fn.TypeParamNames.Length.ToString() + " declared type parameter(s), but its kickoff method has " + kickoffMethodTypeParameters.Length.ToString(), fn.Name)
+        }
+        shapeEnclosingFieldNames := enclosingFieldNames ?? new string[](0)
+        shapeEnclosingFieldCanonicals := enclosingFieldCanonicals ?? new string[](0)
+        if asyncClosureBoxNames != null && asyncClosureBoxSourceFields != null && asyncClosureBoxNames.Length > 0 {
+            extraCount := asyncClosureBoxNames.Length
+            combinedNames := new string[](shapeEnclosingFieldNames.Length + extraCount)
+            combinedCanonicals := new string[](shapeEnclosingFieldCanonicals.Length + extraCount)
+            copyIndex := 0
+            while copyIndex < shapeEnclosingFieldNames.Length {
+                combinedNames[copyIndex] = shapeEnclosingFieldNames[copyIndex]
+                combinedCanonicals[copyIndex] = shapeEnclosingFieldCanonicals[copyIndex]
+                copyIndex += 1
+            }
+            boxIndex := 0
+            while boxIndex < extraCount {
+                valueType := asyncClosureBoxSourceFields[boxIndex].FieldType.GetGenericArguments()[0]
+                valueCanonical := ""
+                if !ColumnarIteratorPlanner.TryBuildRuntimeTypeCanonical(typeResolution, valueType, out valueCanonical) {
+                    return Declined("emit.async.closure-box-value-type", "captured mutable local '" + asyncClosureBoxNames[boxIndex] + "' cannot be represented in async function '" + fn.Name + "'", fn.Name)
+                }
+                combinedNames[copyIndex] = asyncClosureBoxNames[boxIndex]
+                combinedCanonicals[copyIndex] = valueCanonical
+                copyIndex += 1
+                boxIndex += 1
+            }
+            shapeEnclosingFieldNames = combinedNames
+            shapeEnclosingFieldCanonicals = combinedCanonicals
         }
         shape := ColumnarIteratorPlanner.AnalyzeAsyncMethodShape(
             fn.BodyNodes,
@@ -945,11 +976,27 @@ class ColumnarIteratorRealization {
             fn.TypeParamNames,
             isInstance,
             receiverCanonical,
-            enclosingFieldNames,
-            enclosingFieldCanonicals
+            shapeEnclosingFieldNames,
+            shapeEnclosingFieldCanonicals
         )
         if !shape.Supported {
             return Declined(shape.DeclineSite, shape.DeclineMessage, fn.Name)
+        }
+        if asyncClosureBoxNames != null && asyncClosureBoxSourceFields != null {
+            if asyncClosureBoxNames.Length != asyncClosureBoxSourceFields.Length {
+                return Declined("emit.async.closure-box-shape", "captured mutable locals on async function '" + fn.Name + "' have inconsistent state-machine facts", fn.Name)
+            }
+            closureBoxCanonicals := new string[](asyncClosureBoxNames.Length)
+            boxIndex := 0
+            while boxIndex < asyncClosureBoxNames.Length {
+                boxCanonical := ""
+                if !ColumnarIteratorPlanner.TryBuildRuntimeTypeCanonical(typeResolution, asyncClosureBoxSourceFields[boxIndex].FieldType, out boxCanonical) {
+                    return Declined("emit.async.closure-box-type", "captured mutable local '" + asyncClosureBoxNames[boxIndex] + "' cannot be represented in async function '" + fn.Name + "'", fn.Name)
+                }
+                closureBoxCanonicals[boxIndex] = boxCanonical
+                boxIndex += 1
+            }
+            ColumnarIteratorPlanner.AppendAsyncClosureBoxFields(shape, asyncClosureBoxNames, closureBoxCanonicals)
         }
 
         isTaskFamily := usesTaskBuilder
@@ -1036,6 +1083,10 @@ class ColumnarIteratorRealization {
                 fieldType = resultType == ColumnarTypeOfPlanner.RequiredVoidType() ? typeof(bool) : machineResultType
             } else if role == ColumnarIteratorPlanner.AsyncBuilderFieldRole() {
                 fieldType = builderType
+            } else if role == ColumnarIteratorPlanner.AsyncClosureBoxFieldRole() {
+                if !TryResolveIteratorCanonical(shape.FieldCanonicals[i], machineTypeParameterMap, typeResolution, out fieldType) || !ColumnarTypeOfPlanner.IsSupportedType(fieldType) {
+                    return Declined("emit.async.closure-box-type", "a captured mutable local on async function '" + fn.Name + "' cannot be represented in its state machine", fn.Name)
+                }
             } else if role == ColumnarIteratorPlanner.AwaiterFieldRole() || ColumnarIteratorPlanner.IsUnresolvedCanonical(shape.FieldCanonicals[i]) {
                 i += 1
                 continue
@@ -1254,7 +1305,9 @@ class ColumnarIteratorRealization {
                     true,
                     localWrapped == typeof(System.Threading.Tasks.Task) || (localWrapped.IsGenericType && localWrapped.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition()),
                     defaultUsesTaskBuilder,
-                    sm
+                    sm,
+                    null,
+                    null
                 )
                 if !childResult.Succeeded {
                     return childResult
@@ -1320,6 +1373,24 @@ class ColumnarIteratorRealization {
             kickoffIl.Emit(OpCodes.Ldarg, p + (isInstance ? 1 : 0))
             kickoffIl.Emit(OpCodes.Stfld, kickoffFields[fieldIndex])
             p += 1
+        }
+        if asyncClosureBoxNames != null && asyncClosureBoxSourceFields != null {
+            boxIndex := 0
+            while boxIndex < asyncClosureBoxNames.Length {
+                machineFieldName := ColumnarIteratorPlanner.AsyncClosureBoxFieldName(asyncClosureBoxNames[boxIndex])
+                machineFieldIndex := 0
+                while machineFieldIndex < shape.FieldNames.Length && shape.FieldNames[machineFieldIndex] != machineFieldName {
+                    machineFieldIndex += 1
+                }
+                if machineFieldIndex >= shape.FieldNames.Length || kickoffFields[machineFieldIndex] == null {
+                    return Declined("emit.async.closure-box-field", "captured mutable local '" + asyncClosureBoxNames[boxIndex] + "' has no state-machine field", fn.Name)
+                }
+                kickoffIl.Emit(OpCodes.Ldloca, machineLocal)
+                kickoffIl.Emit(OpCodes.Ldarg_0)
+                kickoffIl.Emit(OpCodes.Ldfld, asyncClosureBoxSourceFields[boxIndex])
+                kickoffIl.Emit(OpCodes.Stfld, kickoffFields[machineFieldIndex])
+                boxIndex += 1
+            }
         }
 
         startBuilder: MethodInfo? = null
