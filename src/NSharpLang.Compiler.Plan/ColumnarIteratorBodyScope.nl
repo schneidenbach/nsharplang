@@ -119,6 +119,24 @@ class ColumnarIteratorBodyFacts {
             structuralTypeReferences
         )
     }
+
+    // Local async-function kickoffs are synthesized on the enclosing state machine after its fields
+    // are known. Publish their exact method and signature as ordinary callable facts so the shared
+    // direct-call planner selects the same overload and argument conversions as it does for siblings.
+    func AddLocalAsyncCallable(name: string, method: MethodInfo, parameterTypes: Type[], parameterNames: string[], parameterModifierKinds: int[], returnType: Type, defaultKinds: int[], defaultTexts: string[]) {
+        if name == null || name.Length == 0 || method == null || parameterTypes == null || parameterNames == null || parameterModifierKinds == null || returnType == null || defaultKinds == null || defaultTexts == null || parameterTypes.Length != parameterNames.Length || parameterTypes.Length != parameterModifierKinds.Length || parameterTypes.Length != defaultKinds.Length || parameterTypes.Length != defaultTexts.Length {
+            throw new InvalidOperationException("An async local callable requires a complete exact signature.")
+        }
+        if SiblingCallables.ContainsKey(name) {
+            throw new InvalidOperationException("An async local callable cannot replace an existing sibling named '" + name + "'.")
+        }
+        SiblingCallables[name] = new ColumnarSiblingCallFacts(method, parameterTypes, parameterModifierKinds, returnType, 0, parameterNames, defaultKinds, defaultTexts)
+        names := SiblingNames as List<string>
+        if names == null {
+            throw new InvalidOperationException("Emission sibling names must be mutable while async local methods are added.")
+        }
+        names.Add(name)
+    }
 }
 
 // THE STATE-MACHINE REWRITE OF A BODY'S NAME BINDINGS, AND THE ONE DOOR ITERATOR LOWERING USES FOR AN
@@ -174,8 +192,8 @@ class ColumnarIteratorBodyScope {
     // `stateMachineType` is the SAME handle the MoveNext plan pools as argument 0 — a closed generic
     // instantiation for a generic machine — so the identifier owner's `GetOrAddArgument` reuses that
     // pool row instead of adding a conflicting one.
-    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?): ColumnarIteratorBodyScope {
-        return Create(stateMachineType, facts, typeParameters, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal))
+    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, stateMachineIsValueType: bool = false): ColumnarIteratorBodyScope {
+        return Create(stateMachineType, facts, typeParameters, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), stateMachineIsValueType)
     }
 
     // THE SAME SCOPE, FOR A METHOD THAT ALSO HAS ARGUMENTS OF ITS OWN. A lambda in a generator body
@@ -183,7 +201,7 @@ class ColumnarIteratorBodyScope {
     // binds, so it already IS the closure's display — and that method's own parameters are ordinary
     // arguments 1..n beside the machine at argument 0. Nothing else about the body changes: the same
     // fields, the same enclosing members, the same one expression door.
-    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>): ColumnarIteratorBodyScope {
+    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, stateMachineIsValueType: bool = false): ColumnarIteratorBodyScope {
         if stateMachineType == null || facts == null || parameterOrdinals == null || parameterTypes == null {
             throw new InvalidOperationException("An iterator body scope requires a state-machine type and its body facts.")
         }
@@ -216,10 +234,10 @@ class ColumnarIteratorBodyScope {
         bindings.SiblingCallables = facts.SiblingCallables
         bindings.SetEnclosingTypeDefinition(facts.EnclosingTypeDefinition)
 
-        // The machine is a CLASS, so the receiver is loaded by value; the runtime-facts mode of the
-        // current-instance contract is what a synthesized type uses — there is no `ColumnarStructDef`
-        // for a state machine and inventing one would be a second definition of the same fields.
-        instanceFacts := new ColumnarCurrentInstanceFacts(stateMachineType, true)
+        // Iterator machines are reference types; C# async method machines are structs whose `this`
+        // is a managed pointer. Both use runtime current-instance facts because there is no source
+        // `ColumnarStructDef` for a synthesized type.
+        instanceFacts := new ColumnarCurrentInstanceFacts(stateMachineType, !stateMachineIsValueType)
         bindings.CurrentInstance = instanceFacts
         return new ColumnarIteratorBodyScope(stateMachineType, facts, bindings, instanceFacts)
     }

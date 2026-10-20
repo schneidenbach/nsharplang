@@ -4709,6 +4709,90 @@ sealed class ColumnarIlEmitter {
         return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)
     }
 
+    private static func AsyncFunctionUsesTaskBuilder(fn: ColumnarFunctionInput, program: ColumnarProgramInput): bool {
+        canonical := fn.ReturnCanonical
+        if canonical == "Task" || canonical.StartsWith("Task<", StringComparison.Ordinal) {
+            return true
+        }
+        if canonical == "ValueTask" || canonical.StartsWith("ValueTask<", StringComparison.Ordinal) {
+            return false
+        }
+        if string.Equals(fn.Name, "main", StringComparison.OrdinalIgnoreCase) {
+            return true
+        }
+        return program.AsyncDefaultFamily == AsyncTaskFamily.Task
+    }
+
+    private static func AsyncWrapperUsesTaskBuilder(wrapped: Type): bool {
+        if wrapped == typeof(System.Threading.Tasks.Task) {
+            return true
+        }
+        if wrapped == typeof(System.Threading.Tasks.ValueTask) {
+            return false
+        }
+        if wrapped.IsGenericType {
+            definition := wrapped.GetGenericTypeDefinition()
+            if definition == typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition() {
+                return true
+            }
+            if definition == typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition() {
+                return false
+            }
+        }
+        throw new InvalidOperationException("async method signature has no Task or ValueTask builder family")
+    }
+
+    private static func TryEmitAsyncTaskStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, kickoff: MethodBuilder, synthesizedTypes: List<TypeBuilder>, bodyFacts: ColumnarIteratorBodyFacts?, resultType: Type, usesTaskBuilder: bool, defaultUsesTaskBuilder: bool): bool {
+        result := ColumnarIteratorRealization.EmitTask(
+            module,
+            fn,
+            funcOrdinal,
+            functionSource,
+            typeResolution,
+            kickoff,
+            synthesizedTypes,
+            bodyFacts,
+            resultType,
+            false,
+            "",
+            null,
+            null,
+            null,
+            null,
+            false,
+            usesTaskBuilder,
+            defaultUsesTaskBuilder,
+            null
+        )
+        if result.Succeeded {
+            return true
+        }
+        return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)
+    }
+
+    private static func TryEmitAsyncTaskMemberStateMachine(module: ModuleBuilder, structDef: ColumnarStructDef, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, kickoff: MethodBuilder, synthesizedTypes: List<TypeBuilder>, bodyFacts: ColumnarIteratorBodyFacts?, resultType: Type, program: ColumnarProgramInput, isStatic: bool, usesTaskBuilder: bool): bool {
+        result := ColumnarIteratorRealization.EmitTaskMember(
+            module,
+            structDef,
+            fn,
+            funcOrdinal,
+            functionSource,
+            typeResolution,
+            kickoff,
+            synthesizedTypes,
+            bodyFacts,
+            resultType,
+            program,
+            isStatic,
+            usesTaskBuilder,
+            program.AsyncDefaultFamily == AsyncTaskFamily.Task
+        )
+        if result.Succeeded {
+            return true
+        }
+        return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)
+    }
+
     // A type-member generator: a STATIC method's machine nests in the declaring type and is generic over
     // that type's parameters and the method's own; an INSTANCE method supplies the enclosing type's
     // member facts (exact canonicals from the struct INPUT, handles from the def) so the planner hoists
@@ -6760,16 +6844,13 @@ sealed class ColumnarIlEmitter {
                 returnType = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
             } else {
                 if (fn.IsAsync) {
-                    // ASYNC (the sync-lowering mirror): the declared return resolves to the INNER type and
-                    // the METHOD signature wraps it — ValueTask(/T) by default, Task(/T) for `main` (the
-                    // legacy emitter's entry-point rule), explicit task-like annotations keep their
-                    // declared family. A generic async FREE function is not modeled yet; generic async
-                    // METHODS are (see `TryComputeAsyncReturnShapeInScope`).
-                    if (fn.TypeParamNames.Length > 0) {
-                        return DeclineStatic("emit.declaration.function-return", "generic async free function is not modeled for '" + fn.Name + "'", fn.Name, -1, 0)
-                    }
-                    if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn)) {
+                    // ASYNC: the declared result resolves in the function's generic scope and the
+                    // kickoff signature wraps it in the selected Task/ValueTask family.
+                    if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope(fn.Name, fn.ReturnCanonical, program.AsyncDefaultFamily, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn)) {
                         return DeclineStatic("emit.declaration.function-return", "async function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)
+                    }
+                    if (typeParamMap != null && returnType != ColumnarTypeOfPlanner.RequiredVoidType() && !IsSupportedGenericSignatureValueType(returnType)) {
+                        return DeclineStatic("emit.declaration.function-return", "generic async result type '" + fn.ReturnCanonical + "' is not a supported CLR signature type for '" + fn.Name + "'", fn.Name, -1, 0)
                     }
                 } else {
                     if (fn.ReturnCanonical == "void") {
@@ -6880,7 +6961,7 @@ sealed class ColumnarIlEmitter {
                 paramTypeMap[fn.ParamNames[i]] = pt
             }
             if (fn.TypeParamNames.Length > 0) {
-                methods[f].SetReturnType(returnType)
+                methods[f].SetReturnType(asyncWrappedReturn ?? returnType)
                 methods[f].SetParameters(paramTypes)
             } else {
                 nonGenericMethodSlots := methods
@@ -7048,6 +7129,47 @@ sealed class ColumnarIlEmitter {
                 for tp := 0; tp < fn.TypeParamNames.Length && tp < currentSibling.TypeParams.Length; tp++ {
                     bodyTypeParamMap[fn.TypeParamNames[tp]] = currentSibling.TypeParams[tp]
                 }
+            }
+            if fn.IsAsync {
+                asyncBodyFacts := ColumnarIteratorBodyFacts.FromEmissionFacts(
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry,
+                    freeFunctionScope.ViewFor(fn.SourceFileId),
+                    typeResolution.Structs.Resolver.ExactSourceTypes,
+                    null,
+                    typeResolution.StructuralTypeReferences
+                )
+                asyncBodyFacts.ModifiedMemberReferences = modifiedMemberReferences
+                if !TryEmitAsyncTaskStateMachine(
+                    module,
+                    fn,
+                    f,
+                    functionSource,
+                    typeResolution,
+                    methods[f],
+                    displayClasses,
+                    asyncBodyFacts,
+                    asyncInnerByFunc[f],
+                    AsyncFunctionUsesTaskBuilder(fn, program),
+                    program.AsyncDefaultFamily == AsyncTaskFamily.Task
+                ) {
+                    return false
+                }
+                if localFunctionLowering != null {
+                    if !TryEmitLocalFunctionBodies(
+                        emitContext.ForSourceFile(fn.SourceFileId).WithTypeResolution(typeResolution),
+                        localFunctionLowering,
+                        fn,
+                        program,
+                        null,
+                        typeResolution,
+                        holders.ForFile(fn.SourceFileId)
+                    ) {
+                        return false
+                    }
+                }
+                continue
             }
             emitter := new ColumnarIlEmitter(
                 emitContext.ForSourceFileBody(fn.SourceFileId).WithTypeResolution(typeResolution).WithGenericInterfaceConstraints(genericInterfaceConstraintMap),
@@ -7279,6 +7401,43 @@ sealed class ColumnarIlEmitter {
                 memberLocalFunctionClosure = memberLocalFunctionLowering.Closure
             }
             memberBodyContext := emitContext.WithRegistries(methodJobEnumRegistry, methodJobStructRegistry, methodJobUnionRegistry, methodJobUnionCaseRegistry).WithSiblings(methodJobSiblings, freeFunctionScope.ReturnLabeledCanonicalsFor(job.Item2.SourceFileId)).WithSourceFileId(job.Item2.SourceFileId).WithProgramHolder(new ColumnarFreeFunctionHolderSlot(holders, job.Item2.SourceFileId)).WithTypeResolution(bodyTypeResolution).WithGenericInterfaceConstraints(memberGenericInterfaceConstraints)
+            if job.Item2.IsAsync && job.Item2.TypeParamNames.Length == 0 && job.Item1.GenericParameters == null {
+                asyncMemberFacts := ColumnarIteratorBodyFacts.FromEmissionFacts(
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry,
+                    methodJobSiblings,
+                    bodyTypeResolution.Structs.Resolver.ExactSourceTypes,
+                    job.Item1,
+                    bodyTypeResolution.StructuralTypeReferences
+                )
+                asyncMemberFacts.ModifiedMemberReferences = modifiedMemberReferences
+                asyncMemberOrdinal := lambdaCounter[0]
+                lambdaCounter[0] = asyncMemberOrdinal + 1
+                ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId, job.Item2.Name)
+                try {
+                    if !TryEmitAsyncTaskMemberStateMachine(
+                        module,
+                        job.Item1,
+                        job.Item2,
+                        asyncMemberOrdinal,
+                        methodSource,
+                        bodyTypeResolution,
+                        job.Item3,
+                        displayClasses,
+                        asyncMemberFacts,
+                        job.Item5,
+                        program,
+                        job.Rest.Item2,
+                        AsyncWrapperUsesTaskBuilder(job.Item6)
+                    ) {
+                        return false
+                    }
+                } finally {
+                    ColumnarDeclineTrace.ClearSourceFileId()
+                }
+                continue
+            }
             emitter := new ColumnarIlEmitter(
                 memberBodyContext,
                 methodJobNodes,
@@ -8227,6 +8386,19 @@ sealed class ColumnarIlEmitter {
         synthesizedMethodOwner: TypeBuilder
     ): bool {
         closure := lowering.Closure
+        if fn.IsAsync && fn.LocalFunctions != null {
+            allLocalFunctionsAreAsync := true
+            for localFunction in fn.LocalFunctions {
+                if !localFunction.Function.IsAsync {
+                    allLocalFunctionsAreAsync = false
+                }
+            }
+            if allLocalFunctionsAreAsync {
+                // Async local bodies were emitted as methods on the enclosing state machine by
+                // EmitTask. They have no display-class body to fill here.
+                return true
+            }
+        }
         if (closure != null) {
             unhoistedCapture := closure.FirstUnhoistedCapture()
             if (unhoistedCapture != null) {
@@ -8238,6 +8410,11 @@ sealed class ColumnarIlEmitter {
         declaringScopeBindings := lowering.DeclaringScopeBindings
         for localFunction in fn.LocalFunctions {
             localFn := localFunction.Function
+            if fn.IsAsync && localFn.IsAsync {
+                // EmitTask has already created this local function's independent machine on the
+                // parent state-machine type. The declaration-stage display method is unused here.
+                continue
+            }
             // A GENERIC local function's facts come from the generic map, because its open handle is
             // not one a call site can dispatch and it is therefore not in the direct one. Everything
             // the body needs is the same three things either way — the method to fill, the declared

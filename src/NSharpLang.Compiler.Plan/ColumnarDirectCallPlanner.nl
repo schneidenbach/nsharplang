@@ -2696,6 +2696,16 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
+        // Async local-function wrappers are instance methods on the parent state-machine struct.
+        // Their source call has no receiver syntax, so the active MoveNext supplies its own `this`.
+        if receiverNode < 0 && !method.IsStatic && !plan.IteratorTypeDiscovery {
+            iteratorEmitter := bindings.IteratorMoveNextEmitter
+            if iteratorEmitter == null {
+                return false
+            }
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), iteratorEmitter.ThisArg)
+        }
+
         if receiverNode >= 0 {
             if receiverType == null || parameterTypes.Length == 0 {
                 return false
@@ -2750,7 +2760,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        methodIndex := plan.AddMethodWithSignature(method, declaringType, parameterTypes, returnType, true, false)
+        methodIndex := plan.AddMethodWithSignature(method, declaringType, parameterTypes, returnType, method.IsStatic, false)
 
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
         resultType = returnType

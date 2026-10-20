@@ -2,7 +2,99 @@ namespace NSharpLang.AsyncTaskLike.Tests
 
 import System
 import System.Collections.Generic
+import System.Threading
 import System.Threading.Tasks
+
+async func AwaitValue(source: Task<int>): Task<int> {
+    return await source
+}
+
+async func GenericAwait<T>(source: Task<T>): Task<T> {
+    return await source
+}
+
+async func TrackedValue(source: Task<int>, started: List<int>, id: int): Task<int> {
+    started.Add(id)
+    value := await source
+    return value + id
+}
+
+async func ObserveContinuationContext(gate: Task<int>, expected: SingleThreadTestContext): Task<bool> {
+    await gate
+    return expected.IsCurrent()
+}
+
+async func ThrowBeforeFirstAwait(error: Exception, shouldThrow: bool): Task<int> {
+    if shouldThrow {
+        throw error
+    }
+    await Task.Yield()
+    return 1
+}
+
+async func ThrowAfterAwait(source: Task<int>, error: Exception): Task<int> {
+    await source
+    throw error
+}
+
+async func PropagateCancellation(source: Task<int>): Task<int> {
+    return await source
+}
+
+class AsyncService {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    async func Read(): Task<int> {
+        await Task.Yield()
+        return Value
+    }
+}
+
+struct AsyncCounter {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    async func Read(): Task<int> {
+        await Task.Yield()
+        return Value
+    }
+}
+
+class SingleThreadTestContext: SynchronizationContext {
+    Pending: Queue<Action>
+
+    constructor() {
+        Pending = new Queue<Action>()
+    }
+
+    func IsCurrent(): bool {
+        return SynchronizationContext.Current == this
+    }
+
+    override func Post(callback: SendOrPostCallback, state: object): void {
+        Pending.Enqueue(() => callback(state))
+    }
+
+    func PumpUntil(task: Task<bool>) {
+        while !task.IsCompleted {
+            action := Pending.Dequeue()
+            previous := SynchronizationContext.Current
+            SynchronizationContext.SetSynchronizationContext(this)
+            try {
+                action()
+            } finally {
+                SynchronizationContext.SetSynchronizationContext(previous)
+            }
+        }
+    }
+}
 
 // The async task-family return shapes whose CALL results must remain usable values. An
 // `async func(): Task` used to crash `nlc check` the moment its call result was touched with a
@@ -57,10 +149,9 @@ async func SumCounted(): Task<int> {
 }
 
 // WHAT MAKES A VALUE AWAITABLE IS THE PATTERN, NOT ITS NAME: a parameterless `GetAwaiter()` whose
-// result carries `IsCompleted` and `GetResult()`. `Task.Yield()` answers no task at all — it answers
-// a `YieldAwaitable` — so `await Task.Yield()` declined at `emit.expression-statement.await` while
-// the four task shapes beside it emitted. The blocking lowering the task shapes use is the one this
-// pattern takes: take the awaiter, spill it, call `GetResult()` on it.
+// result carries `IsCompleted`, a continuation method, and `GetResult()`. `Task.Yield()` answers no
+// task at all — it answers a `YieldAwaitable` — but the state machine handles it through that same
+// pattern as Task, ValueTask, and user-defined awaitables.
 async func YieldingWork(): Task<int> {
     await Task.Yield()
     total := 1
@@ -73,8 +164,8 @@ async func YieldOnce(): Task {
     await Task.Yield()
 }
 
-// AN AWAITABLE A PROGRAM WRITES FOR ITSELF answers the same pattern and takes the same lowering —
-// there is no list of names to be on.
+// AN AWAITABLE A PROGRAM WRITES FOR ITSELF answers the same pattern and takes the same suspension
+// path — there is no list of names to be on.
 class Immediate {
     Value: int
 
@@ -109,7 +200,7 @@ class ImmediateAwaiter: System.Runtime.CompilerServices.INotifyCompletion {
     }
 }
 
-func AwaitCustom(value: int): int {
+async func AwaitCustom(value: int): Task<int> {
     return await new Immediate(value)
 }
 
@@ -137,10 +228,9 @@ func UnitAwaitedSynchronously(): bool {
     return work.IsCompleted
 }
 
-// THE `pooledAsync` REFUSAL RESTS ON THESE. An unannotated `async func` returns the project default,
-// `ValueTask`, and completes before it returns: each `await` is lowered synchronously, and the result
-// is wrapped with `new ValueTask<T>(value)`. A pooled builder recycles the state an async method keeps
-// while it is SUSPENDED; with no suspension there is no state, and the call allocates nothing.
+// A completed await takes the state machine's fast path. The ValueTask builder can return the result
+// inline without allocating when every await has already completed; an actually suspended call keeps
+// its continuation state until the awaited operation resumes it.
 async func NextValue(seed: int): int {
     await Task.CompletedTask
     return seed + 1000

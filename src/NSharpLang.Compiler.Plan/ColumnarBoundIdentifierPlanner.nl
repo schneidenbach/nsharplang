@@ -208,7 +208,7 @@ class ColumnarBoundIdentifierPlanner {
         if selection.Kind == ColumnarBoundIdentifierKind.BoxedCapture {
             currentInstanceType := RequiredType(selection.CurrentInstanceType, "Boxed-capture selection has no current-instance type.")
 
-            argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
+            argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, selection.CurrentInstanceIsAddress)
 
             plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
             boxField := RequiredField(selection.FirstField, "Boxed-capture selection has no box field.")
@@ -358,13 +358,13 @@ class ColumnarBoundIdentifierPlanner {
             throw new InvalidOperationException(description + " selection has no receiver field.")
         }
 
-        argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
+        argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, selection.CurrentInstanceIsAddress)
 
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
         for receiverField in receiverFields {
             hopFieldIndex := plan.AddField(RequiredField(receiverField, description + " selection has no receiver field."))
-
-            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), hopFieldIndex)
+            opcode := receiverField.FieldType.IsValueType ? ColumnarCodePlanContract.Ldflda() : ColumnarCodePlanContract.Ldfld()
+            plan.AppendFieldInstruction(opcode, hopFieldIndex)
         }
     }
 
@@ -986,7 +986,7 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         displayType := receiverField.DeclaringType
-        if displayType == null || displayType.IsValueType || receiverField.IsStatic || memberField.IsStatic {
+        if displayType == null || receiverField.IsStatic || memberField.IsStatic {
             throw new InvalidOperationException("Captured-instance-field facts do not identify an exact instance receiver and member.")
         }
 
@@ -995,7 +995,7 @@ class ColumnarBoundIdentifierPlanner {
 
         capturedReceiverChain := new FieldInfo[](1)
         capturedReceiverChain[0] = receiverField
-        return new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, memberType, -1, -1, null, receiverField, memberField, null, null, displayType, false, capturedReceiverChain)
+        return new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, memberType, -1, -1, null, receiverField, memberField, null, null, displayType, displayType.IsValueType, capturedReceiverChain)
     }
 
     // `base.Name` AS A VALUE — the field or property the BASE declares.
@@ -1241,7 +1241,7 @@ class ColumnarBoundIdentifierPlanner {
             fieldType := field.FieldType
             RequireStorableValueType(fieldType, "Captured enclosing-instance field facts must identify a storable value type.")
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, fieldType, -1, -1, null, receiverChain[0], field, null, declaringType, displayType, false, receiverChain)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, fieldType, -1, -1, null, receiverChain[0], field, null, declaringType, displayType, displayType.IsValueType, receiverChain)
 
             return true
         }
@@ -1255,7 +1255,7 @@ class ColumnarBoundIdentifierPlanner {
 
             RequireStorableValueType(propertyType, "Captured enclosing-instance property facts must identify a storable value type.")
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, propertyType, -1, -1, null, receiverChain[0], null, getter, declaringType, displayType, false, receiverChain)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, propertyType, -1, -1, null, receiverChain[0], null, getter, declaringType, displayType, displayType.IsValueType, receiverChain)
 
             return true
         }
@@ -1277,12 +1277,12 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         if inherited.Kind == ColumnarBoundIdentifierKind.CapturedInstanceField {
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, inherited.ResultType, -1, -1, null, receiverChain[0], inherited.FirstField, null, inherited.DeclaringType, displayType, false, receiverChain)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, inherited.ResultType, -1, -1, null, receiverChain[0], inherited.FirstField, null, inherited.DeclaringType, displayType, displayType.IsValueType, receiverChain)
 
             return true
         }
 
-        selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, inherited.ResultType, -1, -1, null, receiverChain[0], null, inherited.Getter, inherited.DeclaringType, displayType, false, receiverChain)
+        selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, inherited.ResultType, -1, -1, null, receiverChain[0], null, inherited.Getter, inherited.DeclaringType, displayType, displayType.IsValueType, receiverChain)
 
         return true
     }

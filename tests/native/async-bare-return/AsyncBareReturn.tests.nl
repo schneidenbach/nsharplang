@@ -152,12 +152,13 @@ class Worker {
 }
 
 async func WithLocalFunction(log: List<string>, x: int): Task {
+    captured: int = x + 10
     async func inner(y: int): Task {
         if y == 0 {
             return
         }
         await Task.Delay(1)
-        log.Add("local " + y.ToString())
+        log.Add("local " + captured.ToString())
     }
     await inner(x)
     log.Add("outer " + x.ToString())
@@ -243,6 +244,10 @@ test "a bare return in an async local function leaves only that function" {
     log := NewLog()
     WithLocalFunction(log, 0).Wait()
     assert string.Join(",", log) == "outer 0"
+
+    capturedLog := NewLog()
+    WithLocalFunction(capturedLog, 2).Wait()
+    assert string.Join(",", capturedLog) == "local 12,outer 2"
 }
 
 test "a bare return in an async lambda completes its task" {

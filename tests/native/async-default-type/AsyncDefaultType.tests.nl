@@ -257,18 +257,14 @@ test "a bare return in an async function that owes a result is NL305" {
     }
 }
 
-// GENERIC ASYNC FREE AND LOCAL FUNCTIONS ARE NOT MODELED YET (generic async METHODS are). The refusal
-// is a NAMED decline carrying the function's name, never an unexplained failure.
-test "a generic async free function is refused with a named decline" {
+// Generic async free functions use the same state-machine lowering as generic async methods.
+test "a generic async free function compiles" {
     root := AdtRoot("generic-async-free")
     try {
         AdtWebProject(root, "GenericFree", "", "import System.Threading.Tasks\n\nasync func Read<T>(value: T): T {\n    await Task.Delay(1)\n    return value\n}\n")
         errors: List<CompilerError> = null
         AdtCompile(root, "GenericFree", out errors)
-        assert errors.Count == 1, AdtErrorText(errors)
-        assert errors[0].DiagnosticId == "NL103", AdtErrorText(errors)
-        assert errors[0].Message.Contains("emit.declaration.function-return", StringComparison.Ordinal), errors[0].Message
-        assert errors[0].Message.Contains("generic async free function is not modeled for 'Read'", StringComparison.Ordinal), errors[0].Message
+        assert errors.Count == 0, AdtErrorText(errors)
     } finally {
         Directory.Delete(root, true)
     }

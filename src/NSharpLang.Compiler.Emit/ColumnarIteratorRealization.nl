@@ -681,6 +681,717 @@ class ColumnarIteratorRealization {
         return Completed()
     }
 
+    // Compile an ordinary `async func` as a CLR async state machine. The iterator body planner owns
+    // resume dispatch, hoisting, expression spills, protected-region re-entry and await-pattern
+    // binding; this realization supplies the task builder and the C#-shaped struct/kickoff surface.
+    static func DefineAsyncMachineType(module: ModuleBuilder, declaringType: TypeBuilder?, name: string): TypeBuilder {
+        if declaringType != null {
+            return declaringType.DefineNestedType(
+                name,
+                TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
+                typeof(ValueType)
+            )
+        }
+        return module.DefineType(name, TypeAttributes.NotPublic | TypeAttributes.Sealed | TypeAttributes.SequentialLayout, typeof(ValueType))
+    }
+
+    static func AsyncBuilderMethodOnType(builderType: Type, definitionMethod: MethodInfo): MethodInfo {
+        try {
+            return TypeBuilder.GetMethod(builderType, definitionMethod)
+        } catch ex: Exception {
+            throw new InvalidOperationException("kickoff async builder member rebinding failed: " + ex.Message)
+        }
+    }
+
+    static func DefineAsyncBuilderMethodBridges(
+        module: ModuleBuilder,
+        builderDefinition: Type,
+        machineName: string,
+        synthesizedTypes: List<TypeBuilder>
+    ): ColumnarAsyncBuilderMethodBridges {
+        bridgeType := module.DefineType(
+            machineName + "$BuilderBridge",
+            TypeAttributes.NotPublic | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.Class,
+            typeof(object)
+        )
+        bridgeAttributes := MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig
+        exceptionType := typeof(Exception)
+        stateMachineInterface := typeof(System.Runtime.CompilerServices.IAsyncStateMachine)
+        notifyInterface := typeof(System.Runtime.CompilerServices.INotifyCompletion)
+        criticalNotifyInterface := typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)
+        builderResultDefinition := builderDefinition
+
+        awaitOn := bridgeType.DefineMethod("AwaitOnCompleted", bridgeAttributes)
+        awaitOnParameters := awaitOn.DefineGenericParameters(["TResult", "TAwaiter", "TStateMachine"])
+        awaitOnParameters[1].SetInterfaceConstraints([notifyInterface])
+        awaitOnParameters[2].SetInterfaceConstraints([stateMachineInterface])
+        awaitOnBuilder := builderResultDefinition.MakeGenericType([awaitOnParameters[0]])
+        awaitOn.SetReturnType(typeof(void))
+        awaitOnParameterTypes := new Type[](3)
+        awaitOnParameterTypes[0] = awaitOnBuilder.MakeByRefType()
+        awaitOnParameterTypes[1] = awaitOnParameters[1].MakeByRefType()
+        awaitOnParameterTypes[2] = awaitOnParameters[2].MakeByRefType()
+        awaitOn.SetParameters(awaitOnParameterTypes)
+        awaitOnMethod := FindAsyncBuilderMethod(builderResultDefinition, "AwaitOnCompleted", 2, 2)
+        awaitOnMethod = TypeBuilder.GetMethod(awaitOnBuilder, awaitOnMethod).MakeGenericMethod([awaitOnParameters[1], awaitOnParameters[2]])
+        awaitOnIl := awaitOn.GetILGenerator()
+        awaitOnIl.Emit(OpCodes.Ldarg_0)
+        awaitOnIl.Emit(OpCodes.Ldarg_1)
+        awaitOnIl.Emit(OpCodes.Ldarg_2)
+        awaitOnIl.Emit(OpCodes.Call, awaitOnMethod)
+        awaitOnIl.Emit(OpCodes.Ret)
+
+        awaitUnsafe := bridgeType.DefineMethod("AwaitUnsafeOnCompleted", bridgeAttributes)
+        awaitUnsafeParameters := awaitUnsafe.DefineGenericParameters(["TResult", "TAwaiter", "TStateMachine"])
+        awaitUnsafeParameters[1].SetInterfaceConstraints([criticalNotifyInterface])
+        awaitUnsafeParameters[2].SetInterfaceConstraints([stateMachineInterface])
+        awaitUnsafeBuilder := builderResultDefinition.MakeGenericType([awaitUnsafeParameters[0]])
+        awaitUnsafe.SetReturnType(typeof(void))
+        awaitUnsafeParameterTypes := new Type[](3)
+        awaitUnsafeParameterTypes[0] = awaitUnsafeBuilder.MakeByRefType()
+        awaitUnsafeParameterTypes[1] = awaitUnsafeParameters[1].MakeByRefType()
+        awaitUnsafeParameterTypes[2] = awaitUnsafeParameters[2].MakeByRefType()
+        awaitUnsafe.SetParameters(awaitUnsafeParameterTypes)
+        awaitUnsafeMethod := FindAsyncBuilderMethod(builderResultDefinition, "AwaitUnsafeOnCompleted", 2, 2)
+        awaitUnsafeMethod = TypeBuilder.GetMethod(awaitUnsafeBuilder, awaitUnsafeMethod).MakeGenericMethod([awaitUnsafeParameters[1], awaitUnsafeParameters[2]])
+        awaitUnsafeIl := awaitUnsafe.GetILGenerator()
+        awaitUnsafeIl.Emit(OpCodes.Ldarg_0)
+        awaitUnsafeIl.Emit(OpCodes.Ldarg_1)
+        awaitUnsafeIl.Emit(OpCodes.Ldarg_2)
+        awaitUnsafeIl.Emit(OpCodes.Call, awaitUnsafeMethod)
+        awaitUnsafeIl.Emit(OpCodes.Ret)
+
+        setException := bridgeType.DefineMethod("SetException", bridgeAttributes)
+        exceptionParameters := setException.DefineGenericParameters(["TResult"])
+        exceptionBuilder := builderResultDefinition.MakeGenericType([exceptionParameters[0]])
+        setException.SetReturnType(typeof(void))
+        exceptionParameterTypes := new Type[](2)
+        exceptionParameterTypes[0] = exceptionBuilder.MakeByRefType()
+        exceptionParameterTypes[1] = exceptionType
+        setException.SetParameters(exceptionParameterTypes)
+        exceptionMethodDefinition := builderResultDefinition.GetMethod("SetException", [exceptionType])
+        if exceptionMethodDefinition == null {
+            throw new InvalidOperationException("the generic async builder has no SetException(Exception) method")
+        }
+        exceptionMethod := TypeBuilder.GetMethod(exceptionBuilder, exceptionMethodDefinition)
+        setExceptionIl := setException.GetILGenerator()
+        setExceptionIl.Emit(OpCodes.Ldarg_0)
+        setExceptionIl.Emit(OpCodes.Ldarg_1)
+        setExceptionIl.Emit(OpCodes.Call, exceptionMethod)
+        setExceptionIl.Emit(OpCodes.Ret)
+
+        setResult := bridgeType.DefineMethod("SetResult", bridgeAttributes)
+        resultParameters := setResult.DefineGenericParameters(["TResult"])
+        resultBuilder := builderResultDefinition.MakeGenericType([resultParameters[0]])
+        setResult.SetReturnType(typeof(void))
+        resultParameterTypes := new Type[](2)
+        resultParameterTypes[0] = resultBuilder.MakeByRefType()
+        resultParameterTypes[1] = resultParameters[0]
+        setResult.SetParameters(resultParameterTypes)
+        resultMethodDefinition := FindAsyncBuilderResultMethod(builderResultDefinition)
+        resultMethod := TypeBuilder.GetMethod(resultBuilder, resultMethodDefinition)
+        setResultIl := setResult.GetILGenerator()
+        setResultIl.Emit(OpCodes.Ldarg_0)
+        setResultIl.Emit(OpCodes.Ldarg_1)
+        setResultIl.Emit(OpCodes.Call, resultMethod)
+        setResultIl.Emit(OpCodes.Ret)
+
+        setStateMachine := bridgeType.DefineMethod("SetStateMachine", bridgeAttributes)
+        stateMachineParameters := setStateMachine.DefineGenericParameters(["TResult"])
+        stateMachineBuilder := builderResultDefinition.MakeGenericType([stateMachineParameters[0]])
+        setStateMachine.SetReturnType(typeof(void))
+        stateMachineParameterTypes := new Type[](2)
+        stateMachineParameterTypes[0] = stateMachineBuilder.MakeByRefType()
+        stateMachineParameterTypes[1] = stateMachineInterface
+        setStateMachine.SetParameters(stateMachineParameterTypes)
+        stateMachineMethodDefinition := builderResultDefinition.GetMethod("SetStateMachine", [stateMachineInterface])
+        if stateMachineMethodDefinition == null {
+            throw new InvalidOperationException("the generic async builder has no SetStateMachine(IAsyncStateMachine) method")
+        }
+        stateMachineMethod := TypeBuilder.GetMethod(stateMachineBuilder, stateMachineMethodDefinition)
+        setStateMachineIl := setStateMachine.GetILGenerator()
+        setStateMachineIl.Emit(OpCodes.Ldarg_0)
+        setStateMachineIl.Emit(OpCodes.Ldarg_1)
+        setStateMachineIl.Emit(OpCodes.Call, stateMachineMethod)
+        setStateMachineIl.Emit(OpCodes.Ret)
+
+        synthesizedTypes.Add(bridgeType)
+        return new ColumnarAsyncBuilderMethodBridges(awaitOn, awaitUnsafe, setException, setResult, setStateMachine)
+    }
+
+    static func FindAsyncBuilderMethod(builderDefinition: Type, name: string, genericArity: int, parameterCount: int): MethodInfo {
+        for candidate in builderDefinition.GetMethods(BindingFlags.Instance | BindingFlags.Public) {
+            if candidate.Name == name && candidate.IsGenericMethodDefinition && candidate.GetGenericArguments().Length == genericArity && candidate.GetParameters().Length == parameterCount {
+                return candidate
+            }
+        }
+        throw new InvalidOperationException("the async builder has no " + name + " method with the expected generic signature")
+    }
+
+    static func FindAsyncBuilderResultMethod(builderDefinition: Type): MethodInfo {
+        for candidate in builderDefinition.GetMethods(BindingFlags.Instance | BindingFlags.Public) {
+            parameters := candidate.GetParameters()
+            if candidate.Name == "SetResult" && parameters.Length == 1 && parameters[0].ParameterType.IsGenericParameter && parameters[0].ParameterType.GenericParameterPosition == 0 {
+                return candidate
+            }
+        }
+        throw new InvalidOperationException("the generic async builder has no SetResult(TResult) method")
+    }
+
+    static func EmitTaskMember(
+        module: ModuleBuilder,
+        structDef: ColumnarStructDef,
+        method: ColumnarFunctionInput,
+        funcOrdinal: int,
+        functionSource: string,
+        typeResolution: ColumnarSemanticTypeResolution,
+        kickoff: MethodBuilder,
+        synthesizedTypes: List<TypeBuilder>,
+        bodyFacts: ColumnarIteratorBodyFacts?,
+        resultType: Type,
+        program: ColumnarProgramInput,
+        isStatic: bool,
+        usesTaskBuilder: bool,
+        defaultUsesTaskBuilder: bool
+    ): ColumnarIteratorRealizationResult {
+        input := StructInputFor(program, structDef)
+        if input == null {
+            return Declined("emit.async.instance-unsupported", "enclosing type facts are unavailable for async method '" + structDef.DeclaredTypeName + "." + method.Name + "'", method.Name)
+        }
+        fieldNames := new List<string>()
+        fieldCanonicals := new List<string>()
+        fieldHandles := new List<FieldInfo>()
+        fieldOwner: ColumnarStructDef? = structDef
+        fieldOwnerInput: ColumnarStructInput? = input
+        while fieldOwner != null && fieldOwnerInput != null {
+            ownerDefinition := (ColumnarStructDef)fieldOwner
+            ownerInput := (ColumnarStructInput)fieldOwnerInput
+            isDeclaringType := Object.ReferenceEquals(ownerDefinition, structDef)
+            fieldIndex := 0
+            while fieldIndex < ownerInput.FieldNames.Length {
+                name := ownerInput.FieldNames[fieldIndex]
+                fieldBuilder: FieldBuilder = null
+                if name.Length > 0 && !fieldNames.Contains(name) && ownerDefinition.Fields.TryGetValue(name, out fieldBuilder) && (isDeclaringType || !fieldBuilder.IsPrivate) {
+                    fieldNames.Add(name)
+                    fieldCanonicals.Add(ownerInput.FieldTypeCanonicals[fieldIndex])
+                    fieldHandle: FieldInfo = fieldBuilder
+                    fieldHandles.Add(fieldHandle)
+                }
+                fieldIndex += 1
+            }
+            fieldOwner = ownerDefinition.BaseDef
+            fieldOwnerInput = fieldOwner == null ? null : StructInputFor(program, (ColumnarStructDef)fieldOwner)
+        }
+        return EmitTask(
+            module,
+            method,
+            funcOrdinal,
+            functionSource,
+            typeResolution,
+            kickoff,
+            synthesizedTypes,
+            bodyFacts,
+            resultType,
+            !isStatic,
+            input.Name,
+            structDef.Builder,
+            fieldNames.ToArray(),
+            fieldHandles.ToArray(),
+            fieldCanonicals.ToArray(),
+            !structDef.IsReference,
+            usesTaskBuilder,
+            defaultUsesTaskBuilder,
+            null
+        )
+    }
+
+    static func EmitTask(
+        module: ModuleBuilder,
+        fn: ColumnarFunctionInput,
+        funcOrdinal: int,
+        functionSource: string,
+        typeResolution: ColumnarSemanticTypeResolution,
+        kickoff: MethodBuilder,
+        synthesizedTypes: List<TypeBuilder>,
+        bodyFacts: ColumnarIteratorBodyFacts?,
+        resultType: Type,
+        isInstance: bool = false,
+        receiverCanonical: string = "",
+        enclosingType: TypeBuilder? = null,
+        enclosingFieldNames: string[]? = null,
+        enclosingFields: FieldInfo[]? = null,
+        enclosingFieldCanonicals: string[]? = null,
+        receiverIsValueType: bool = false,
+        usesTaskBuilder: bool = false,
+        defaultUsesTaskBuilder: bool = false,
+        receiverTypeOverride: Type? = null
+    ): ColumnarIteratorRealizationResult {
+        kickoffMethodTypeParameters := System.Type.EmptyTypes
+        if kickoff.IsGenericMethodDefinition {
+            kickoffMethodTypeParameters = kickoff.GetGenericArguments()
+        }
+        if kickoffMethodTypeParameters.Length != fn.TypeParamNames.Length {
+            return Declined("emit.async.generic-arity", "async function '" + fn.Name + "' has " + fn.TypeParamNames.Length.ToString() + " declared type parameter(s), but its kickoff method has " + kickoffMethodTypeParameters.Length.ToString(), fn.Name)
+        }
+        shape := ColumnarIteratorPlanner.AnalyzeAsyncMethodShape(
+            fn.BodyNodes,
+            functionSource,
+            fn.BodyRoot,
+            fn.Name,
+            funcOrdinal,
+            fn.ReturnCanonical,
+            fn.ParamNames,
+            fn.ParamCanonicals,
+            fn.TypeParamNames,
+            isInstance,
+            receiverCanonical,
+            enclosingFieldNames,
+            enclosingFieldCanonicals
+        )
+        if !shape.Supported {
+            return Declined(shape.DeclineSite, shape.DeclineMessage, fn.Name)
+        }
+
+        isTaskFamily := usesTaskBuilder
+        builderDefinition: Type = null
+        if isTaskFamily {
+            builderDefinition = typeof(System.Runtime.CompilerServices.AsyncTaskMethodBuilder)
+            if resultType != ColumnarTypeOfPlanner.RequiredVoidType() {
+                builderDefinition = typeof(System.Runtime.CompilerServices.AsyncTaskMethodBuilder<int>).GetGenericTypeDefinition()
+            }
+        } else {
+            builderDefinition = typeof(System.Runtime.CompilerServices.AsyncValueTaskMethodBuilder)
+            if resultType != ColumnarTypeOfPlanner.RequiredVoidType() {
+                builderDefinition = typeof(System.Runtime.CompilerServices.AsyncValueTaskMethodBuilder<int>).GetGenericTypeDefinition()
+            }
+        }
+        machineTypeParameterMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+        machineTypeParameters := System.Type.EmptyTypes
+        machineSpecialConstraints := System.Array.Empty<int>()
+        machineBaseConstraints := System.Array.Empty<Type>()
+        machineInterfaceConstraints := System.Array.Empty<Type[]>()
+        sm := DefineAsyncMachineType(module, enclosingType, shape.TypeName)
+        if fn.TypeParamNames.Length > 0 {
+            machineGps := sm.DefineGenericParameters(fn.TypeParamNames)
+            machineTypeParameters = new Type[](machineGps.Length)
+            machineOwnedParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+            gp := 0
+            while gp < machineGps.Length {
+                machineTypeParameters[gp] = machineGps[gp]
+                machineTypeParameterMap[fn.TypeParamNames[gp]] = machineGps[gp]
+                machineOwnedParameters[fn.TypeParamNames[gp]] = machineGps[gp]
+                gp += 1
+            }
+            typeResolution.StructuralTypeReferences.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, machineOwnedParameters)
+            if !ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(
+                machineGps,
+                fn.TypeParamSpecialConstraints,
+                fn.TypeParamTypeConstraints,
+                machineTypeParameterMap,
+                machineTypeParameters,
+                typeResolution,
+                out machineSpecialConstraints,
+                out machineBaseConstraints,
+                out machineInterfaceConstraints
+            ) {
+                return Declined("emit.async.generic-constraints", "generic constraints on async function '" + fn.Name + "' could not be preserved on its state machine", fn.Name)
+            }
+        } else {
+            typeResolution.StructuralTypeReferences.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, null)
+        }
+        machineType: Type = sm
+        kickoffMachineType: Type = sm
+        machineResultType := resultType
+        if machineTypeParameters.Length > 0 {
+            machineType = sm.MakeGenericType(machineTypeParameters)
+            kickoffMachineType = sm.MakeGenericType(kickoffMethodTypeParameters)
+            if resultType != ColumnarTypeOfPlanner.RequiredVoidType() && !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(kickoffMethodTypeParameters, machineTypeParameters, resultType, out machineResultType) {
+                return Declined("emit.async.generic-result", "the generic result type of async function '" + fn.Name + "' could not be rebound to its state machine", fn.Name)
+            }
+        }
+        builderType: Type = builderDefinition
+        kickoffBuilderType: Type = builderDefinition
+        if resultType != ColumnarTypeOfPlanner.RequiredVoidType() {
+            builderType = builderDefinition.MakeGenericType([machineResultType])
+            kickoffBuilderType = builderDefinition.MakeGenericType([resultType])
+        }
+        sm.AddInterfaceImplementation(typeof(System.Runtime.CompilerServices.IAsyncStateMachine))
+        compilerGeneratedCtor := typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute).GetConstructor(System.Type.EmptyTypes)
+        if compilerGeneratedCtor == null {
+            throw new InvalidOperationException("CompilerGeneratedAttribute's parameterless constructor was not found.")
+        }
+        sm.SetCustomAttribute(compilerGeneratedCtor, ColumnarAttributeBlobs.NoArgument())
+        fields := new FieldInfo[](shape.FieldCount)
+        definitionFields := new FieldInfo[](shape.FieldCount)
+        kickoffFields := new FieldInfo[](shape.FieldCount)
+        i := 0
+        while i < shape.FieldCount {
+            role := shape.FieldRoles[i]
+            fieldType: Type = null
+            if role == ColumnarIteratorPlanner.StateFieldRole() {
+                fieldType = typeof(int)
+            } else if role == ColumnarIteratorPlanner.CapturedParameterFieldRole() && shape.FieldNames[i] == "<>__this" && receiverTypeOverride != null {
+                fieldType = receiverTypeOverride
+            } else if role == ColumnarIteratorPlanner.AsyncResultFieldRole() {
+                fieldType = resultType == ColumnarTypeOfPlanner.RequiredVoidType() ? typeof(bool) : machineResultType
+            } else if role == ColumnarIteratorPlanner.AsyncBuilderFieldRole() {
+                fieldType = builderType
+            } else if role == ColumnarIteratorPlanner.AwaiterFieldRole() || ColumnarIteratorPlanner.IsUnresolvedCanonical(shape.FieldCanonicals[i]) {
+                i += 1
+                continue
+            } else {
+                if !TryResolveIteratorCanonical(shape.FieldCanonicals[i], machineTypeParameterMap, typeResolution, out fieldType) || !ColumnarTypeOfPlanner.IsSupportedType(fieldType) {
+                    return Declined("emit.async.field-type", "async hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'", fn.Name)
+                }
+                if role == ColumnarIteratorPlanner.LoopCaptureBoxFieldRole() {
+                    fieldType = ColumnarIteratorPlanner.LoopCaptureBoxType(fieldType)
+                }
+            }
+            fieldBuilder := sm.DefineField(shape.FieldNames[i], fieldType, FieldAttributes.Public)
+            definitionField: FieldInfo = fieldBuilder
+            definitionFields[i] = definitionField
+            if machineTypeParameters.Length > 0 {
+                fields[i] = TypeBuilder.GetField(machineType, definitionField)
+            } else {
+                fields[i] = definitionField
+            }
+            if kickoffMethodTypeParameters.Length > 0 {
+                kickoffFields[i] = TypeBuilder.GetField(kickoffMachineType, definitionField)
+            } else {
+                kickoffFields[i] = definitionField
+            }
+            i += 1
+        }
+
+        builderField := kickoffFields[shape.FieldNames.Length - 1]
+        stateField := kickoffFields[0]
+        builderCreate: MethodInfo? = null
+        taskProperty: PropertyInfo? = null
+        taskGetter: MethodInfo? = null
+        setStateMachineBuilder: MethodInfo? = null
+        builderTypeUsesTypeBuilderParameter := resultType != ColumnarTypeOfPlanner.RequiredVoidType() && RuntimeTypeShapeFacts.ContainsBuilderBoundType(resultType)
+        builderBridges: ColumnarAsyncBuilderMethodBridges? = null
+        if resultType != ColumnarTypeOfPlanner.RequiredVoidType() && RuntimeTypeShapeFacts.ContainsBuilderBoundType(machineResultType) {
+            builderBridges = DefineAsyncBuilderMethodBridges(module, builderDefinition, shape.TypeName, synthesizedTypes)
+        }
+        if builderTypeUsesTypeBuilderParameter {
+            builderCreateDefinition := builderDefinition.GetMethod("Create", BindingFlags.Public | BindingFlags.Static, null, System.Type.EmptyTypes, null)
+            if builderCreateDefinition != null {
+                builderCreate = AsyncBuilderMethodOnType(kickoffBuilderType, builderCreateDefinition)
+            }
+            taskProperty = builderDefinition.GetProperty("Task")
+            if taskProperty != null && taskProperty.GetMethod != null {
+                taskGetter = AsyncBuilderMethodOnType(kickoffBuilderType, taskProperty.GetMethod)
+            }
+        } else {
+            builderCreate = kickoffBuilderType.GetMethod("Create", BindingFlags.Public | BindingFlags.Static, null, System.Type.EmptyTypes, null)
+            taskProperty = kickoffBuilderType.GetProperty("Task")
+            if taskProperty != null {
+                taskGetter = taskProperty.GetMethod
+            }
+        }
+        if builderBridges != null {
+            setStateMachineBuilder = builderBridges.SetStateMachine.MakeGenericMethod([machineResultType])
+        } else {
+            setStateMachineBuilder = builderType.GetMethod("SetStateMachine", [typeof(System.Runtime.CompilerServices.IAsyncStateMachine)])
+        }
+        if builderCreate == null || taskGetter == null || setStateMachineBuilder == null {
+            return Declined("emit.async.builder-surface", "the async task builder for '" + fn.Name + "' is missing Create, Task, or SetStateMachine", fn.Name)
+        }
+
+        moveNext := sm.DefineMethod(
+            "MoveNext",
+            MethodAttributes.Private | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot,
+            typeof(void),
+            System.Type.EmptyTypes
+        )
+        setStateMachine := sm.DefineMethod(
+            "SetStateMachine",
+            MethodAttributes.Private | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot,
+            typeof(void),
+            [typeof(System.Runtime.CompilerServices.IAsyncStateMachine)]
+        )
+        interfaceType := typeof(System.Runtime.CompilerServices.IAsyncStateMachine)
+        interfaceMoveNext := interfaceType.GetMethod("MoveNext")
+        interfaceSetStateMachine := interfaceType.GetMethod("SetStateMachine")
+        if interfaceMoveNext == null || interfaceSetStateMachine == null {
+            throw new InvalidOperationException("IAsyncStateMachine's required methods were not found.")
+        }
+        sm.DefineMethodOverride(moveNext, interfaceMoveNext)
+        sm.DefineMethodOverride(setStateMachine, interfaceSetStateMachine)
+
+        context := new ColumnarIteratorEmitContext(
+            fn.BodyNodes,
+            functionSource,
+            fn.BodyRoot,
+            shape,
+            machineType,
+            machineResultType,
+            shape.FieldNames,
+            fields,
+            typeResolution.StructuralTypeReferences,
+            null,
+            enclosingType,
+            enclosingFieldNames,
+            enclosingFields,
+            enclosingFieldCanonicals,
+            null,
+            bodyFacts,
+            sm,
+            machineTypeParameters.Length == 0 ? null : machineType,
+            machineTypeParameterMap,
+            definitionFields,
+            synthesizedTypes,
+            fn.SourceFileId,
+            machineSpecialConstraints,
+            machineBaseConstraints,
+            machineInterfaceConstraints,
+            machineTypeParameters,
+            machineResultType,
+            true,
+            builderBridges
+        )
+
+        // Async local functions are instance kickoffs on the parent state machine. Their own bodies
+        // get independent task machines and read captured parent fields through the captured receiver.
+        if fn.LocalFunctions != null {
+            if machineTypeParameters.Length > 0 {
+                for localFunction in fn.LocalFunctions {
+                    if localFunction.Function.IsAsync {
+                        return Declined(
+                            "emit.async.local-function.generic-owner",
+                            "async local function '" + localFunction.Function.Name + "' inside generic async function '" + fn.Name + "' is not yet supported",
+                            fn.Name + "." + localFunction.Function.Name
+                        )
+                    }
+                }
+            }
+            localFunctionOrdinal := 0
+            for localFunction in fn.LocalFunctions {
+                localFn := localFunction.Function
+                if !localFn.IsAsync {
+                    localFunctionOrdinal += 1
+                    continue
+                }
+                if localFn.TypeParamNames.Length > 0 {
+                    return Declined(
+                        "emit.async.local-function.generic",
+                        "generic async local function '" + localFn.Name + "' cannot yet be emitted as a state machine",
+                        fn.Name + "." + localFn.Name
+                    )
+                }
+                localInner: Type? = null
+                localWrapped: Type? = null
+                if !TryResolveAsyncLocalReturnShape(
+                    localFn.ReturnCanonical,
+                    machineTypeParameterMap,
+                    typeResolution,
+                    defaultUsesTaskBuilder,
+                    out localInner,
+                    out localWrapped
+                ) || localInner == null || localWrapped == null {
+                    return Declined("emit.async.local-function.return", "async local function '" + localFn.Name + "' has an unsupported result type '" + localFn.ReturnCanonical + "'", fn.Name + "." + localFn.Name)
+                }
+                localParameterTypes := new Type[](localFn.ParamNames.Length)
+                parameterIndex := 0
+                while parameterIndex < localParameterTypes.Length {
+                    localParameterType: Type = null
+                    if !TryResolveIteratorCanonical(localFn.ParamCanonicals[parameterIndex], machineTypeParameterMap, typeResolution, out localParameterType) || !ColumnarTypeOfPlanner.IsSupportedType(localParameterType) {
+                        return Declined("emit.async.local-function.parameter", "parameter '" + localFn.ParamNames[parameterIndex] + "' of async local function '" + localFn.Name + "' has unsupported type '" + localFn.ParamCanonicals[parameterIndex] + "'", fn.Name + "." + localFn.Name)
+                    }
+                    localParameterTypes[parameterIndex] = localParameterType
+                    parameterIndex += 1
+                }
+                localMethodName := "<>__asyncLocal" + localFunctionOrdinal.ToString()
+                localMethod := sm.DefineMethod(
+                    localMethodName,
+                    MethodAttributes.Assembly | MethodAttributes.HideBySig,
+                    localWrapped,
+                    localParameterTypes
+                )
+                ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(localMethod, localFn.ParamNames)
+                if bodyFacts != null {
+                    bodyFacts.AddLocalAsyncCallable(
+                        localFn.Name,
+                        localMethod,
+                        localParameterTypes,
+                        localFn.ParamNames,
+                        localFn.ParamModifierKinds,
+                        localWrapped,
+                        localFn.ParamDefaultKinds,
+                        localFn.ParamDefaultTexts
+                    )
+                }
+                parentCaptureNames := new List<string>()
+                parentCaptureCanonicals := new List<string>()
+                parentCaptureFields := new List<FieldInfo>()
+                parentFieldIndex := 0
+                while parentFieldIndex < shape.FieldCount {
+                    if definitionFields[parentFieldIndex] != null && !ColumnarIteratorPlanner.IsUnresolvedCanonical(shape.FieldCanonicals[parentFieldIndex]) && shape.FieldRoles[parentFieldIndex] != ColumnarIteratorPlanner.StateFieldRole() && shape.FieldRoles[parentFieldIndex] != ColumnarIteratorPlanner.AsyncBuilderFieldRole() && shape.FieldRoles[parentFieldIndex] != ColumnarIteratorPlanner.AsyncResultFieldRole() && shape.FieldRoles[parentFieldIndex] != ColumnarIteratorPlanner.AwaiterFieldRole() {
+                        parentCaptureNames.Add(shape.FieldNames[parentFieldIndex])
+                        parentCaptureCanonicals.Add(shape.FieldCanonicals[parentFieldIndex])
+                        parentCaptureFields.Add(fields[parentFieldIndex])
+                    }
+                    parentFieldIndex += 1
+                }
+                childOrdinal := funcOrdinal * 1000 + localFunctionOrdinal + 1
+                childResult := EmitTask(
+                    module,
+                    localFn,
+                    childOrdinal,
+                    functionSource,
+                    typeResolution,
+                    localMethod,
+                    synthesizedTypes,
+                    bodyFacts,
+                    localInner,
+                    true,
+                    shape.TypeName,
+                    sm,
+                    parentCaptureNames.ToArray(),
+                    parentCaptureFields.ToArray(),
+                    parentCaptureCanonicals.ToArray(),
+                    true,
+                    localWrapped == typeof(System.Threading.Tasks.Task) || (localWrapped.IsGenericType && localWrapped.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition()),
+                    defaultUsesTaskBuilder,
+                    sm
+                )
+                if !childResult.Succeeded {
+                    return childResult
+                }
+                localFunctionOrdinal += 1
+            }
+        }
+        moveNextPlan := ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context)
+        if context.Declined {
+            return Declined(context.DeclineSite, context.DeclineMessage + " in '" + fn.Name + "'", fn.Name)
+        }
+        i = 0
+        while i < shape.FieldCount {
+            if definitionFields[i] != null {
+                kickoffFields[i] = kickoffMethodTypeParameters.Length == 0 ? definitionFields[i] : TypeBuilder.GetField(kickoffMachineType, definitionFields[i])
+            }
+            i += 1
+        }
+        ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator(), ModifiedMemberReferencesOf(bodyFacts))
+
+        setStateMachineIl := setStateMachine.GetILGenerator()
+        setStateMachineIl.Emit(OpCodes.Ldarg_0)
+        setStateMachineIl.Emit(OpCodes.Ldflda, fields[shape.FieldNames.Length - 1])
+        setStateMachineIl.Emit(OpCodes.Ldarg_1)
+        setStateMachineIl.Emit(OpCodes.Call, setStateMachineBuilder)
+        setStateMachineIl.Emit(OpCodes.Ret)
+
+        debuggerStepThroughCtor := typeof(System.Diagnostics.DebuggerStepThroughAttribute).GetConstructor(System.Type.EmptyTypes)
+        asyncStateMachineCtor := typeof(System.Runtime.CompilerServices.AsyncStateMachineAttribute).GetConstructor([typeof(Type)])
+        if debuggerStepThroughCtor == null || asyncStateMachineCtor == null {
+            throw new InvalidOperationException("Async state-machine method attributes were not found.")
+        }
+        kickoff.SetCustomAttribute(debuggerStepThroughCtor, ColumnarAttributeBlobs.NoArgument())
+        kickoff.SetCustomAttribute(
+            asyncStateMachineCtor,
+            ColumnarAttributeBlobs.TypeName(sm.FullName + ", " + module.Assembly.GetName().Name)
+        )
+
+        kickoffIl := kickoff.GetILGenerator()
+        machineLocal := kickoffIl.DeclareLocal(kickoffMachineType)
+        kickoffIl.Emit(OpCodes.Ldloca, machineLocal)
+        kickoffIl.Emit(OpCodes.Initobj, kickoffMachineType)
+        kickoffIl.Emit(OpCodes.Ldloca, machineLocal)
+        kickoffIl.Emit(OpCodes.Ldc_I4_M1)
+        kickoffIl.Emit(OpCodes.Stfld, stateField)
+        kickoffIl.Emit(OpCodes.Ldloca, machineLocal)
+        kickoffIl.Emit(OpCodes.Call, builderCreate)
+        kickoffIl.Emit(OpCodes.Stfld, builderField)
+        p := 0
+        parameterFieldOffset := 1
+        if isInstance {
+            kickoffIl.Emit(OpCodes.Ldloca, machineLocal)
+            kickoffIl.Emit(OpCodes.Ldarg_0)
+            if receiverIsValueType {
+                kickoffIl.Emit(OpCodes.Ldobj, kickoffFields[1].FieldType)
+            }
+            kickoffIl.Emit(OpCodes.Stfld, kickoffFields[1])
+            parameterFieldOffset = 2
+        }
+        while p < fn.ParamNames.Length {
+            fieldIndex := parameterFieldOffset + p
+            kickoffIl.Emit(OpCodes.Ldloca, machineLocal)
+            kickoffIl.Emit(OpCodes.Ldarg, p + (isInstance ? 1 : 0))
+            kickoffIl.Emit(OpCodes.Stfld, kickoffFields[fieldIndex])
+            p += 1
+        }
+
+        startBuilder: MethodInfo? = null
+        startOwner := builderTypeUsesTypeBuilderParameter ? builderDefinition : kickoffBuilderType
+        for candidate in startOwner.GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+            if candidate.Name == "Start" && candidate.IsGenericMethodDefinition && candidate.GetGenericArguments().Length == 1 && candidate.GetParameters().Length == 1 {
+                mappedStart := builderTypeUsesTypeBuilderParameter ? AsyncBuilderMethodOnType(kickoffBuilderType, candidate) : candidate
+                startBuilder = mappedStart.MakeGenericMethod([kickoffMachineType])
+                break
+            }
+        }
+        if startBuilder == null {
+            return Declined("emit.async.builder-start", "the async task builder for '" + fn.Name + "' has no Start<TStateMachine> method", fn.Name)
+        }
+        kickoffIl.Emit(OpCodes.Ldloca, machineLocal)
+        kickoffIl.Emit(OpCodes.Ldflda, builderField)
+        kickoffIl.Emit(OpCodes.Ldloca, machineLocal)
+        kickoffIl.Emit(OpCodes.Call, startBuilder)
+        kickoffIl.Emit(OpCodes.Ldloca, machineLocal)
+        kickoffIl.Emit(OpCodes.Ldflda, builderField)
+        kickoffIl.Emit(OpCodes.Call, taskGetter)
+        kickoffIl.Emit(OpCodes.Ret)
+
+        synthesizedTypes.Add(sm)
+        return Completed()
+    }
+
+    static func TryResolveAsyncLocalReturnShape(
+        canonical: string,
+        typeParameters: Dictionary<string, Type>?,
+        typeResolution: ColumnarSemanticTypeResolution,
+        defaultUsesTaskBuilder: bool,
+        out inner: Type?,
+        out wrapped: Type?
+    ): bool {
+        inner = ColumnarTypeOfPlanner.RequiredVoidType()
+        wrapped = null
+        if canonical == "Task" {
+            wrapped = typeof(System.Threading.Tasks.Task)
+            return true
+        }
+        if canonical == "ValueTask" {
+            wrapped = typeof(System.Threading.Tasks.ValueTask)
+            return true
+        }
+        if canonical.StartsWith("Task<", StringComparison.Ordinal) && canonical[canonical.Length - 1] == '>' {
+            if !TryResolveIteratorCanonical(canonical.Substring(5, canonical.Length - 6), typeParameters, typeResolution, out inner) {
+                return false
+            }
+            wrapped = typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([inner])
+            return true
+        }
+        if canonical.StartsWith("ValueTask<", StringComparison.Ordinal) && canonical[canonical.Length - 1] == '>' {
+            if !TryResolveIteratorCanonical(canonical.Substring(10, canonical.Length - 11), typeParameters, typeResolution, out inner) {
+                return false
+            }
+            wrapped = typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition().MakeGenericType([inner])
+            return true
+        }
+        if !TryResolveIteratorCanonical(canonical, typeParameters, typeResolution, out inner) {
+            return false
+        }
+        if inner == ColumnarTypeOfPlanner.RequiredVoidType() {
+            wrapped = defaultUsesTaskBuilder ? typeof(System.Threading.Tasks.Task) : typeof(System.Threading.Tasks.ValueTask)
+        } else if defaultUsesTaskBuilder {
+            wrapped = typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([inner])
+        } else {
+            wrapped = typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition().MakeGenericType([inner])
+        }
+        return true
+    }
+
     static func EmitAsync(
         module: ModuleBuilder,
         fn: ColumnarFunctionInput,
