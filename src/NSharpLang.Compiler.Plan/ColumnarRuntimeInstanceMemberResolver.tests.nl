@@ -15,7 +15,13 @@ test "builder-bound key-value pairs resolve their value getter" {
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(selection.ResultType, sourceValueType)
     getter := selection.Getter
     assert getter != null
-    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(getter.DeclaringType, pairType)
+    if getter != null {
+        getterDeclaringType := getter.DeclaringType
+        assert getterDeclaringType != null
+        if getterDeclaringType != null {
+            assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(getterDeclaringType, pairType)
+        }
+    }
 
     bindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(bindings, "pair", 0, pairType)
@@ -40,7 +46,6 @@ test "builder-bound key-value pairs resolve their value getter" {
     )
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(discoveredType, sourceValueType)
 }
-
 
 // THE INHERITED-EXTERNAL-BASE FORM OF THE RELATION, which both the analyzer's metadata arm and the
 // emitter's candidate filter ask. A member of a REFERENCED assembly is never reachable by its

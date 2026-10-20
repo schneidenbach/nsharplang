@@ -513,6 +513,12 @@ class ColumnarCodePlanContract {
     static func Ldobj(): short {
         return 113
     }
+    // stobj (0x81) copies a value from the evaluation stack through an exact managed address. It is
+    // the typed store paired with ldobj, and is required for writable ref-return indexers such as
+    // Span<T>.this[int].
+    static func Stobj(): short {
+        return 129
+    }
     // constrained. (0xFE 0x16) is a PREFIX, not an instruction of its own: it modifies the `callvirt`
     // that follows it so the call runs on the value a managed pointer addresses rather than on a box
     // of it. That is the whole reason a value-typed `using` resource needs it — a boxed `Dispose`
@@ -1390,7 +1396,7 @@ class ColumnarCodePlan {
 
     func AppendTypeInstruction(opCodeValue: short, typeIndex: int) {
         EnsureV2Building()
-        if (opCodeValue != ColumnarCodePlanContract.Ldelem() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldtoken() && opCodeValue != ColumnarCodePlanContract.Box() && opCodeValue != ColumnarCodePlanContract.Castclass() && opCodeValue != ColumnarCodePlanContract.Initobj() && opCodeValue != ColumnarCodePlanContract.Ldobj() && opCodeValue != ColumnarCodePlanContract.Newarr() && opCodeValue != ColumnarCodePlanContract.Stelem())) && !(IsMethodBodySchema() && (opCodeValue == ColumnarCodePlanContract.Isinst() || opCodeValue == ColumnarCodePlanContract.UnboxAny() || opCodeValue == ColumnarCodePlanContract.Constrained() || opCodeValue == ColumnarCodePlanContract.Ldobj()))) || typeIndex < 0 || typeIndex >= TypeCount {
+        if (opCodeValue != ColumnarCodePlanContract.Ldelem() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldtoken() && opCodeValue != ColumnarCodePlanContract.Box() && opCodeValue != ColumnarCodePlanContract.Castclass() && opCodeValue != ColumnarCodePlanContract.Initobj() && opCodeValue != ColumnarCodePlanContract.Ldobj() && opCodeValue != ColumnarCodePlanContract.Stobj() && opCodeValue != ColumnarCodePlanContract.Newarr() && opCodeValue != ColumnarCodePlanContract.Stelem() && opCodeValue != ColumnarCodePlanContract.Constrained())) && !(IsMethodBodySchema() && (opCodeValue == ColumnarCodePlanContract.Isinst() || opCodeValue == ColumnarCodePlanContract.UnboxAny() || opCodeValue == ColumnarCodePlanContract.Constrained() || opCodeValue == ColumnarCodePlanContract.Ldobj() || opCodeValue == ColumnarCodePlanContract.Stobj()))) || typeIndex < 0 || typeIndex >= TypeCount {
             throw new InvalidOperationException("The opcode does not use this type pool entry.")
         }
         AppendV2Row(ColumnarCodePlanContract.EmitInstructionOperation(), opCodeValue, ColumnarCodePlanContract.TypeOperand(), typeIndex)
@@ -2112,7 +2118,7 @@ class ColumnarCodePlan {
         if opCodeValue == ColumnarCodePlanContract.Br() || opCodeValue == ColumnarCodePlanContract.Brfalse() || opCodeValue == ColumnarCodePlanContract.Brtrue() {
             return operandKind == ColumnarCodePlanContract.LabelOperand() && operandIndex >= 0 && operandIndex < LabelCount
         }
-        if opCodeValue == ColumnarCodePlanContract.Ldelem() || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() && (opCodeValue == ColumnarCodePlanContract.Ldtoken() || opCodeValue == ColumnarCodePlanContract.Box() || opCodeValue == ColumnarCodePlanContract.Castclass() || opCodeValue == ColumnarCodePlanContract.Initobj() || opCodeValue == ColumnarCodePlanContract.Ldobj() || opCodeValue == ColumnarCodePlanContract.Newarr() || opCodeValue == ColumnarCodePlanContract.Stelem())) {
+        if opCodeValue == ColumnarCodePlanContract.Ldelem() || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() && (opCodeValue == ColumnarCodePlanContract.Ldtoken() || opCodeValue == ColumnarCodePlanContract.Box() || opCodeValue == ColumnarCodePlanContract.Castclass() || opCodeValue == ColumnarCodePlanContract.Initobj() || opCodeValue == ColumnarCodePlanContract.Ldobj() || opCodeValue == ColumnarCodePlanContract.Stobj() || opCodeValue == ColumnarCodePlanContract.Newarr() || opCodeValue == ColumnarCodePlanContract.Stelem() || opCodeValue == ColumnarCodePlanContract.Constrained())) || (IsMethodBodySchema() && (opCodeValue == ColumnarCodePlanContract.Isinst() || opCodeValue == ColumnarCodePlanContract.UnboxAny() || opCodeValue == ColumnarCodePlanContract.Constrained() || opCodeValue == ColumnarCodePlanContract.Ldobj() || opCodeValue == ColumnarCodePlanContract.Stobj())) {
             return operandKind == ColumnarCodePlanContract.TypeOperand() && operandIndex >= 0 && operandIndex < TypeCount
         }
         return false

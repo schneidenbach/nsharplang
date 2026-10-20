@@ -992,6 +992,9 @@ class ColumnarRangeIndexPlanner {
             return false
         }
         if spillReceiverFieldName != "" {
+            if iteratorEmitter == null {
+                return false
+            }
             accessLocal := plan.DeclarePlanLocal(plan.AddType(iteratorEmitter.Context.StructuralTypeReferences.SelectRuntimeType(accessType), iteratorEmitter.Context.StructuralTypeReferences))
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), accessLocal)
             receiverType := typeof(int)

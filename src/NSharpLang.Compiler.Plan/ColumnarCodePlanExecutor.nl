@@ -419,6 +419,8 @@ class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Initobj, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Ldobj() {
                 il.Emit(OpCodes.Ldobj, operandType)
+            } else if opCodeValue == ColumnarCodePlanContract.Stobj() {
+                il.Emit(OpCodes.Stobj, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Newarr() {
                 il.Emit(OpCodes.Newarr, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Stelem() {
@@ -1000,6 +1002,9 @@ class ColumnarCodePlanExecutor {
             // reason.
             if opCodeValue == ColumnarCodePlanContract.Ldobj() {
                 return 0
+            }
+            if opCodeValue == ColumnarCodePlanContract.Stobj() {
+                return -2
             }
             if opCodeValue == ColumnarCodePlanContract.Initobj() {
                 return -1
@@ -1598,6 +1603,14 @@ class ColumnarCodePlanExecutor {
             }
             return
         }
+        if valueType.IsByRef {
+            elementType := valueType.GetElementType()
+            if elementType == null || elementType.IsByRef || elementType.IsPointer {
+                throw new InvalidOperationException(schemaName + " method ref returns must address a supported storage type.")
+            }
+            ValidateStorableType(elementType, "method ref-return element", schemaName)
+            return
+        }
         ValidateStorableType(valueType, "method return", schemaName)
     }
 
@@ -1916,6 +1929,13 @@ class ColumnarCodePlanExecutor {
         opCodeValue := plan.OpCodeValues[operationIndex]
         operandIndex := plan.OperandIndices[operationIndex]
 
+        if opCodeValue == ColumnarCodePlanContract.Constrained() {
+            nextIndex := operationIndex + 1
+            if nextIndex >= plan.OperationCount || plan.OperationKinds[nextIndex] != ColumnarCodePlanContract.EmitInstructionOperation() || plan.OpCodeValues[nextIndex] != ColumnarCodePlanContract.Callvirt() || plan.OperandKinds[nextIndex] != ColumnarCodePlanContract.MethodOperand() {
+                throw new InvalidOperationException(schemaName + " constrained prefix must immediately precede callvirt.")
+            }
+        }
+
         if opCodeValue >= ColumnarCodePlanContract.LdcI4_M1() && opCodeValue <= ColumnarCodePlanContract.LdcI4_8() {
             literalValue := -1
             if opCodeValue != ColumnarCodePlanContract.LdcI4_M1() {
@@ -2010,6 +2030,13 @@ class ColumnarCodePlanExecutor {
                 throw new InvalidOperationException(schemaName + " ldobj requires an exact managed address to its value type.")
             }
             state.Push(targetType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+        } else if opCodeValue == ColumnarCodePlanContract.Stobj() {
+            targetType := plan.Types[operandIndex]
+            value := state.Pop()
+            address := state.Pop()
+            if targetType.IsByRef || targetType.FullName == "System.Void" || targetType.IsGenericTypeDefinition || value.IsAddress || !IsStackCompatible(targetType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) || !address.IsAddress || address.ValueKind != ColumnarCodePlanStackValueKind.Exact() || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(targetType, address.ValueType) {
+                throw new InvalidOperationException(schemaName + " stobj requires a compatible value and an exact managed address to its storage type.")
+            }
         } else if opCodeValue == ColumnarCodePlanContract.Br() {
             return
         } else if opCodeValue == ColumnarCodePlanContract.Brfalse() {
@@ -2326,6 +2353,10 @@ class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(schemaName + " call cannot target an abstract method.")
         }
         receiver: ColumnarCodePlanStackNode? = null
+        constrainedReceiverType: Type? = null
+        if operationIndex > 0 && plan.OperationKinds[operationIndex - 1] == ColumnarCodePlanContract.EmitInstructionOperation() && plan.OpCodeValues[operationIndex - 1] == ColumnarCodePlanContract.Constrained() && plan.OperandKinds[operationIndex - 1] == ColumnarCodePlanContract.TypeOperand() {
+            constrainedReceiverType = plan.Types[plan.OperandIndices[operationIndex - 1]]
+        }
 
         if usesDeclaredSignature {
             parameters := plan.MethodParameterTypes[methodIndex]
@@ -2340,7 +2371,11 @@ class ColumnarCodePlanExecutor {
             if !isStatic {
                 selectedReceiver := state.Pop()
                 receiver = selectedReceiver
-                ValidateReceiver(declaringType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.Name, schemaName)
+                if constrainedReceiverType != null {
+                    ValidateConstrainedReceiver(declaringType, constrainedReceiverType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.Name, opCodeValue, schemaName)
+                } else {
+                    ValidateReceiver(declaringType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.Name, schemaName)
+                }
             }
             declaredReturnType := plan.MethodReturnTypes[methodIndex]
             ApplyMethodReturn(plan, operationIndex, declaredReturnType, isStatic, method.Name, parameters.Length, method.IsSpecialName, receiver, state, schemaName)
@@ -2363,7 +2398,11 @@ class ColumnarCodePlanExecutor {
         if !isStatic {
             selectedReceiver := state.Pop()
             receiver = selectedReceiver
-            ValidateReceiver(declaringType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.Name, schemaName)
+            if constrainedReceiverType != null {
+                ValidateConstrainedReceiver(declaringType, constrainedReceiverType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.Name, opCodeValue, schemaName)
+            } else {
+                ValidateReceiver(declaringType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.Name, schemaName)
+            }
         }
         returnType := ResolveMemberSignatureType(signatureMethod.ReturnType, declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
         ApplyMethodReturn(plan, operationIndex, returnType, isStatic, method.Name, parameters.Length, method.IsSpecialName, receiver, state, schemaName)
@@ -2426,6 +2465,14 @@ class ColumnarCodePlanExecutor {
             if ownerFragment != 0 || !IsVoidType(plan.FragmentResultTypes[ownerFragment]) {
                 throw new InvalidOperationException(schemaName + " void calls must be the root result or preserve an enclosing value.")
             }
+            return
+        }
+        if returnType.IsByRef {
+            elementType := returnType.GetElementType()
+            if elementType == null || elementType.IsByRef || elementType.IsPointer {
+                throw new InvalidOperationException(schemaName + " method ref return must address a supported storage type.")
+            }
+            state.Push(elementType, true, ColumnarCodePlanStackValueKind.Exact(), false, 0)
             return
         }
         state.Push(returnType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
@@ -2682,6 +2729,16 @@ class ColumnarCodePlanExecutor {
             }
         } else if isAddress || !IsStackCompatible(expectedType, actualType, actualKind, false, 0) {
             throw new InvalidOperationException(schemaName + " reference receiver for '" + memberName + "' does not match its declaring type.")
+        }
+    }
+
+    // constrained. callvirt receives the address of the exact type named by the prefix. The
+    // declaring type remains the selected method's owner (for example System.Object), while the
+    // generic receiver's constraints prove that the selected owner is available on that type.
+    static func ValidateConstrainedReceiver(expectedType: Type, constrainedType: Type, actualType: Type, isAddress: bool, actualKind: int, memberName: string, opCodeValue: short, schemaName: string) {
+        ownerAvailable := expectedType == typeof(object) || ReferenceAssignableFrom(expectedType, constrainedType)
+        if opCodeValue != ColumnarCodePlanContract.Callvirt() || actualKind != ColumnarCodePlanStackValueKind.Exact() || !isAddress || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(constrainedType, actualType) || !ownerAvailable {
+            throw new InvalidOperationException(schemaName + " constrained receiver for '" + memberName + "' must be an exact managed address whose constraints provide the method's declaring type.")
         }
     }
 

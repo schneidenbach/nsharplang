@@ -176,7 +176,7 @@ class ColumnarStoreTargetPlanner {
             return true
         }
 
-        if !IsObservableWriteReceiver(receiverType) {
+        if !IsObservableWriteReceiver(receiverType) && !RuntimeTypeShapeFacts.IsByRefLike(receiverType) {
             declineReason = "a write through a '" + receiverType.Name + "' value would be lost; only a reference receiver can be indexed into"
             return false
         }
@@ -188,6 +188,34 @@ class ColumnarStoreTargetPlanner {
             return false
         }
 
+        getterArgumentTypes := new Type[](1)
+        getterArgumentTypes[0] = indexType
+        getterSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveByRefReturn(receiverType, "get_Item", getterArgumentTypes)
+        if getterSelection.IsSelected && getterSelection.Method != null && getterSelection.ReturnType.IsByRef && IsWritableByRefReturn(getterSelection.Method) {
+            elementType := getterSelection.ReturnType.GetElementType()
+            if elementType == null || elementType.IsByRef || elementType.IsPointer {
+                declineReason = "the indexed target returns a ref with an unsupported storage type"
+                return false
+            }
+            if ContainsAwait(nodes, valueNode) {
+                declineReason = "a writable ref-return index cannot remain live while its value awaits"
+                return false
+            }
+            if !TryAppendIndexStoreReceiver(nodes, source, receiverNode, bindings, plan, receiverType, out declineReason) {
+                return false
+            }
+            if !TryAppendStoredValue(nodes, source, indexNode, bindings, plan, getterSelection.ParameterTypes[0], out declineReason) {
+                return false
+            }
+            callOpcode := getterSelection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()
+            plan.AppendMethodInstruction(callOpcode, plan.AddMethod(getterSelection.Method))
+            if !TryAppendStoredValue(nodes, source, valueNode, bindings, plan, elementType, out declineReason) {
+                return false
+            }
+            plan.AppendTypeInstruction(ColumnarCodePlanContract.Stobj(), plan.AddType(elementType))
+            return true
+        }
+
         argumentTypes := new Type[](2)
         argumentTypes[0] = indexType
         argumentTypes[1] = valueType
@@ -197,9 +225,7 @@ class ColumnarStoreTargetPlanner {
             return false
         }
 
-        planned := typeof(int)
-        if !TryAppendValue(nodes, source, receiverNode, bindings, plan, out planned) {
-            declineReason = "the indexed target's receiver could not be planned"
+        if !TryAppendIndexStoreReceiver(nodes, source, receiverNode, bindings, plan, receiverType, out declineReason) {
             return false
         }
         if !TryAppendStoredValue(nodes, source, indexNode, bindings, plan, selection.ParameterTypes[0], out declineReason) {
@@ -208,8 +234,82 @@ class ColumnarStoreTargetPlanner {
         if !TryAppendStoredValue(nodes, source, valueNode, bindings, plan, selection.ParameterTypes[1], out declineReason) {
             return false
         }
-        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(selection.Method))
+        callOpcode := receiverType.IsValueType ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()
+        plan.AppendMethodInstruction(callOpcode, plan.AddMethod(selection.Method))
         return true
+    }
+
+    static func TryAppendIndexStoreReceiver(nodes: ColumnarNodeTable, source: string, receiverNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, receiverType: Type, out declineReason: string): bool {
+        declineReason = ""
+        if receiverType.IsValueType {
+            addressType := typeof(object)
+            if ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, receiverNode, bindings, plan, out addressType) {
+                if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(addressType, receiverType) {
+                    declineReason = "the indexed target's storage address has a different value type"
+                    return false
+                }
+                return true
+            }
+            if RuntimeTypeShapeFacts.IsByRefLike(receiverType) {
+                planned := typeof(int)
+                if !TryAppendValue(nodes, source, receiverNode, bindings, plan, out planned) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(planned, receiverType) {
+                    declineReason = "the indexed target's value receiver could not be planned"
+                    return false
+                }
+                receiverLocal := plan.DeclarePlanLocal(plan.AddType(receiverType))
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), receiverLocal)
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), receiverLocal)
+                return true
+            }
+            declineReason = "a write through a value-type receiver requires addressable storage"
+            return false
+        }
+
+        planned := typeof(int)
+        if !TryAppendValue(nodes, source, receiverNode, bindings, plan, out planned) {
+            declineReason = "the indexed target's receiver could not be planned"
+            return false
+        }
+        return true
+    }
+
+    static func IsWritableByRefReturn(method: MethodInfo): bool {
+        if method == null || !method.ReturnType.IsByRef {
+            return false
+        }
+        returnParameter := method.ReturnParameter
+        if returnParameter == null || returnParameter.IsIn || returnParameter.IsOut {
+            return false
+        }
+        for modifier in returnParameter.GetRequiredCustomModifiers() {
+            if modifier.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute" || modifier.FullName == "System.Runtime.CompilerServices.InAttribute" {
+                return false
+            }
+        }
+        for modifier in returnParameter.GetOptionalCustomModifiers() {
+            if modifier.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute" || modifier.FullName == "System.Runtime.CompilerServices.InAttribute" {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func ContainsAwait(nodes: ColumnarNodeTable, node: int): bool {
+        if nodes == null || node < 0 {
+            return false
+        }
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.AwaitExpression {
+            return true
+        }
+        childIndex := 0
+        while childIndex < nodes.ChildCount(node) {
+            if ContainsAwait(nodes, nodes.Child(node, childIndex)) {
+                return true
+            }
+            childIndex += 1
+        }
+        return false
     }
 
     // A receiver a store can be OBSERVED through. A class instance is one; a struct reached as a value
@@ -247,6 +347,7 @@ class ColumnarStoreTargetPlanner {
     static func TryDiscoverType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out resultType: Type): bool {
         resultType = typeof(int)
         scratch := new ColumnarCodePlan()
+        scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
         scratch.PrepareMethodBody()
         return TryAppendValue(nodes, source, node, bindings, scratch, out resultType) && !ColumnarCodePlanExecutor.IsVoidType(resultType)
     }

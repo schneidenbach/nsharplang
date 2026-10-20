@@ -745,7 +745,24 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         selection := EmptySelection()
-        if !TryResolveCurrentInstance(name, bindings, out selection) || selection.Kind != ColumnarBoundIdentifierKind.CurrentField {
+        if !TryResolve(nodes, source, candidate, bindings, out selection) {
+            return false
+        }
+
+        if selection.Kind == ColumnarBoundIdentifierKind.CapturedInstanceField {
+            // An async method's machine stores its lexical receiver in `<>__this`. A `ref field`
+            // argument from that body must reach the original receiver's storage, not a value read
+            // from it. The captured-receiver walk leaves the exact class reference or struct address
+            // on the stack; `ldflda` then passes the field's actual location to the callee.
+            AppendCapturedReceiver(plan, selection, "Captured-instance-field by-reference")
+            memberField := RequiredField(selection.ValueField, "Captured-instance-field by-reference selection has no member field.")
+            fieldIndex := plan.AddField(memberField)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), fieldIndex)
+            elementType = selection.ResultType
+            return true
+        }
+
+        if selection.Kind != ColumnarBoundIdentifierKind.CurrentField {
             return false
         }
 

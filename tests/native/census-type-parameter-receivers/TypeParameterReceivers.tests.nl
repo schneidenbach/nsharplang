@@ -81,7 +81,8 @@ test "the caller's struct argument is not changed by a callee that bumps its own
 
 // ---- THE INSTRUCTIONS ---------------------------------------------------------------------------
 //
-// Opcode bytes: 0x02 `ldarg.0`, 0x0A `stloc.0`, 0x0F `ldarga.s`, 0x12 `ldloca.s`, 0x7B `ldfld`,
+// Opcode bytes: 0x02 `ldarg.0`, 0x0A `stloc.0`, 0x0F `ldarga.s`, 0xFE 0x0A `ldarga`,
+// 0x12 `ldloca.s`, 0x7B `ldfld`,
 // 0x7C `ldflda`, 0xFE 0x16 `constrained.`, 0x6F `callvirt`, 0x2A `ret`. Every token is four bytes.
 
 func ReceiverIlOf(name: string): byte[] {
@@ -119,13 +120,15 @@ test "a T field is called through ldflda and constrained., with no box and no co
 
 test "a T parameter is called through ldarga and constrained." {
     il := ReceiverIlOf("ShowParam")
-    assert il.Length == 14
-    assert il[0] == 15
-    assert il[1] == 0
-    assert il[2] == 254
-    assert il[3] == 22
-    assert il[8] == 111
-    assert il[13] == 42
+    assert il.Length == 16
+    assert il[0] == 254
+    assert il[1] == 10
+    assert il[2] == 0
+    assert il[3] == 0
+    assert il[4] == 254
+    assert il[5] == 22
+    assert il[10] == 111
+    assert il[15] == 42
 }
 
 test "a mutable T field is bumped through ldflda, and a readonly one through a copy's ldloca" {
