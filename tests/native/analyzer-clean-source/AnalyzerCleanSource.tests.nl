@@ -11967,10 +11967,10 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — th
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL202:TypeMismatch@4:20+1;"
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:20+1;", AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcRow(analysis, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or provide a complete awaiter pattern with GetAwaiter(), IsCompleted, OnCompleted(Action), and GetResult().|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcSnippet(analysis, 0) == "<null>"
@@ -11979,13 +11979,13 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — th
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "TypeMismatch") == 1
     assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
-    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or provide a complete awaiter pattern with GetAwaiter(), IsCompleted, OnCompleted(Action), and GetResult().|Error"
     assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@4:20+1"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@4:20+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or provide a complete awaiter pattern with GetAwaiter(), IsCompleted, OnCompleted(Action), and GetResult().|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "    value := await 1"
@@ -11994,7 +11994,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — th
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or provide a complete awaiter pattern with GetAwaiter(), IsCompleted, OnCompleted(Action), and GetResult().|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:20+1"
 }
 
@@ -22572,44 +22572,33 @@ test "NL309 coverage: NEGATIVE — an object initializer writing MUTABLE fields 
     assert AcRow(rich, 0) == "<no-such-error>"
 }
 
-// PINNED AS MEASURED, NOT AS ENDORSED — THE ONE NL309 SHAPE THIS CHIP DID NOT CLOSE.
-//
-// The two lambdas below are the SAME EXPRESSION written twice: one inside the constructor (line 7),
-// one inside an ordinary method (line 11). Roslyn refuses BOTH with `CS0191`. Only the method's is
-// reported, and the reason is precise rather than mysterious: an EXPRESSION-bodied lambda is the
-// only nested body the analyzer walks WITHOUT `EnterNestedBody` around it — the driver brackets a
-// lambda's BLOCK body (`DriveLambda` step kind 5) and hands an expression body straight to the
-// expression walk — so the constructor-flag clear that closes every other nested body cannot reach
-// it. Closing it means `AnalyzerLambdaAnalysis` must hold the ambient context, and that owner is
-// built in `Analyzer.cs::CreateLambdaAnalysis`: one more argument, which is C# GROWTH plus a
-// two-key ratchet repin, so it is reported rather than taken. This contract pins TODAY'S answer so
-// the day it changes is a failing test rather than a silent drift.
-//
-// THE DOUBLED ROW IS ALSO MEASURED AND IS NOT AN NL309 FACT. `ForEach`'s argument lambda is walked
-// TWICE by the analyzer entry point this family drives, so the ONE illegal write at 11:27 arrives as
-// two identical rows at one anchor. The CLI's `check` route collapses them; this route does not. It
-// is pinned here so the count is not mistaken for two distinct writes — and, more to the point, so
-// that the missing SEVENTH-LINE row stays visible as the thing this block is about.
-test "NL309 coverage: MEASURED, NOT ENDORSED — an EXPRESSION-bodied lambda inside a constructor is still silent while the identical lambda in a method reports" {
+// A readonly write inside an expression-bodied lambda is outside the constructor's exemption: the
+// lambda is a separate body that can run after construction. Both identical writes below are
+// diagnosed. The analyzer's lambda entry is reached twice through this `ForEach` argument, so each
+// source write has a duplicate row here; the normal `check` route collapses those duplicates.
+test "NL309 diagnoses expression-bodied lambdas inside constructors and ordinary methods" {
     source := "import System.Collections.Generic\n\nclass Counter {\n    readonly value: int = 0\n\n    constructor(nums: List<int>) {\n        nums.ForEach(n => value = n)\n    }\n\n    func Mutate(nums: List<int>) {\n        nums.ForEach(n => value = n)\n    }\n}\n"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    // Line 7's write — the constructor's lambda — is the one that is MISSING. Every anchor here is
-    // line 11, the method's.
-    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;"
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@7:27+5;NL309:ReadonlyAssignment@7:27+5;NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;", AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 2
+    assert AcErrorCount(analysis) == 4
     assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
     assert AcRow(analysis, 1) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
-    assert AcRow(analysis, 2) == "<no-such-error>"
-    assert AcCodeCount(analysis, "ReadonlyAssignment") == 2
-    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@11:27+5"
+    assert AcRow(analysis, 2) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 3) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 4) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 4
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@7:27+5"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;"
-    assert AcErrorCount(rich) == 2
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@7:27+5;NL309:ReadonlyAssignment@7:27+5;NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;"
+    assert AcErrorCount(rich) == 4
     assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
-    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@11:27+5"
+    assert AcRow(rich, 1) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 2) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 3) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@7:27+5"
 }
 
 // ── STREAM E1: A GENERIC DECLARATION'S OWN TYPE PARAMETERS IN CALL POSITIONS ─────────────────────

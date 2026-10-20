@@ -222,7 +222,9 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     // outside its AttributeUsage targets), NL934 (an attribute repeated without AllowMultiple) and
     // NL935 (an attribute at a position N# has none — a target prefix) and NL936 (a project with no
     // non-test source file to build).
-    assert codes.Count == 119
+    if codes.Count != 121 {
+        throw new InvalidOperationException("Expected 121 catalog codes, found " + codes.Count.ToString())
+    }
 
     duplicates := 0
     outer := 0
@@ -242,7 +244,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert duplicates == 0
 
     // The builders, counted where they are OBSERVABLE: the linter rows are the ones sourced to the
-    // linter, the rest are the compiler's. 109 + 10 = 119, so nothing is uncounted or double-counted.
+    // linter, the rest are the compiler's. 111 + 10 = 121, so nothing is uncounted or double-counted.
     //
     // The performance and AOT categories are asserted at ZERO, not omitted. A row in either one is
     // a row for a rule this compiler does not produce - that is exactly how NL950-954 and NL960-963
@@ -251,11 +253,9 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     performanceRows := DctCountByCategory(DiagnosticCategory.Performance)
     aotRows := DctCountByCategory(DiagnosticCategory.Aot)
     compilerRows := DctCountBySource(DiagnosticSource.Compiler)
-    assert linterRows == 10
-    assert performanceRows == 0
-    assert aotRows == 0
-    assert compilerRows == 109
-    assert compilerRows + linterRows == codes.Count
+    if linterRows != 10 || performanceRows != 0 || aotRows != 0 || compilerRows != 111 || compilerRows + linterRows != codes.Count {
+        throw new InvalidOperationException("Catalog ownership counts were compiler=" + compilerRows.ToString() + ", linter=" + linterRows.ToString() + ", performance=" + performanceRows.ToString() + ", aot=" + aotRows.ToString() + ", total=" + codes.Count.ToString())
+    }
 }
 
 test "EVERY code is well formed: 'NL' and at least three digits, and never a migration code" {

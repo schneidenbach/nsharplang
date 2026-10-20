@@ -1585,24 +1585,27 @@ test "020 s37 playground diagnostic spans: Check RecoverySpans AvoidPunctuationO
     assert PgRow(other, 1) == "NL301|error|Variable 'items' not found|Program.tests.nl|4|17|5"
 }
 
-test "020 s37 playground diagnostic spans: Check RecoverySpans AvoidPunctuationOnlyMarkers — NL102@4:14+5;, and the test-file route agrees (was PlaygroundCompilerTests.Check_RecoverySpans_AvoidPunctuationOnlyMarkers InlineData row 4)" {
+test "020 s37 playground diagnostic spans: Check RecoverySpans AvoidPunctuationOnlyMarkers — NL102 and NL353 share the malformed await span, and the test-file route agrees (was PlaygroundCompilerTests.Check_RecoverySpans_AvoidPunctuationOnlyMarkers InlineData row 4)" {
     source := "package Playground\n\nfunc main() {\n    value := await\n}"
     response := PgCheck(source)
     assert PgOk(response) == "False"
     assert PgSchemaVersion(response) == "2"
     assert PgFileName(response) == "Program.nl"
-    assert PgSummary(response) == "1/0/0"
-    assert PgCount(response) == 1
-    assert PgCensus(response) == "NL102@4:14+5;", PgCensus(response)
+    assert PgSummary(response) == "2/0/0"
+    assert PgCount(response) == 2
+    assert PgCensus(response) == "NL102@4:14+5;NL353@4:14+5;", PgCensus(response)
     assert PgRow(response, 0) == "NL102|error|Expected an expression to await after 'await'|Program.nl|4|14|5"
     assert PgDetail(response, 0) == "    value := await|This await expression needs an expression to await after 'await'.|Add an expression to await after 'await'|Add an expression to await after 'await', or remove 'await'."
-    assert PgRow(response, 1) == "<no-such-diagnostic>"
+    assert PgRow(response, 1) == "NL353|error|'await' can only be used inside an async function or lambda|Program.nl|4|14|5"
+    assert PgDetail(response, 1) == "    value := await|<null>|Add `async` to the enclosing function or lambda, or remove `await` and return the task directly.|<null>"
+    assert PgRow(response, 2) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
     assert PgOk(other) == "False"
     assert PgFileName(other) == "Program.tests.nl"
-    assert PgCount(other) == 1
-    assert PgCensus(other) == "NL102@4:14+5;", PgCensus(other)
+    assert PgCount(other) == 2
+    assert PgCensus(other) == "NL102@4:14+5;NL353@4:14+5;", PgCensus(other)
     assert PgRow(other, 0) == "NL102|error|Expected an expression to await after 'await'|Program.tests.nl|4|14|5"
+    assert PgRow(other, 1) == "NL353|error|'await' can only be used inside an async function or lambda|Program.tests.nl|4|14|5"
 }
 
 test "020 s37 playground diagnostic spans: Check RecoverySpans AvoidPunctuationOnlyMarkers — NL102@4:14+4;, and the test-file route agrees (was PlaygroundCompilerTests.Check_RecoverySpans_AvoidPunctuationOnlyMarkers InlineData row 5)" {
