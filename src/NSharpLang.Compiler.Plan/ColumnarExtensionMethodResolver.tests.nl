@@ -139,6 +139,63 @@ func InvokeExtensionRank(selection: ColumnarExtensionMethodSelection, arguments:
     return Convert.ToInt32(method.Invoke(null, arguments))
 }
 
+func BuildOmittedOptionalTieBreakIndex(nonGenericOptionalCount: int): ColumnarExtensionMethodIndex {
+    identity := "OmittedOptionalTieBreak" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+    enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+
+    generic := owner.DefineMethod("Pick", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+    typeParameter := generic.DefineGenericParameters(["T"])[0]
+    genericReceiver := enumerableDefinition.MakeGenericType(ExtensionOneType(typeParameter))
+    generic.SetReturnType(typeof(int))
+    generic.SetParameters(ExtensionTwoTypes(genericReceiver, typeof(int)))
+    generic.DefineParameter(1, ParameterAttributes.None, "items")
+    genericMode := generic.DefineParameter(2, ParameterAttributes.Optional | ParameterAttributes.HasDefault, "mode")
+    genericMode.SetConstant(0)
+    genericBody := generic.GetILGenerator()
+    genericBody.Emit(OpCodes.Ldc_I4_1)
+    genericBody.Emit(OpCodes.Ret)
+
+    nonGenericParameterCount := nonGenericOptionalCount + 1
+    nonGenericTypes := new Type[](nonGenericParameterCount)
+    nonGenericTypes[0] = enumerableDefinition.MakeGenericType(ExtensionOneType(typeof(string)))
+    nonGenericTypes[1] = typeof(string)
+    if nonGenericOptionalCount == 2 {
+        nonGenericTypes[2] = typeof(bool)
+    } else if nonGenericOptionalCount != 1 {
+        throw new InvalidOperationException("The fixture supports one or two non-generic optional parameters.")
+    }
+
+    ordinary := owner.DefineMethod("Pick", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+    ordinary.SetReturnType(typeof(int))
+    ordinary.SetParameters(nonGenericTypes)
+    ordinary.DefineParameter(1, ParameterAttributes.None, "items")
+    ordinaryMode := ordinary.DefineParameter(2, ParameterAttributes.Optional | ParameterAttributes.HasDefault, "mode")
+    ordinaryMode.SetConstant("")
+    if nonGenericOptionalCount == 2 {
+        ordinaryExtra := ordinary.DefineParameter(3, ParameterAttributes.Optional | ParameterAttributes.HasDefault, "extra")
+        ordinaryExtra.SetConstant(false)
+    }
+    ordinaryBody := ordinary.GetILGenerator()
+    ordinaryBody.Emit(OpCodes.Ldc_I4_2)
+    ordinaryBody.Emit(OpCodes.Ret)
+
+    createdOwner := owner.CreateType()
+    if createdOwner == null {
+        throw new InvalidOperationException("The optional tie-break fixture type was not created.")
+    }
+
+    index := new ColumnarExtensionMethodIndex()
+    for method in createdOwner.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+        if method.Name == "Pick" {
+            index.Add("Pick", MakeExtensionFixtureCandidate(method))
+        }
+    }
+    return index
+}
+
 func BuildLinqExtensionIndex(): ColumnarExtensionMethodIndex {
     linqAssembly := RequiredExtensionFixtureType("System.Linq.Enumerable, System.Linq").get_Assembly()
     entry := new ExternalAssemblyCatalogEntry(null, "linq", "", linqAssembly, true)
@@ -929,4 +986,37 @@ test "expanded extension overload ranking preserves incomparable receiver and ar
     objectArguments[1] = 9
     objectArguments[2] = new int[](0)
     assert InvokeExtensionRank(objectSelected, objectArguments) == 2
+}
+
+test "extension tie-breaking compares supplied parameters before omitted optional types" {
+    values := new List<string>()
+    values.Add("runtime")
+    noArguments := new Type[](0)
+    noFacts := ColumnarDirectCallArgumentFacts.Empty(0)
+
+    // Both candidates receive the same IEnumerable<string> receiver and omit one optional. Their
+    // omitted parameter types differ, but omitted parameters are not comparison arguments; C#'s
+    // less-generic tie-break therefore selects the ordinary overload.
+    equalOmissions := BuildOmittedOptionalTieBreakIndex(1)
+    selected := ColumnarExtensionMethodResolver.Resolve(equalOmissions, typeof(List<string>), "Pick", noArguments, noFacts)
+    assert selected.IsSelected, "different omitted optional types must not make equal supplied signatures ambiguous"
+    assert selected.Method != null && !selected.Method.IsGenericMethod
+    runtimeArguments := new object?[](2)
+    runtimeArguments[0] = values
+    runtimeArguments[1] = ""
+    runtimeValue := selected.Method.Invoke(null, runtimeArguments)
+    assert Convert.ToInt32(runtimeValue) == 2, "the less-generic overload's runtime body must be selected"
+
+    // With two omitted optionals on the ordinary candidate and one on the generic candidate, the
+    // fewer-omitted rule wins before the genericity tie-break. This keeps the omitted-count rule
+    // distinct from comparing the types of omitted parameters.
+    differentOmissions := BuildOmittedOptionalTieBreakIndex(2)
+    fewerOmissions := ColumnarExtensionMethodResolver.Resolve(differentOmissions, typeof(List<string>), "Pick", noArguments, noFacts)
+    assert fewerOmissions.IsSelected, "the candidate omitting fewer optional parameters must remain applicable"
+    assert fewerOmissions.Method != null && fewerOmissions.Method.IsGenericMethod
+    genericRuntimeArguments := new object?[](2)
+    genericRuntimeArguments[0] = values
+    genericRuntimeArguments[1] = 0
+    genericRuntimeValue := fewerOmissions.Method.Invoke(null, genericRuntimeArguments)
+    assert Convert.ToInt32(genericRuntimeValue) == 1, "fewer omitted optionals must beat the non-generic tie-break"
 }

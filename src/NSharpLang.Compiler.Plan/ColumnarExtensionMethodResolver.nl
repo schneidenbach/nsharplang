@@ -594,7 +594,10 @@ class ColumnarExtensionMethodResolver {
             return tied[0]
         }
 
-        // The less-generic tie-break is available only when every effective parameter type ties.
+        // The less-generic tie-break is available only when every parameter corresponding to a
+        // supplied argument ties. Omitted optional parameters are not invocation arguments; their
+        // count was handled above, but their declared types cannot make otherwise equal candidates
+        // ambiguous.
         nonGenericIndex := -1
         for index in tied {
             if !candidates[index].Method.IsGenericMethod {
@@ -608,7 +611,7 @@ class ColumnarExtensionMethodResolver {
             return -1
         }
         for index in tied {
-            if !EquivalentParameterLists(candidates[nonGenericIndex].ParameterTypes, candidates[index].ParameterTypes) {
+            if !EquivalentSuppliedParameterTypes(candidates[nonGenericIndex].ParameterTypes, candidates[index].ParameterTypes, actual.Length) {
                 return -1
             }
         }
@@ -640,11 +643,11 @@ class ColumnarExtensionMethodResolver {
         return result
     }
 
-    static func EquivalentParameterLists(left: Type[], right: Type[]): bool {
-        if left == null || right == null || left.Length != right.Length {
+    static func EquivalentSuppliedParameterTypes(left: Type[], right: Type[], suppliedCount: int): bool {
+        if left == null || right == null || suppliedCount < 0 || left.Length < suppliedCount || right.Length < suppliedCount {
             return false
         }
-        for index := 0; index < left.Length; index++ {
+        for index := 0; index < suppliedCount; index++ {
             if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(left[index], right[index]) {
                 return false
             }
