@@ -632,10 +632,10 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     // framework row and the project.yml reference-page contract.
     // The async bare-return and generic async-method slices added three native roots and three N#
     // source files.
-    // Member lookup adds two native roots and 14 N# source files: the interface/overload fixture, the hidden external-property fixture and compiler lookup coverage.
-    // Wave 2 merges (#264, #266, #269, #270, #263, #267 and #272) were followed by a fresh filesystem
-    // census. These values come from that walk, not from summing per-issue estimates.
-    assert expectedRoots.Count == 255, "repository project-root census changed"
+    // Generic-call inference and Wave 2's member lookup, closure, and nullable/record work are all
+    // represented here. The expected count was remeasured by walking this merged tree; branch-local
+    // issue counts overlap and are not added together.
+    assert expectedRoots.Count == 257, "repository project-root census changed"
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
@@ -675,7 +675,9 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert observedRoots.Count == expectedRoots.Count, "not every discovered project root had exactly one result"
     assert foundCoreProject, "the workspace omitted Compiler.Core's result"
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
-    assert checkedFiles == 2107, "repository checked-source-file census changed"
+    // This total was independently remeasured from the merged filesystem, with each source file
+    // assigned to its deepest discovered project and that project's excludes applied.
+    assert checkedFiles == 2109, "repository checked-source-file census changed"
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"

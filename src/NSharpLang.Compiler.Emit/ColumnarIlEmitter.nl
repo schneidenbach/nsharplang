@@ -3846,12 +3846,20 @@ sealed class ColumnarIlEmitter {
                 return false
             }
         }
-        let staticMethod: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
-        if (!TryFindGenericStaticMethodOnChain(staticOwner, memberName, argCount, typeArgCount, out staticMethod)) {
-            return false
-        }
         let staticBinding: System.Type[]? = null
         if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out staticBinding)) {
+            return false
+        }
+        // The source-method selector below has no argument context: when two source generic
+        // overloads share the written and value arities, it refuses the set. Do not let the later
+        // external/reflected fallback recover one using the analyzer's contextual lambda type.
+        // Same-arity `Action<T>` / `Func<T, R>` and zero-arity `Action` / `Func<R>` are genuinely
+        // ambiguous here because body-type inference is not part of this emitter tier.
+        if (ArgumentsAreAllLambdas(callIdx, argCount) && HasAmbiguousExplicitGenericStaticLambdaCandidates(staticOwner, memberName, callIdx, argCount, staticBinding)) {
+            return Decline("emit.call.generic-lambda-ambiguous", "more than one source generic overload accepts the lambda arity", callIdx)
+        }
+        let staticMethod: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        if (!TryFindGenericStaticMethodOnChain(staticOwner, memberName, argCount, typeArgCount, out staticMethod)) {
             return false
         }
         if (constructedStaticOwner != null) {
@@ -3867,10 +3875,10 @@ sealed class ColumnarIlEmitter {
     // resolves to a type names a STATIC owner (`ResultFactory.Ok<int, string>(42)`).
     //
     // THERE IS NO PER-API TABLE HERE. The member is chosen by ordinary CLR member resolution over the
-    // receiver's own type, the written type arguments close it through `MakeGenericMethod` (which is
-    // what enforces the declared constraints), and every argument is then emitted against the
-    // SUBSTITUTED parameter type — so a lambda argument binds to the closed delegate it is passed to
-    // and an `out` argument goes through the by-ref path, with no shape knowing which API it serves.
+    // receiver's own type, `CloseSubstituted` checks the declared constraints and supplies the closed
+    // signature, and every argument is then emitted against that SUBSTITUTED parameter type — so a
+    // lambda binds to its closed delegate and an `out` argument goes through the by-ref path, with no
+    // shape knowing which API it serves.
     private func TryEmitExplicitGenericExternalCall(callIdx: int, callee: int, calleeName: string, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         typeArgCount := ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee)
@@ -3893,6 +3901,9 @@ sealed class ColumnarIlEmitter {
         if (TryGetNamedValueBindingType(receiverText, out receiverType) && receiverType != null) {
             instanceSelection := SelectExplicitGenericExternalCall(callIdx, receiverType, memberName, typeArguments, argCount, false)
             if (!instanceSelection.IsSelected) {
+                if (SourceInstanceDeclarationOnReceiver(receiverType, memberName, typeArgCount)) {
+                    return false
+                }
                 // The member may be one the receiver INHERITS from a base this compilation did not
                 // write — `n.ConvertAll<int>(...)` on `class Names: List<string>`. The receiver is a
                 // `TypeBuilder` and declares nothing reflection can see, so the selection is retried
@@ -3924,6 +3935,17 @@ sealed class ColumnarIlEmitter {
             let expressionReceiverType: System.Type? = null
             if (TryGetPreflightExpressionType(expressionReceiverNode, out expressionReceiverType) && expressionReceiverType != null && !expressionReceiverType.IsValueType && ColumnarTypeOfPlanner.IsSupportedType(expressionReceiverType)) {
                 expressionSelection := SelectExplicitGenericExternalCall(callIdx, expressionReceiverType, memberName, typeArguments, argCount, false)
+                if (!expressionSelection.IsSelected) {
+                    if (SourceInstanceDeclarationOnReceiver(expressionReceiverType, memberName, typeArgCount)) {
+                        return false
+                    }
+                    // The member may be INHERITED from an external base, as the named receiver above
+                    // allows: `new Db().Set<Person>()` over a `DbContext` subclass.
+                    expressionInheritedType := ColumnarInheritedExternalBase.ResolveForReceiver(expressionReceiverType, _structRegistry.Values)
+                    if (expressionInheritedType != null) {
+                        expressionSelection = SelectExplicitGenericExternalCall(callIdx, expressionInheritedType, memberName, typeArguments, argCount, false)
+                    }
+                }
                 if (expressionSelection.IsSelected) {
                     let emittedExpressionReceiverType: System.Type? = null
                     if (!EmitExpression(expressionReceiverNode, out emittedExpressionReceiverType) || !TypesEquivalent(emittedExpressionReceiverType, expressionReceiverType)) {
@@ -3952,14 +3974,119 @@ sealed class ColumnarIlEmitter {
         return EmitExplicitGenericExternalCall(callIdx, staticSelection, out columnarResolvedType)
     }
 
+    // AN EXPLICIT GENERIC CALL TO A METHOD THE ENCLOSING TYPE INHERITS FROM AN EXTERNAL BASE, written
+    // bare (`Set<Person>()`) or through `this` (`this.Set<Person>()`) — the two spellings are one name,
+    // exactly as they are for an ordinary inherited call (`TryEmitInheritedExternalBareCall`).
+    //
+    // The base is the SUBSTITUTED external one, and the member is chosen on it by the same selection
+    // an outside receiver gets (`db.Set<Person>()`), so only where `this` comes from differs: an
+    // instance member loads the current object, and a static one needs no receiver. A closure display's
+    // `this` is the display rather than the object, so only a real instance context takes the instance
+    // door.
+    private func TryEmitInheritedExternalExplicitGenericCall(callIdx: int, callee: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        typeArgCount := ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee)
+        if (typeArgCount <= 0) {
+            return false
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, ColumnarGenericCalleeFacts.CalleeExpressionNode(_nodes, callee))
+        if (member.StartsWith("this.", StringComparison.Ordinal)) {
+            member = member.Substring(5)
+        }
+        if (member.Length == 0 || member.IndexOf('.') >= 0) {
+            return false
+        }
+        // Source members of another generic arity are not candidates for this call. Preserve the
+        // external-base path when the source hierarchy only declares (for example) `Set(int)` and
+        // the written call is `Set<Person>()`.
+        if (_currentStruct != null && SourceInstanceDeclarationOnReceiver(_currentStruct.Builder, member, typeArgCount)) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let typeArguments: System.Type[]? = null
+        if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out typeArguments)) {
+            return false
+        }
+        if (_currentStruct != null && _currentStruct.IsReference && !_currentStruct.IsClosureDisplay) {
+            instanceBase := ColumnarInheritedExternalBase.Resolve(_currentStruct, null)
+            if (instanceBase != null) {
+                instanceSelection := SelectExplicitGenericExternalCall(callIdx, instanceBase, member, typeArguments, argCount, false)
+                if (instanceSelection.IsSelected) {
+                    _il.Emit(OpCodes.Ldarg_0)
+                    return EmitExplicitGenericExternalCall(callIdx, instanceSelection, out columnarResolvedType)
+                }
+            }
+        }
+        if (_enclosingType != null) {
+            staticBase := ColumnarInheritedExternalBase.Resolve(_enclosingType, null)
+            if (staticBase != null) {
+                staticSelection := SelectExplicitGenericExternalCall(callIdx, staticBase, member, typeArguments, argCount, true)
+                if (staticSelection.IsSelected) {
+                    return EmitExplicitGenericExternalCall(callIdx, staticSelection, out columnarResolvedType)
+                }
+            }
+        }
+        return false
+    }
+
+    // Whether a source receiver or one of its source bases declares this instance method at the
+    // written generic arity. Source declarations of another arity do not hide inherited candidates.
+    private func SourceInstanceDeclarationOnReceiver(receiverType: Type, memberName: string, genericArity: int): bool {
+        if (receiverType == null || memberName == null || memberName.Length == 0) {
+            return false
+        }
+
+        let sourceDefinition: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        receiverBuilder := receiverType as TypeBuilder
+        if (receiverBuilder != null) {
+            sourceDefinition = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, receiverBuilder)
+        } else {
+            let sourceArguments: System.Type[]? = null
+            if (!TryGetClosedReceiverDef(receiverType, out sourceDefinition, out sourceArguments)) {
+                return false
+            }
+        }
+
+        return sourceDefinition != null && ColumnarSourceDirectCallResolver.HasInstanceDeclarationAtGenericArity(sourceDefinition, memberName, genericArity)
+    }
+
     // The member this call site selects. A site whose arguments all type ahead of emission gets
     // ordinary scored overload resolution; one that carries a lambda or an `out` argument has no type
     // to score with, so it binds only when the name leaves exactly ONE closed candidate at this
     // arity — an ambiguity is refused rather than guessed.
     private func SelectExplicitGenericExternalCall(callIdx: int, lookupType: Type, memberName: string, typeArguments: Type[], argCount: int, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
-        unique := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(lookupType, memberName, typeArguments, argCount, expectedStatic)
+        unique := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(lookupType, memberName, typeArguments, argCount, expectedStatic, _structRegistry.Values)
         if (unique.IsSelected) {
             return unique
+        }
+        // A LAMBDA CHOOSES AMONG THE CLOSED OVERLOADS BY ITS ARITY: `Select<int, string>(values, x => ...)`
+        // closes `Func<int, string>` and `Func<int, int, string>` alike, and only the first fits.
+        if (ColumnarLambdaNodeFacts.ArgumentsCarryLambda(_nodes, callIdx, argCount)) {
+            applicable := 0
+            let chosen: NSharpLang.Compiler.Columnar.ColumnarExplicitGenericCallSelection? = null
+            for closed in ColumnarExplicitRuntimeGenericMethodResolver.Candidates(lookupType, memberName, typeArguments, argCount, expectedStatic, _structRegistry.Values) {
+                fits := true
+                for a := 0; a < argCount; a++ {
+                    if (!CanLambdaOrValueArgumentFit(Child(callIdx, 1 + a), closed.ParameterTypes[a])) {
+                        fits = false
+                        break
+                    }
+                }
+                if (fits) {
+                    applicable = applicable + 1
+                    chosen = closed
+                }
+            }
+            if (applicable == 1 && chosen != null) {
+                return chosen
+            }
+
+            // A contextual lambda has no independent type for the scored fallback below. In
+            // particular, an expression lambda can look convertible to both `Action<T>` and
+            // `Func<T, TResult>` (and a zero-parameter lambda can look convertible to both
+            // `Action` and `Func<TResult>`). Do not let a type the analyzer obtained from one
+            // contextual candidate turn that unresolved emitter choice into a guess.
+            return ColumnarExplicitGenericCallSelection.None(lookupType)
         }
         argumentTypes := new Type[argCount]
         for a := 0; a < argCount; a++ {
@@ -3969,7 +4096,9 @@ sealed class ColumnarIlEmitter {
             }
             argumentTypes[a] = argType
         }
-        return ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, memberName, typeArguments, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
+        argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argCount)
+        argumentFacts.SourceTypeDefinitions = _structRegistry.Values
+        return ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, memberName, typeArguments, argumentTypes, argumentFacts, expectedStatic, _structRegistry.Values)
     }
 
     // The arguments, then the instruction. The receiver (if any) is already on the stack.
@@ -4027,9 +4156,6 @@ sealed class ColumnarIlEmitter {
     // happening.
     private func SelectOrdinaryRuntimeCall(callIdx: int, lookupType: Type, member: string, argCount: int, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         unique := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(lookupType, member, argCount, expectedStatic)
-        if (unique.IsSelected) {
-            return unique
-        }
         if (_nodes.ChildCount(callIdx) - 1 != argCount) {
             return unique
         }
@@ -4043,25 +4169,25 @@ sealed class ColumnarIlEmitter {
                 argumentTypes[a] = argType
             }
         }
+        argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argCount)
+        runtimeCandidates := new MethodInfo[](0)
         if (allArgumentsTyped) {
-            scored := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(lookupType, member, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
-            if (scored.IsSelected) {
-                return scored
+            scored := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithCandidateMethods(lookupType, member, argumentTypes, argumentFacts, expectedStatic, out runtimeCandidates)
+            // Compare every closed generic and non-generic candidate together. A family-level
+            // ambiguity does not survive when a third candidate is better than every member of it.
+            normal := scored
+            if runtimeCandidates.Length > 0 {
+                normal = ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(lookupType, member, argumentTypes, argumentFacts, expectedStatic, runtimeCandidates)
             }
-            // A GENERIC DECLARATION CLOSED BY INFERENCE IS APPLICABLE IN ITS NORMAL FORM, AND IT IS
-            // ASKED HERE — the direct-call planner's own next tier, in the planner's own order. A
-            // generic method definition is an excluded shape to the scored tier above, so without
-            // this one the ladder went from there to the tiers that bind NON-generic candidates only,
-            // and `string.Join(",", Nums)` over a `static Nums: List<int>` bound the one that would
-            // take a `List<int>` at all: `Join(string, params object?[])`, packing the list and
-            // printing `System.Collections.Generic.List`1[System.Int32]`. C# binds `Join<int>` —
-            // its `IEnumerable<int>` is the better conversion target than `object` (§12.6.4.5) —
-            // and so does the planner, for the same call over a local; `string.Concat(Nums)` against
-            // the unique `Concat(object)` of the tier below is the same defect in another spelling.
-            generic := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, member, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
-            if (generic.IsSelected) {
-                return generic
+            if (normal.IsAmbiguous) {
+                return normal
             }
+            if (normal.IsSelected) {
+                return normal
+            }
+        }
+        if (unique.IsSelected) {
+            return unique
         }
 
         // THE THIRD TIER: AN ARGUMENT WHOSE TYPE IS TARGET-TYPED IS STILL AN ARGUMENT THAT CHOOSES.
@@ -4093,7 +4219,15 @@ sealed class ColumnarIlEmitter {
         // THE LAST TIER: A `params` TAIL PACKED AT THE CALL SITE. It runs after every tier above,
         // each of which binds a candidate applicable in its NORMAL form.
         if (allArgumentsTyped) {
-            expanded := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(lookupType, member, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
+            expanded := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(lookupType, member, argumentTypes, argumentFacts, expectedStatic)
+            if runtimeCandidates.Length > 0 {
+                combinedExpanded := ColumnarRuntimeGenericMethodResolver.ResolveCombinedExpandedWithMethodCandidates(lookupType, member, argumentTypes, argumentFacts, expectedStatic, runtimeCandidates)
+                if (combinedExpanded.IsSelected || combinedExpanded.IsAmbiguous) {
+                    expanded = combinedExpanded
+                }
+            }
+            // `Task.WhenAll(first, second)` over two `Task<int>` values is one member set: the
+            // inference-closed `WhenAll<int>` beats the broader `WhenAll(Task[])`.
             if (expanded.IsSelected) {
                 return expanded
             }
@@ -4187,7 +4321,22 @@ sealed class ColumnarIlEmitter {
         if (parameters == null) {
             return false
         }
-        return CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters))
+        modifierKinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters)
+        if (selection.IsOptionalFill) {
+            writtenCount := selection.FixedArgumentCount
+            if (_nodes.ChildCount(callIdx) - 1 != writtenCount || parameters.Length != selection.ParameterTypes.Length || !ColumnarOrdinaryRuntimeDirectCallResolver.OptionalTailFillable(parameters, selection.ParameterTypes, writtenCount)) {
+                return false
+            }
+            leadingTypes := ColumnarOrdinaryRuntimeDirectCallResolver.LeadingParameterTypes(selection.ParameterTypes, writtenCount)
+            leadingModifiers := new int[](writtenCount)
+            for index := 0; index < writtenCount; index++ {
+                if (index < modifierKinds.Length) {
+                    leadingModifiers[index] = modifierKinds[index]
+                }
+            }
+            return CanEmitOrdinaryRuntimeCallArguments(callIdx, leadingTypes, leadingModifiers)
+        }
+        return CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes, modifierKinds)
     }
 
     private func CanEmitOrdinaryRuntimeCallArguments(callIdx: int, parameterTypes: Type[], modifierKinds: int[]): bool {
@@ -4225,7 +4374,8 @@ sealed class ColumnarIlEmitter {
         // to right, which is where a C# call site evaluates them too.
         elementType := selection.ExpandedElementType
         fixedCount := selection.FixedArgumentCount
-        for a := 0; a < parameterTypes.Length; a++ {
+        writtenArgumentCount := selection.IsOptionalFill ? selection.FixedArgumentCount : parameterTypes.Length
+        for a := 0; a < writtenArgumentCount; a++ {
             if (elementType != null && a == fixedCount) {
                 ColumnarParamsExpansion.EmitArrayHeader(_il, elementType, parameterTypes.Length - fixedCount)
             }
@@ -4244,6 +4394,15 @@ sealed class ColumnarIlEmitter {
         // the `params` overload hands over a zero-length `object[]`.
         if (elementType != null && parameterTypes.Length == fixedCount) {
             ColumnarParamsExpansion.EmitArrayHeader(_il, elementType, 0)
+        }
+        if (selection.IsOptionalFill) {
+            filled := selection.FixedArgumentCount
+            while (filled < parameterTypes.Length) {
+                if (!ColumnarExtensionMethodResolver.TryEmitOptionalDefault(_il, optionalParameters[filled], parameterTypes[filled])) {
+                    return false
+                }
+                filled += 1
+            }
         }
         ordinaryCallOpcode := match selection.UsesCallVirtual {
             true => OpCodes.Callvirt,
@@ -14719,6 +14878,12 @@ sealed class ColumnarIlEmitter {
                         return Decline("emit.call.free-function-overload-binding", "overloaded free-function call '" + gName + "' has no analyzer-selected declaration", callee)
                     }
                 } else if (!TryGetVisibleSibling(gName, out gTarget)) {
+                    // NO FREE FUNCTION OR SIBLING OF THIS NAME, so the generic method may be one the
+                    // enclosing type INHERITS from a base this compilation did not write — the bare
+                    // `Set<Person>()` and the `this.Set<Person>()` inside a `DbContext` subclass.
+                    if (TryEmitInheritedExternalExplicitGenericCall(idx, callee, out columnarResolvedType)) {
+                        return true
+                    }
                     return Decline("emit.call.generic-unresolved", "generic call '" + ColumnarDeclineReasonFacts.CalledMemberName(gName) + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
                 }
                 if (gTarget == null || gTarget.TypeParams.Length == 0) {
@@ -18672,18 +18837,147 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        if (typedEveryArgument && scope.TryResolveExplicitExtensionMethod(receiverType, member, typeArguments, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), argCount, out scored)) {
+        argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argCount)
+        argumentFacts.SourceTypeDefinitions = _structRegistry.Values
+        if (typedEveryArgument && scope.TryResolveExplicitExtensionMethod(receiverType, member, typeArguments, argumentTypes, argumentFacts, argCount, out scored, _structRegistry.Values)) {
             selection = scored
             return true
         }
 
+        // A LAMBDA HAS NO TYPE UNTIL A DELEGATE PARAMETER GIVES IT ONE, so the written type arguments
+        // close every overload first and the lambda then chooses among them: it fits only a delegate
+        // parameter of its own arity. `services.AddSingleton<Svc>(sp => ...)` closes both
+        // `(Func<IServiceProvider, Svc>)` and `(Svc instance)`, and only the first accepts a lambda.
+        let lambdaChosen: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodSelection? = null
+        if (TrySelectExplicitGenericExtensionForLambdas(callIdx, scope, receiverType, member, typeArguments, argCount, out lambdaChosen)) {
+            selection = lambdaChosen
+            return true
+        }
+
         let unique: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodSelection? = null
-        if (scope.TryResolveExplicitExtensionMethod(receiverType, member, typeArguments, null, null, argCount, out unique)) {
+        if (scope.TryResolveExplicitExtensionMethod(receiverType, member, typeArguments, null, null, argCount, out unique, _structRegistry.Values)) {
             selection = unique
             return true
         }
 
         return false
+    }
+
+    // The closed normal-form extension candidates whose every argument position accepts the argument
+    // written there, a lambda or method group being judged by its arity against the delegate; exactly
+    // one is the call. More than one is a real ambiguity and is left refused.
+    private func TrySelectExplicitGenericExtensionForLambdas(callIdx: int, scope: NSharpLang.Compiler.Columnar.ColumnarBindingScopeFacts, receiverType: Type, member: string, typeArguments: Type[], argCount: int, out selection: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodSelection): bool {
+        selection = null
+        if (!ColumnarLambdaNodeFacts.ArgumentsCarryLambda(_nodes, callIdx, argCount)) {
+            return false
+        }
+        applicable := 0
+        let chosen: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
+        for indexed in scope.ExtensionCandidates(member) {
+            if (indexed == null || indexed.ParameterTypes.Length - 1 < argCount) {
+                continue
+            }
+            closed := ColumnarExtensionMethodResolver.CloseExplicitOrNull(indexed, receiverType, typeArguments, _structRegistry.Values)
+            if (closed == null || !ColumnarExtensionMethodResolver.TrailingDefaultsFillable(closed.Method, closed.ParameterTypes, 1 + argCount)) {
+                continue
+            }
+            fits := true
+            for a := 0; a < argCount; a++ {
+                if (!CanLambdaOrValueArgumentFit(Child(callIdx, 1 + a), closed.ParameterTypes[1 + a])) {
+                    fits = false
+                    break
+                }
+            }
+            if (fits) {
+                applicable = applicable + 1
+                chosen = closed
+            }
+        }
+        if (applicable != 1 || chosen == null) {
+            return false
+        }
+        selection = new NSharpLang.Compiler.Columnar.ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, argCount, null)
+        return true
+    }
+
+    private func ArgumentsAreAllLambdas(callIdx: int, argCount: int): bool {
+        if (argCount == 0) {
+            return false
+        }
+        for a := 0; a < argCount; a++ {
+            if (!ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(Child(callIdx, 1 + a)))) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func HasAmbiguousExplicitGenericStaticLambdaCandidates(definition: NSharpLang.Compiler.Columnar.ColumnarStructDef, memberName: string, callIdx: int, argCount: int, typeArguments: Type[]): bool {
+        for current := definition as NSharpLang.Compiler.Columnar.ColumnarStructDef?; current != null; current = current.BaseDef {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (!current.StaticMethods.TryGetValue(memberName, out overloads)) {
+                continue
+            }
+
+            hasCandidatesAtLevel := false
+            applicable := 0
+            for candidate in overloads {
+                generics := candidate.Generics
+                if (generics == null || candidate.ParamTypes.Length != argCount || generics.TypeParams.Length != typeArguments.Length) {
+                    continue
+                }
+                hasCandidatesAtLevel = true
+                if (!ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(
+                    generics.TypeParams,
+                    generics.SpecialConstraints,
+                    generics.BaseConstraints,
+                    generics.InterfaceConstraints,
+                    typeArguments,
+                    typeArguments,
+                    _structRegistry
+                )) {
+                    continue
+                }
+
+                fitsLambdaArities := true
+                for a := 0; a < argCount; a++ {
+                    let delegateReturn: System.Type? = null
+                    let delegateParameters: System.Type[]? = null
+                    let delegateConstructor: System.Reflection.ConstructorInfo? = null
+                    lambda := Child(callIdx, 1 + a)
+                    if (!TryGetSupportedDelegateSignature(candidate.ParamTypes[a], true, out delegateReturn, out delegateParameters, out delegateConstructor) || delegateParameters.Length != _nodes.ChildCount(lambda) - 1) {
+                        fitsLambdaArities = false
+                        break
+                    }
+                }
+                if (fitsLambdaArities) {
+                    applicable = applicable + 1
+                }
+            }
+
+            if (applicable > 1) {
+                return true
+            }
+            if (hasCandidatesAtLevel) {
+                return false
+            }
+        }
+        return false
+    }
+
+    // One argument against one declared parameter, for overload choice among CLOSED candidates. A
+    // lambda converts only to a delegate type with the same number of parameters; every other argument
+    // is asked the ordinary declared-argument question.
+    private func CanLambdaOrValueArgumentFit(argNode: int, parameterType: Type): bool {
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
+            let delegateReturn: System.Type? = null
+            let delegateParams: System.Type[]? = null
+            let delegateConstructor: System.Reflection.ConstructorInfo? = null
+            if (!TryGetSupportedDelegateSignature(parameterType, true, out delegateReturn, out delegateParams, out delegateConstructor) || delegateParams.Length != _nodes.ChildCount(argNode) - 1) {
+                return false
+            }
+        }
+        return CanDeclaredCallArgumentMatch(argNode, parameterType, true)
     }
 
     private func TryEmitResolvedMemberHop(current: Type, hop: ColumnarInterpolationMemberPlan, ref stackHasCurrentAddress: bool, out resolvedClrType: Type): bool {

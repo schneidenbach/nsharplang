@@ -56,6 +56,146 @@ func MakeExtensionFixtureCandidate(method: MethodInfo): ColumnarExtensionMethodC
     return new ColumnarExtensionMethodCandidate(method, declaringType, parameterTypes, method.get_ReturnType())
 }
 
+func BuildReceiverRankedExtensionIndex(expanded: bool, includeGeneric: bool, includeNonGeneric: bool): ColumnarExtensionMethodIndex {
+    identity := "ReceiverRankedExtension" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+
+    if includeGeneric {
+        generic := owner.DefineMethod("Rank", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+        typeParameter := generic.DefineGenericParameters(["T"])[0]
+        genericArgument := new Type[](1)
+        genericArgument[0] = typeParameter
+        receiver := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(genericArgument)
+        genericParameters := new Type[](expanded ? 3 : 2)
+        genericParameters[0] = receiver
+        genericParameters[1] = expanded ? typeof(long) : typeof(int)
+        if expanded {
+            genericParameters[2] = typeof(int[])
+        }
+        generic.SetReturnType(typeof(int))
+        generic.SetParameters(genericParameters)
+        generic.DefineParameter(1, ParameterAttributes.None, "receiver")
+        generic.DefineParameter(2, ParameterAttributes.None, "value")
+        if expanded {
+            paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+            if paramArrayConstructor == null {
+                throw new InvalidOperationException("ParamArrayAttribute constructor was not found.")
+            }
+            tail := generic.DefineParameter(3, ParameterAttributes.None, "rest")
+            tail.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+        }
+        genericBody := generic.GetILGenerator()
+        genericBody.Emit(OpCodes.Ldc_I4_1)
+        genericBody.Emit(OpCodes.Ret)
+    }
+
+    if includeNonGeneric {
+        ordinary := owner.DefineMethod("Rank", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+        ordinaryParameters := new Type[](expanded ? 3 : 2)
+        ordinaryParameters[0] = typeof(object)
+        ordinaryParameters[1] = typeof(int)
+        if expanded {
+            ordinaryParameters[2] = typeof(int[])
+        }
+        ordinary.SetReturnType(typeof(int))
+        ordinary.SetParameters(ordinaryParameters)
+        ordinary.DefineParameter(1, ParameterAttributes.None, "receiver")
+        ordinary.DefineParameter(2, ParameterAttributes.None, "value")
+        if expanded {
+            paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+            if paramArrayConstructor == null {
+                throw new InvalidOperationException("ParamArrayAttribute constructor was not found.")
+            }
+            tail := ordinary.DefineParameter(3, ParameterAttributes.None, "rest")
+            tail.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+        }
+        ordinaryBody := ordinary.GetILGenerator()
+        ordinaryBody.Emit(OpCodes.Ldc_I4_2)
+        ordinaryBody.Emit(OpCodes.Ret)
+    }
+
+    createdOwner := owner.CreateType()
+    if createdOwner == null {
+        throw new InvalidOperationException("The receiver-ranked extension fixture type was not created.")
+    }
+
+    index := new ColumnarExtensionMethodIndex()
+    for method in createdOwner.GetMethods() {
+        isGeneric := method.IsGenericMethodDefinition
+        if method.Name == "Rank" && ((isGeneric && includeGeneric) || (!isGeneric && includeNonGeneric)) {
+            index.Add("Rank", MakeExtensionFixtureCandidate(method))
+        }
+    }
+    return index
+}
+
+func InvokeExtensionRank(selection: ColumnarExtensionMethodSelection, arguments: object?[]): int {
+    method := selection.Method
+    if !selection.IsSelected || method == null {
+        throw new InvalidOperationException("A selected extension ranking probe must carry its method.")
+    }
+    return Convert.ToInt32(method.Invoke(null, arguments))
+}
+
+func BuildOmittedOptionalTieBreakIndex(nonGenericOptionalCount: int): ColumnarExtensionMethodIndex {
+    identity := "OmittedOptionalTieBreak" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+    enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+
+    generic := owner.DefineMethod("Pick", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+    typeParameter := generic.DefineGenericParameters(["T"])[0]
+    genericReceiver := enumerableDefinition.MakeGenericType(ExtensionOneType(typeParameter))
+    generic.SetReturnType(typeof(int))
+    generic.SetParameters(ExtensionTwoTypes(genericReceiver, typeof(int)))
+    generic.DefineParameter(1, ParameterAttributes.None, "items")
+    genericMode := generic.DefineParameter(2, ParameterAttributes.Optional | ParameterAttributes.HasDefault, "mode")
+    genericMode.SetConstant(0)
+    genericBody := generic.GetILGenerator()
+    genericBody.Emit(OpCodes.Ldc_I4_1)
+    genericBody.Emit(OpCodes.Ret)
+
+    nonGenericParameterCount := nonGenericOptionalCount + 1
+    nonGenericTypes := new Type[](nonGenericParameterCount)
+    nonGenericTypes[0] = enumerableDefinition.MakeGenericType(ExtensionOneType(typeof(string)))
+    nonGenericTypes[1] = typeof(string)
+    if nonGenericOptionalCount == 2 {
+        nonGenericTypes[2] = typeof(bool)
+    } else if nonGenericOptionalCount != 1 {
+        throw new InvalidOperationException("The fixture supports one or two non-generic optional parameters.")
+    }
+
+    ordinary := owner.DefineMethod("Pick", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+    ordinary.SetReturnType(typeof(int))
+    ordinary.SetParameters(nonGenericTypes)
+    ordinary.DefineParameter(1, ParameterAttributes.None, "items")
+    ordinaryMode := ordinary.DefineParameter(2, ParameterAttributes.Optional | ParameterAttributes.HasDefault, "mode")
+    ordinaryMode.SetConstant("")
+    if nonGenericOptionalCount == 2 {
+        ordinaryExtra := ordinary.DefineParameter(3, ParameterAttributes.Optional | ParameterAttributes.HasDefault, "extra")
+        ordinaryExtra.SetConstant(false)
+    }
+    ordinaryBody := ordinary.GetILGenerator()
+    ordinaryBody.Emit(OpCodes.Ldc_I4_2)
+    ordinaryBody.Emit(OpCodes.Ret)
+
+    createdOwner := owner.CreateType()
+    if createdOwner == null {
+        throw new InvalidOperationException("The optional tie-break fixture type was not created.")
+    }
+
+    index := new ColumnarExtensionMethodIndex()
+    for method in createdOwner.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+        if method.Name == "Pick" {
+            index.Add("Pick", MakeExtensionFixtureCandidate(method))
+        }
+    }
+    return index
+}
+
 func BuildLinqExtensionIndex(): ColumnarExtensionMethodIndex {
     linqAssembly := RequiredExtensionFixtureType("System.Linq.Enumerable, System.Linq").get_Assembly()
     entry := new ExternalAssemblyCatalogEntry(null, "linq", "", linqAssembly, true)
@@ -157,10 +297,10 @@ test "generic extension inference unifies delegate arguments and rejects conflic
     conflicted := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "SequenceEqual", ExtensionOneType(typeof(IEnumerable<string>)), oneArgumentFacts)
     assert !conflicted.IsSelected, "A type parameter bound to two different types must decline."
 
-    // Interface/variance widening is outside this owner: a List receiver does not unify against an
-    // IEnumerable<TSource> receiver slot even though the runtime conversion exists.
+    // A constructed interface in the receiver's base/interface closure supplies the inference bound.
     listReceiver := ColumnarExtensionMethodResolver.Resolve(index, typeof(List<int>), "Take", ExtensionOneType(typeof(int)), oneArgumentFacts)
-    assert !listReceiver.IsSelected, "List<int>.Take(int) stays with later owners until interface-receiver inference lands."
+    assert listReceiver.IsSelected, "List<int> must infer Take<TSource> through its IEnumerable<int> interface."
+    assert listReceiver.ParameterTypes[0] == typeof(IEnumerable<int>)
 }
 
 test "a non-generic extension outranks an equally scored inference-closed generic" {
@@ -175,6 +315,256 @@ test "a non-generic extension outranks an equally scored inference-closed generi
     assert interfaceMax.Method != null
     assert !interfaceMax.Method.get_IsGenericMethod(), "The non-generic Max(IEnumerable<int>) declaration must be the selected handle."
     assert interfaceMax.ReturnType == typeof(int)
+}
+
+func ExtensionReceiverComparisonCandidates(genericArgumentType: Type, nonGenericArgumentType: Type, expanded: bool): List<ColumnarExtensionMethodCandidate> {
+    identity := "ExtensionReceiverComparison" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+
+    genericMethodBuilder := owner.DefineMethod("Pick", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard)
+    typeParameter := genericMethodBuilder.DefineGenericParameters(["T"])[0]
+    enumerableType := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(ExtensionOneType(typeParameter))
+    genericMethodBuilder.SetReturnType(typeof(int))
+    genericParameters := expanded ? ExtensionThreeTypes(enumerableType, genericArgumentType, typeof(int[])) : ExtensionTwoTypes(enumerableType, genericArgumentType)
+    genericMethodBuilder.SetParameters(genericParameters)
+    genericMethodBuilder.DefineParameter(1, ParameterAttributes.None, "values")
+    genericMethodBuilder.DefineParameter(2, ParameterAttributes.None, "label")
+    if expanded {
+        genericPackedParameter := genericMethodBuilder.DefineParameter(3, ParameterAttributes.None, "rest")
+        paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+        if paramArrayConstructor == null {
+            throw new InvalidOperationException("ParamArrayAttribute constructor not found")
+        }
+        genericPackedParameter.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+    }
+    genericIl := genericMethodBuilder.GetILGenerator()
+    genericIl.Emit(OpCodes.Ldc_I4_1)
+    genericIl.Emit(OpCodes.Ret)
+
+    objectMethodBuilder := owner.DefineMethod("Pick", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard)
+    objectMethodBuilder.SetReturnType(typeof(int))
+    objectParameters := expanded ? ExtensionThreeTypes(typeof(object), nonGenericArgumentType, typeof(int[])) : ExtensionTwoTypes(typeof(object), nonGenericArgumentType)
+    objectMethodBuilder.SetParameters(objectParameters)
+    objectMethodBuilder.DefineParameter(1, ParameterAttributes.None, "value")
+    objectMethodBuilder.DefineParameter(2, ParameterAttributes.None, "label")
+    if expanded {
+        objectPackedParameter := objectMethodBuilder.DefineParameter(3, ParameterAttributes.None, "rest")
+        paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+        if paramArrayConstructor == null {
+            throw new InvalidOperationException("ParamArrayAttribute constructor not found")
+        }
+        objectPackedParameter.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+    }
+    objectIl := objectMethodBuilder.GetILGenerator()
+    objectIl.Emit(OpCodes.Ldc_I4_2)
+    objectIl.Emit(OpCodes.Ret)
+
+    createdOwner := owner.CreateType()
+    candidates := new List<ColumnarExtensionMethodCandidate>()
+    for method in createdOwner.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+        if method.Name == "Pick" {
+            candidates.Add(MakeExtensionFixtureCandidate(method))
+        }
+    }
+    return candidates
+}
+
+func ExtensionThreeTypes(first: Type, second: Type, third: Type): Type[] {
+    values := new Type[](3)
+    values[0] = first
+    values[1] = second
+    values[2] = third
+    return values
+}
+
+func DefineComparableImplementation(owner: TypeBuilder, interfaceType: Type, valueType: Type): void {
+    owner.AddInterfaceImplementation(interfaceType)
+    method := owner.DefineMethod("CompareTo", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot | MethodAttributes.HideBySig, CallingConventions.HasThis)
+    method.SetReturnType(typeof(int))
+    method.SetParameters(ExtensionOneType(valueType))
+    body := method.GetILGenerator()
+    body.Emit(OpCodes.Ldc_I4_0)
+    body.Emit(OpCodes.Ret)
+    declaration := interfaceType.GetMethod("CompareTo")
+    if declaration == null {
+        throw new InvalidOperationException("The IComparable<T>.CompareTo declaration was not found.")
+    }
+    owner.DefineMethodOverride(method, declaration)
+}
+
+func BuildDualComparableReceiverType(): Type {
+    identity := "DualComparableReceiver" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Sealed)
+    DefineComparableImplementation(owner, typeof(IComparable<string>), typeof(string))
+    DefineComparableImplementation(owner, typeof(IComparable<int>), typeof(int))
+    owner.DefineDefaultConstructor(MethodAttributes.Public)
+    return owner.CreateType()
+}
+
+func DefineInterfaceInferenceExtension(owner: TypeBuilder, name: string, withWitness: bool, result: int): void {
+    method := owner.DefineMethod(name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+    typeParameter := method.DefineGenericParameters(["T"])[0]
+    comparable := typeof(IComparable<int>).GetGenericTypeDefinition().MakeGenericType(ExtensionOneType(typeParameter))
+    parameters := withWitness ? ExtensionTwoTypes(comparable, typeParameter) : ExtensionOneType(comparable)
+    method.SetReturnType(typeof(int))
+    method.SetParameters(parameters)
+    body := method.GetILGenerator()
+    body.Emit(OpCodes.Ldc_I4, result)
+    body.Emit(OpCodes.Ret)
+}
+
+func BuildInterfaceInferenceExtensionIndex(): ColumnarExtensionMethodIndex {
+    identity := "InterfaceInferenceExtensions" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+    DefineInterfaceInferenceExtension(owner, "InferOnly", false, 7)
+    DefineInterfaceInferenceExtension(owner, "InferWithWitness", true, 9)
+    createdOwner := owner.CreateType()
+    index := new ColumnarExtensionMethodIndex()
+    for method in createdOwner.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+        if method.Name == "InferOnly" || method.Name == "InferWithWitness" {
+            index.Add(method.Name, MakeExtensionFixtureCandidate(method))
+        }
+    }
+    return index
+}
+
+test "extension inference requires a unique interface instantiation" {
+    index := BuildInterfaceInferenceExtensionIndex()
+    noArguments := new Type[](0)
+    noFacts := ColumnarDirectCallArgumentFacts.Empty(0)
+
+    dualType := BuildDualComparableReceiverType()
+    dualReceiver := Activator.CreateInstance(dualType)
+    assert dualReceiver != null
+    ambiguous := ColumnarExtensionMethodResolver.Resolve(index, dualType, "InferOnly", noArguments, noFacts)
+    assert !ambiguous.IsSelected, "IComparable<string> and IComparable<int> cannot choose T by reflection order"
+
+    unique := ColumnarExtensionMethodResolver.Resolve(index, typeof(string), "InferOnly", noArguments, noFacts)
+    assert unique.IsSelected && unique.Method != null
+    uniqueArguments := new object?[](1)
+    uniqueArguments[0] = "value"
+    uniqueValue := unique.Method.Invoke(null, uniqueArguments)
+    assert Convert.ToInt32(uniqueValue) == 7, "a unique IComparable<string> instantiation infers T=string"
+
+    witnessTypes := ExtensionOneType(typeof(int))
+    witnessFacts := ColumnarDirectCallArgumentFacts.Empty(1)
+    withWitness := ColumnarExtensionMethodResolver.Resolve(index, dualType, "InferWithWitness", witnessTypes, witnessFacts)
+    assert withWitness.IsSelected && withWitness.Method != null, "another argument can infer T when the receiver has multiple interfaces"
+    witnessArguments := new object?[](2)
+    witnessArguments[0] = dualReceiver
+    witnessArguments[1] = 12
+    witnessValue := withWitness.Method.Invoke(null, witnessArguments)
+    assert Convert.ToInt32(witnessValue) == 9, "the deferred interface candidate binds through its int witness"
+}
+
+test "expanded extension overload comparison includes receiver conversions" {
+    index := new ColumnarExtensionMethodIndex()
+    for candidate in ExtensionReceiverComparisonCandidates(typeof(string), typeof(string), true) {
+        index.Add("Pick", candidate)
+    }
+
+    explicitTypes := ExtensionOneType(typeof(string))
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    list := new List<string>()
+    list.Add("value")
+    selected := ColumnarExtensionMethodResolver.Resolve(index, typeof(List<string>), "Pick", explicitTypes, facts)
+    assert selected.IsSelected, "the generic IEnumerable<T> extension should beat the object receiver"
+    assert selected.Method != null && selected.Method.IsGenericMethod
+    listArguments := new object?[](3)
+    listArguments[0] = list
+    listArguments[1] = "x"
+    listArguments[2] = new int[](0)
+    listResult := selected.Method.Invoke(null, listArguments)
+    assert Convert.ToInt32(listResult) == 1
+
+    objectReceiver := new object()
+    objectSelection := ColumnarExtensionMethodResolver.Resolve(index, typeof(object), "Pick", explicitTypes, facts)
+    assert objectSelection.IsSelected && objectSelection.Method != null
+    assert !objectSelection.Method.IsGenericMethod, "an object receiver cannot use the IEnumerable<T> overload"
+    objectArguments := new object?[](3)
+    objectArguments[0] = objectReceiver
+    objectArguments[1] = "x"
+    objectArguments[2] = new int[](0)
+    objectResult := objectSelection.Method.Invoke(null, objectArguments)
+    assert Convert.ToInt32(objectResult) == 2
+}
+
+test "extension receiver and explicit argument can make candidates incomparable" {
+    candidates := ExtensionReceiverComparisonCandidates(typeof(long), typeof(int), true)
+    all := new ColumnarExtensionMethodIndex()
+    genericOnly := new ColumnarExtensionMethodIndex()
+    nonGenericOnly := new ColumnarExtensionMethodIndex()
+    for candidate in candidates {
+        all.Add("Pick", candidate)
+        if candidate.Method.IsGenericMethod {
+            genericOnly.Add("Pick", candidate)
+        } else {
+            nonGenericOnly.Add("Pick", candidate)
+        }
+    }
+
+    receiver := new List<string>()
+    receiver.Add("value")
+    intTypes := ExtensionOneType(typeof(int))
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    ambiguous := ColumnarExtensionMethodResolver.Resolve(all, typeof(List<string>), "Pick", intTypes, facts)
+    assert !ambiguous.IsSelected, "the better IEnumerable<T> receiver and better int argument leave incomparable methods"
+
+    genericTypes := ExtensionOneType(typeof(long))
+    generic := ColumnarExtensionMethodResolver.Resolve(genericOnly, typeof(List<string>), "Pick", genericTypes, facts)
+    assert generic.IsSelected && generic.Method != null && generic.Method.IsGenericMethod
+    genericArguments := new object?[](3)
+    genericArguments[0] = receiver
+    genericArguments[1] = 4L
+    genericArguments[2] = new int[](0)
+    genericValue := generic.Method.Invoke(null, genericArguments)
+    assert Convert.ToInt32(genericValue) == 1, "the generic-only control reaches its runtime method"
+
+    nonGeneric := ColumnarExtensionMethodResolver.Resolve(nonGenericOnly, typeof(object), "Pick", intTypes, facts)
+    assert nonGeneric.IsSelected && nonGeneric.Method != null && !nonGeneric.Method.IsGenericMethod
+    nonGenericArguments := new object?[](3)
+    nonGenericArguments[0] = new object()
+    nonGenericArguments[1] = 5
+    nonGenericArguments[2] = new int[](0)
+    nonGenericValue := nonGeneric.Method.Invoke(null, nonGenericArguments)
+    assert Convert.ToInt32(nonGenericValue) == 2, "the non-generic-only control reaches its runtime method"
+
+    normalCandidates := ExtensionReceiverComparisonCandidates(typeof(long), typeof(int), false)
+    normalAll := new ColumnarExtensionMethodIndex()
+    normalGenericOnly := new ColumnarExtensionMethodIndex()
+    normalNonGenericOnly := new ColumnarExtensionMethodIndex()
+    for candidate in normalCandidates {
+        normalAll.Add("Pick", candidate)
+        if candidate.Method.IsGenericMethod {
+            normalGenericOnly.Add("Pick", candidate)
+        } else {
+            normalNonGenericOnly.Add("Pick", candidate)
+        }
+    }
+    normalAmbiguous := ColumnarExtensionMethodResolver.Resolve(normalAll, typeof(List<string>), "Pick", intTypes, facts)
+    assert !normalAmbiguous.IsSelected, "normal-form candidates also compare the receiver against explicit arguments"
+
+    normalGeneric := ColumnarExtensionMethodResolver.Resolve(normalGenericOnly, typeof(List<string>), "Pick", genericTypes, facts)
+    assert normalGeneric.IsSelected && normalGeneric.Method != null
+    normalGenericArguments := new object?[](2)
+    normalGenericArguments[0] = receiver
+    normalGenericArguments[1] = 6L
+    normalGenericValue := normalGeneric.Method.Invoke(null, normalGenericArguments)
+    assert Convert.ToInt32(normalGenericValue) == 1, "the normal generic control reaches its runtime method"
+
+    normalNonGeneric := ColumnarExtensionMethodResolver.Resolve(normalNonGenericOnly, typeof(object), "Pick", intTypes, facts)
+    assert normalNonGeneric.IsSelected && normalNonGeneric.Method != null
+    normalNonGenericArguments := new object?[](2)
+    normalNonGenericArguments[0] = new object()
+    normalNonGenericArguments[1] = 8
+    normalNonGenericValue := normalNonGeneric.Method.Invoke(null, normalNonGenericArguments)
+    assert Convert.ToInt32(normalNonGenericValue) == 2, "the normal non-generic control reaches its runtime method"
 }
 
 test "extension resolution prefers exact arity over trailing-optional and rejects ambiguity" {
@@ -531,4 +921,102 @@ test "the extension index skips a host it cannot read and indexes everything it 
     selected := new List<ColumnarExtensionMethodCandidate>()
     assert index.TryGet("Count", out selected)
     assert selected.Count > 0
+}
+
+test "normal extension overload ranking compares the receiver with explicit arguments" {
+    index := BuildReceiverRankedExtensionIndex(false, true, true)
+    values := new List<string>()
+    values.Add("receiver")
+    argumentTypes := new Type[](1)
+    argumentTypes[0] = typeof(int)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+
+    selected := ColumnarExtensionMethodResolver.Resolve(index, typeof(List<string>), "Rank", argumentTypes, facts)
+    assert selected.IsSelected
+    assert selected.Method != null && selected.Method.IsGenericMethod
+    arguments := new object?[](2)
+    arguments[0] = values
+    arguments[1] = 9
+    assert InvokeExtensionRank(selected, arguments) == 1
+
+    // With only the object receiver candidate, that same call shape remains applicable and reaches
+    // its runtime body. This controls both the negative candidate filter and invocation setup.
+    objectIndex := BuildReceiverRankedExtensionIndex(false, false, true)
+    objectSelected := ColumnarExtensionMethodResolver.Resolve(objectIndex, typeof(object), "Rank", argumentTypes, facts)
+    assert objectSelected.IsSelected
+    assert objectSelected.Method != null && !objectSelected.Method.IsGenericMethod
+    objectArguments := new object?[](2)
+    objectArguments[0] = new object()
+    objectArguments[1] = 9
+    assert InvokeExtensionRank(objectSelected, objectArguments) == 2
+}
+
+test "expanded extension overload ranking preserves incomparable receiver and argument conversions" {
+    index := BuildReceiverRankedExtensionIndex(true, true, true)
+    argumentTypes := new Type[](1)
+    argumentTypes[0] = typeof(int)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+
+    // The generic candidate converts the receiver better (IEnumerable<string> over object), while
+    // the non-generic candidate converts the explicit int better (identity over int-to-long).
+    // C# leaves this call ambiguous; scoring explicit arguments first must not choose either one.
+    ambiguous := ColumnarExtensionMethodResolver.Resolve(index, typeof(List<string>), "Rank", argumentTypes, facts)
+    assert !ambiguous.IsSelected
+
+    // Each shape remains callable in isolation and returns its own marker when invoked.
+    genericIndex := BuildReceiverRankedExtensionIndex(true, true, false)
+    values := new List<string>()
+    values.Add("receiver")
+    longArgumentTypes := new Type[](1)
+    longArgumentTypes[0] = typeof(long)
+    genericSelected := ColumnarExtensionMethodResolver.Resolve(genericIndex, typeof(List<string>), "Rank", longArgumentTypes, facts)
+    assert genericSelected.IsSelected
+    assert genericSelected.ParamsElementType == typeof(int)
+    genericArguments := new object?[](3)
+    genericArguments[0] = values
+    genericArguments[1] = 9L
+    genericArguments[2] = new int[](0)
+    assert InvokeExtensionRank(genericSelected, genericArguments) == 1
+
+    objectIndex := BuildReceiverRankedExtensionIndex(true, false, true)
+    objectSelected := ColumnarExtensionMethodResolver.Resolve(objectIndex, typeof(object), "Rank", argumentTypes, facts)
+    assert objectSelected.IsSelected
+    objectArguments := new object?[](3)
+    objectArguments[0] = new object()
+    objectArguments[1] = 9
+    objectArguments[2] = new int[](0)
+    assert InvokeExtensionRank(objectSelected, objectArguments) == 2
+}
+
+test "extension tie-breaking compares supplied parameters before omitted optional types" {
+    values := new List<string>()
+    values.Add("runtime")
+    noArguments := new Type[](0)
+    noFacts := ColumnarDirectCallArgumentFacts.Empty(0)
+
+    // Both candidates receive the same IEnumerable<string> receiver and omit one optional. Their
+    // omitted parameter types differ, but omitted parameters are not comparison arguments; C#'s
+    // less-generic tie-break therefore selects the ordinary overload.
+    equalOmissions := BuildOmittedOptionalTieBreakIndex(1)
+    selected := ColumnarExtensionMethodResolver.Resolve(equalOmissions, typeof(List<string>), "Pick", noArguments, noFacts)
+    assert selected.IsSelected, "different omitted optional types must not make equal supplied signatures ambiguous"
+    assert selected.Method != null && !selected.Method.IsGenericMethod
+    runtimeArguments := new object?[](2)
+    runtimeArguments[0] = values
+    runtimeArguments[1] = ""
+    runtimeValue := selected.Method.Invoke(null, runtimeArguments)
+    assert Convert.ToInt32(runtimeValue) == 2, "the less-generic overload's runtime body must be selected"
+
+    // With two omitted optionals on the ordinary candidate and one on the generic candidate, the
+    // fewer-omitted rule wins before the genericity tie-break. This keeps the omitted-count rule
+    // distinct from comparing the types of omitted parameters.
+    differentOmissions := BuildOmittedOptionalTieBreakIndex(2)
+    fewerOmissions := ColumnarExtensionMethodResolver.Resolve(differentOmissions, typeof(List<string>), "Pick", noArguments, noFacts)
+    assert fewerOmissions.IsSelected, "the candidate omitting fewer optional parameters must remain applicable"
+    assert fewerOmissions.Method != null && fewerOmissions.Method.IsGenericMethod
+    genericRuntimeArguments := new object?[](2)
+    genericRuntimeArguments[0] = values
+    genericRuntimeArguments[1] = 0
+    genericRuntimeValue := fewerOmissions.Method.Invoke(null, genericRuntimeArguments)
+    assert Convert.ToInt32(genericRuntimeValue) == 1, "fewer omitted optionals must beat the non-generic tie-break"
 }

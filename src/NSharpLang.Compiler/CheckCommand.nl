@@ -395,7 +395,9 @@ class CheckCommand {
                 if cached != null {
                     restored := RestoreWorkspaceProjectResult(project.ProjectRoot, cached)
                     if restored != null {
-                        restored.CheckCompiler = compiler
+                        if outputMode == 2 {
+                            restored.CheckCompiler = compiler
+                        }
                         restored.CheckWasCached = true
                         restored.CheckOutput = cached.Output
                         restored.CheckOutputToStandardError = cached.OutputToStandardError
@@ -431,7 +433,13 @@ class CheckCommand {
                     null,
                     systemsReport
                 )
-                result.CheckCompiler = compiler
+                // JSON workspace results never use the compiler after this member has been
+                // summarized. Retaining every workspace compiler until the final JSON is written
+                // keeps all of their reflection metadata graphs alive at once; text mode retains
+                // the compiler only because it writes one combined text cache after all members.
+                if outputMode == 2 {
+                    result.CheckCompiler = compiler
+                }
                 result.CheckDiagnosticsJson = resultJson
                 return result
             }
