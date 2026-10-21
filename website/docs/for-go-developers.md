@@ -193,7 +193,7 @@ async func fetchData(): string {
 result := await fetchData()
 ```
 
-Different model: Go uses goroutines (lightweight threads), N# uses async/await (cooperative scheduling). The async/await model is explicit about what's asynchronous but gives you structured concurrency.
+Different model: Go uses goroutines (lightweight threads), while N# async/await suspends a `Task` or `ValueTask` state machine and resumes it when the awaited operation completes. Starting a task does not make it a child whose lifetime is automatically tied to the caller; await the work whose completion your function requires.
 
 ## Packages and Imports
 
@@ -449,7 +449,7 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 - **Full generics with constraints** — More powerful than Go's type parameters
 - **Pattern matching** — Far richer than `switch`
 - **Discriminated unions** — Tagged unions with exhaustiveness checking
-- **Async/await** — Structured concurrency instead of goroutines
+- **Async/await** — Task-based suspension for asynchronous work
 - **LINQ** — Declarative collection processing
 - **Massive ecosystem** — All of NuGet (300K+ packages)
 
