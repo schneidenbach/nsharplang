@@ -304,9 +304,7 @@ class AwaitablePatternBinder {
         reflectionReceiverType := reflectedAwaitableType
         if reflectedAwaitableType != null {
             lookupType = new ReflectionTypeInfo(
-                reflectedAwaitableType.IsGenericType && !reflectedAwaitableType.IsGenericTypeDefinition
-                    ? reflectedAwaitableType.GetGenericTypeDefinition()
-                    : reflectedAwaitableType
+                reflectedAwaitableType.IsGenericType && !reflectedAwaitableType.IsGenericTypeDefinition ? reflectedAwaitableType.GetGenericTypeDefinition() : reflectedAwaitableType
             )
         } else {
             genericAwaitable := awaitableType as GenericTypeInfo
@@ -317,7 +315,7 @@ class AwaitablePatternBinder {
             }
         }
 
-        invocation := AwaiterInvocation(awaitableType)
+        invocation := AwaiterInvocation()
         selectedMember := memberResolution.ResolveMember(lookupType, "GetAwaiter", false, accessingTypeName, true)
         selectedFunction: FunctionTypeInfo? = null
         selectedMethod: MethodInfo? = null
@@ -471,7 +469,7 @@ class AwaitablePatternBinder {
         }
     }
 
-    static func AwaiterInvocation(awaitableType: TypeInfo): CallExpression {
+    static func AwaiterInvocation(): CallExpression {
         receiver: Expression = new IdentifierExpression("awaitable", 1, 1)
         callee: Expression = new MemberAccessExpression(receiver, "GetAwaiter", false, 1, 1)
         return new CallExpression(callee, new List<Argument>(), null, 1, 1)

@@ -5,6 +5,8 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 import System.Text
+import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 
 
 // Sub-slice 3a: the DECISION layer of iterator state machines (`func*` and `async func*`). This planner
