@@ -709,11 +709,24 @@ class ColumnarExternalInterfaceMethodResolver {
         table: ColumnarStructuralTypeReferenceTable,
         implementationTypeParameters: Type[]
     ) {
+        AddMatchingTargets(declaration, externalInterfaces, memberName, returnType, parameterTypes, table, implementationTypeParameters, null)
+    }
+
+    static func AddMatchingTargets(
+        declaration: ColumnarMethodOverrideDeclaration,
+        externalInterfaces: List<Type>,
+        memberName: string,
+        returnType: Type,
+        parameterTypes: Type[],
+        table: ColumnarStructuralTypeReferenceTable,
+        implementationTypeParameters: Type[],
+        excludedTargets: HashSet<MethodInfo>?
+    ) {
         for declaredInterface in externalInterfaces {
             for externalInterface in InterfaceRequirementClosure(declaredInterface) {
                 if ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface) {
                     if implementationTypeParameters.Length == 0 {
-                        AddBuilderBoundMatchingTargets(declaration, externalInterface, memberName, returnType, parameterTypes)
+                        AddBuilderBoundMatchingTargets(declaration, externalInterface, memberName, returnType, parameterTypes, excludedTargets)
                     }
                     continue
                 }
@@ -725,7 +738,7 @@ class ColumnarExternalInterfaceMethodResolver {
                         parameterTypes,
                         implementationTypeParameters
                     )
-                    if matchedSignature.Matched {
+                    if matchedSignature.Matched && (excludedTargets == null || !excludedTargets.Contains(externalMethod)) {
                         declaration.AddExternalTarget(new ColumnarExternalInterfaceMethodBinding(
                             externalInterface,
                             matchedSignature,
@@ -749,7 +762,8 @@ class ColumnarExternalInterfaceMethodResolver {
         externalInterface: Type,
         memberName: string,
         returnType: Type,
-        parameterTypes: Type[]
+        parameterTypes: Type[],
+        excludedTargets: HashSet<MethodInfo>?
     ) {
         definition := externalInterface.GetGenericTypeDefinition()
         closedArguments := externalInterface.GetGenericArguments()
@@ -762,7 +776,10 @@ class ColumnarExternalInterfaceMethodResolver {
                 throw new InvalidOperationException("TypeBuilder.GetMethod returned no exact builder-bound interface method.")
             }
             reboundObject: object? = rebound
-            declaration.AddExternalTarget((MethodInfo)reboundObject)
+            reboundMethod := (MethodInfo)reboundObject
+            if excludedTargets == null || !excludedTargets.Contains(reboundMethod) {
+                declaration.AddExternalTarget(reboundMethod)
+            }
         }
     }
 

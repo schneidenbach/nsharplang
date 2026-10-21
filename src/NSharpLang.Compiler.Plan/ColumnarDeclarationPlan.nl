@@ -461,6 +461,20 @@ class ColumnarMethodOverrideDeclaration {
     SourceTargetCount: int => sourceTargets.Count
     ExternalTargetCount: int => externalTargets.Count
 
+    func SourceTargetAt(index: int): MethodInfo {
+        if index < 0 || index >= sourceTargets.Count {
+            throw new InvalidOperationException("A source-interface target index is out of range.")
+        }
+        return sourceTargets[index]
+    }
+
+    func ExternalTargetAt(index: int): MethodInfo {
+        if index < 0 || index >= externalTargets.Count {
+            throw new InvalidOperationException("An external-interface target index is out of range.")
+        }
+        return externalTargets[index]
+    }
+
     constructor(baseMethodAttributes: int, requestsBaseOverride: bool, declineOwnerName: string, memberName: string, returnCanonical: string, parameterCanonicals: string[]) {
         if declineOwnerName == null || memberName == null || returnCanonical == null || parameterCanonicals == null {
             throw new InvalidOperationException("Method-override declaration facts cannot be null.")
@@ -539,6 +553,17 @@ class ColumnarMethodOverrideDeclaration {
         parameterTypes: Type[],
         table: ColumnarStructuralTypeReferenceTable
     ): bool {
+        return TryAddSourceInterfaceTarget(interfaceDefinition, memberName, returnType, parameterTypes, table, null)
+    }
+
+    func TryAddSourceInterfaceTarget(
+        interfaceDefinition: ColumnarStructDef,
+        memberName: string,
+        returnType: Type,
+        parameterTypes: Type[],
+        table: ColumnarStructuralTypeReferenceTable,
+        excludedTargets: HashSet<MethodInfo>?
+    ): bool {
         binding: ColumnarSourceInterfaceMethodBinding? = null
         if !ColumnarSourceInterfaceMethodResolver.TryFind(
             interfaceDefinition,
@@ -548,6 +573,9 @@ class ColumnarMethodOverrideDeclaration {
             table,
             out binding
         ) || binding == null {
+            return false
+        }
+        if excludedTargets != null && excludedTargets.Contains(binding.Target) {
             return false
         }
         AddSourceTarget(binding)
@@ -562,6 +590,18 @@ class ColumnarMethodOverrideDeclaration {
         parameterTypes: Type[],
         table: ColumnarStructuralTypeReferenceTable
     ): bool {
+        return TryAddClosedSourceInterfaceTarget(closedInterfaceType, mappingOpenDefinition, memberName, returnType, parameterTypes, table, null)
+    }
+
+    func TryAddClosedSourceInterfaceTarget(
+        closedInterfaceType: Type,
+        mappingOpenDefinition: ColumnarStructDef,
+        memberName: string,
+        returnType: Type,
+        parameterTypes: Type[],
+        table: ColumnarStructuralTypeReferenceTable,
+        excludedTargets: HashSet<MethodInfo>?
+    ): bool {
         binding: ColumnarClosedSourceInterfaceMethodBinding? = null
         if !ColumnarClosedGenericMemberResolver.TryFindSourceInterfaceMethod(
             closedInterfaceType,
@@ -572,6 +612,9 @@ class ColumnarMethodOverrideDeclaration {
             table,
             out binding
         ) || binding == null {
+            return false
+        }
+        if excludedTargets != null && excludedTargets.Contains(binding.Target) {
             return false
         }
         AddSourceTarget(binding)

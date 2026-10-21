@@ -388,6 +388,15 @@ test "source interface inheritance preserves the INotifyCompletion slot during e
     assert pending.Result == 41
 }
 
+test "an explicit base INotifyCompletion slot resolves through a source interface's inherited closure" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitInheritedExplicitNotify(new InheritedExplicitNotifyAwaitable(gate.Task))
+    assert !pending.IsCompleted
+
+    gate.SetResult(48)
+    assert pending.Result == 48
+}
+
 test "a receiver-inferred generic GetAwaiter extension is emitted and returns its closed value" {
     pending := AwaitGenericExtension(new GenericExtensionBox<int>(47))
     assert pending.Result == 47

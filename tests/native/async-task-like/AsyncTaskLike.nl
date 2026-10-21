@@ -696,6 +696,9 @@ class ExplicitNotifyAwaiter: INotifyCompletion {
         return Source.GetAwaiter().GetResult()
     }
 
+    func OnCompleted(_continuation: Action) {
+    }
+
     func INotifyCompletion.OnCompleted(continuation: Action) {
         Source.GetAwaiter().OnCompleted(continuation)
     }
@@ -740,6 +743,45 @@ class InheritedNotifyAwaiter: InheritedNotifyCompletion {
 }
 
 async func AwaitInheritedNotify(source: InheritedNotifyAwaitable): Task<int> {
+    return await source
+}
+
+class InheritedExplicitNotifyAwaitable {
+    Source: Task<int>
+
+    constructor(source: Task<int>) {
+        Source = source
+    }
+
+    func GetAwaiter(): InheritedExplicitNotifyAwaiter {
+        return new InheritedExplicitNotifyAwaiter(Source)
+    }
+}
+
+class InheritedExplicitNotifyAwaiter: InheritedNotifyCompletion {
+    Source: Task<int>
+
+    constructor(source: Task<int>) {
+        Source = source
+    }
+
+    IsCompleted: bool {
+        get { return Source.IsCompleted }
+    }
+
+    func GetResult(): int {
+        return Source.GetAwaiter().GetResult()
+    }
+
+    func OnCompleted(_continuation: Action) {
+    }
+
+    func INotifyCompletion.OnCompleted(continuation: Action) {
+        Source.GetAwaiter().OnCompleted(continuation)
+    }
+}
+
+async func AwaitInheritedExplicitNotify(source: InheritedExplicitNotifyAwaitable): Task<int> {
     return await source
 }
 

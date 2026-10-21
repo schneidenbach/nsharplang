@@ -675,6 +675,10 @@ class ColumnarStructDef {
     // every explicitly implemented interface unsatisfied — so the declaration pass records what it
     // filled, and the walk consults it before it fails.
     ExplicitInterfaceSlots: HashSet<string>
+    // THE EXACT INTERFACE METHOD TARGETS FILLED EXPLICITLY. A public same-name method may still
+    // implement another overload, but it must not also receive a MethodImpl row for the slot an
+    // explicit method already owns. MethodInfo identity keeps overloads and inherited slots distinct.
+    ExplicitInterfaceTargetMethods: HashSet<MethodInfo>
     MethodOverloads: Dictionary<string, List<ColumnarInstanceMethodDef>>
     StaticMethods: Dictionary<string, List<ColumnarStaticMethodDef>>
     StaticFields: Dictionary<string, FieldBuilder>
@@ -753,6 +757,7 @@ class ColumnarStructDef {
         DefaultInterfaceMethodNames = new HashSet<string>(StringComparer.Ordinal)
         Methods = new Dictionary<string, ColumnarInstanceMethodDef>(StringComparer.Ordinal)
         ExplicitInterfaceSlots = new HashSet<string>(StringComparer.Ordinal)
+        ExplicitInterfaceTargetMethods = new HashSet<MethodInfo>()
         MethodOverloads = new Dictionary<string, List<ColumnarInstanceMethodDef>>(StringComparer.Ordinal)
         StaticMethods = new Dictionary<string, List<ColumnarStaticMethodDef>>(StringComparer.Ordinal)
         StaticFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)

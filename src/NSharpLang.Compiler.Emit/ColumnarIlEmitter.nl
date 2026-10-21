@@ -5729,7 +5729,26 @@ sealed class ColumnarIlEmitter {
             // ldfld`) is identical to a value type's (ldfld works on both a managed pointer and an object ref), and
             // the instance CALL branches on IsReference (ldloc + callvirt for a ref receiver vs ldloca + call for a
             // value receiver) — see TryEmitInstanceCall. Slice-1a methods READ fields (no field WRITE in a body yet).
-            for mi := 0; mi < structs[s].Methods.Count; mi++ {
+            // DECLARE EXPLICIT METHODS BEFORE SAME-NAME PUBLIC METHODS. An explicit member claims
+            // its exact interface slot; a public overload may still claim a different slot, but it
+            // must not also receive a MethodImpl row for the explicit member's target. Keeping the
+            // source ordinal in `mi` preserves every declaration-plan lookup below.
+            methodOrder := new int[structs[s].Methods.Count]
+            methodOrderCount := 0
+            for methodIndex := 0; methodIndex < structs[s].Methods.Count; methodIndex++ {
+                if ExplicitInterfaceMemberFacts.IsExplicitMemberName(structs[s].Methods[methodIndex].Name) {
+                    methodOrder[methodOrderCount] = methodIndex
+                    methodOrderCount = methodOrderCount + 1
+                }
+            }
+            for methodIndex := 0; methodIndex < structs[s].Methods.Count; methodIndex++ {
+                if !ExplicitInterfaceMemberFacts.IsExplicitMemberName(structs[s].Methods[methodIndex].Name) {
+                    methodOrder[methodOrderCount] = methodIndex
+                    methodOrderCount = methodOrderCount + 1
+                }
+            }
+            for methodOrderIndex := 0; methodOrderIndex < methodOrder.Length; methodOrderIndex++ {
+                mi := methodOrder[methodOrderIndex]
                 m := structs[s].Methods[mi]
                 if (m.IsStatic) {
                     // A `static` MEMBER HAS NO SLOT TO FILL. An explicit interface implementation is a
