@@ -154,24 +154,6 @@ test "NL353 is a build-blocking semantic diagnostic for await outside async" {
     assert descriptor.BlocksBuildByDefault
 }
 
-test "NL354 is a build-blocking semantic diagnostic for generic async-local state-machine contexts" {
-    descriptor := DiagnosticCatalog.EmptyDescriptor()
-    assert DiagnosticCatalog.TryGetDescriptor("NL354", out descriptor)
-    assert descriptor.Source == DiagnosticSource.Compiler
-    assert descriptor.Category == DiagnosticCategory.Semantic
-    assert descriptor.DefaultSeverity == DiagnosticSeverity.Error
-    assert descriptor.BlocksBuildByDefault
-}
-
-test "NL355 is a build-blocking semantic diagnostic for async lambdas in generic owners" {
-    descriptor := DiagnosticCatalog.EmptyDescriptor()
-    assert DiagnosticCatalog.TryGetDescriptor("NL355", out descriptor)
-    assert descriptor.Source == DiagnosticSource.Compiler
-    assert descriptor.Category == DiagnosticCategory.Semantic
-    assert descriptor.DefaultSeverity == DiagnosticSeverity.Error
-    assert descriptor.BlocksBuildByDefault
-}
-
 // ── the docs URL, on BOTH its arms ────────────────────────────────────────────────────────────
 
 test "DocsUrlFor SYNTHESIZES a public docs URL, and it is the ONLY thing it does" {

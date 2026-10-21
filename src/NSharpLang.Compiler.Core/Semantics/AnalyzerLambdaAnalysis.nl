@@ -576,25 +576,6 @@ class AnalyzerLambdaAnalysis {
         return null
     }
 
-    // Async lambda state machines cannot yet carry generic parameters from their enclosing method or
-    // type. Report the limitation during semantic analysis, after target typing establishes that this
-    // is a real async delegate conversion.
-    func ReportAsyncLambdaInGenericOwnerIfNeeded(state: LambdaAnalysisState) {
-        signature := state.ExpectedSignature
-        if signature == null || AsyncBodyReturnType(signature.ReturnType) == null {
-            return
-        }
-
-        diagnostics.Report(
-            ErrorCode.AsyncLambdaInGenericOwner,
-            "An async lambda inside a generic method or type cannot yet carry the owner's type parameters into its state machine",
-            state.Lambda.Line,
-            state.Lambda.Column,
-            "Move the async body to a non-generic helper and pass its required values explicitly.",
-            5
-        )
-    }
-
     // THE TASK THE BODY'S VALUE TRAVELS IN: the target's own task family over the body's result type.
     // A unit task carries no result and is returned unchanged; so is a target whose result the body
     // could not name (a block body infers nothing, which is the pre-existing lambda rule), and so is

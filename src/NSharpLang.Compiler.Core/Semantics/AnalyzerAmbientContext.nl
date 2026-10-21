@@ -264,8 +264,8 @@ class AnalyzerAmbientContext {
     CurrentFunction: FunctionDeclaration? => currentFunctionValue
 
     // Whether the active function declaration owns method type parameters. Lambdas have no
-    // declaration of their own and inherit this fact from their enclosing function, so nested
-    // async lambdas can be diagnosed before the emitter sees an unsupported generic owner.
+    // declaration of their own and inherit this fact from their enclosing function; local
+    // declarations use it when resolving the type parameters that their state machines capture.
     CurrentFunctionIsGeneric: bool => currentFunctionIsGenericValue
 
     // Whether the enclosing function's return type was OMITTED rather than written. Every

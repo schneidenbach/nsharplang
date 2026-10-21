@@ -270,16 +270,13 @@ test "a generic async free function compiles" {
     }
 }
 
-test "a generic async local function inside an async owner gets a positioned semantic diagnostic" {
+test "a generic async local function inside an async owner compiles" {
     root := AdtRoot("generic-async-local")
     try {
         AdtWebProject(root, "GenericLocal", "", "import System.Threading.Tasks\n\nasync func Outer(): int {\n    async func hold<U>(value: U): U {\n        await Task.Delay(1)\n        return value\n    }\n    return await hold(1)\n}\n")
         errors: List<CompilerError> = null
         AdtCompile(root, "GenericLocal", out errors)
-        assert errors.Count == 1, AdtErrorText(errors)
-        assert errors[0].DiagnosticId == "NL354", AdtErrorText(errors)
-        assert errors[0].Line == 4 && errors[0].Column > 0, AdtErrorText(errors)
-        assert errors[0].Message.Contains("generic parameters", StringComparison.Ordinal), errors[0].Message
+        assert errors.Count == 0, AdtErrorText(errors)
     } finally {
         Directory.Delete(root, true)
     }

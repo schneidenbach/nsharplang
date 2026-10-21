@@ -1296,6 +1296,27 @@ test "an external generic over a type parameter is a storable type, and a source
     assert !ColumnarTypeOfPlanner.IsSupportedType(typeof(Span<int>).GetGenericTypeDefinition().MakeGenericType(oneArgument))
 }
 
+test "Task and delegates retain nested owner parameters in Reflection.Emit signatures" {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("ColumnarTypeOfPlannerOpenTaskProbe"), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("ColumnarTypeOfPlannerOpenTaskProbe")
+    owner := module.DefineType("ColumnarTypeOfPlannerOpenTaskOwner", TypeAttributes.Public)
+    parameter := owner.DefineGenericParameters(["T"])[0]
+    taskDefinition := typeof(Task<int>).GetGenericTypeDefinition()
+    taskArgument := taskDefinition.MakeGenericType([parameter])
+
+    // Reflection.Emit may label these constructed shapes as generic definitions. Their actual
+    // definitions and arguments show that they are Task<T> and Func<Task<T>, Task<T>> signatures.
+    assert !Object.ReferenceEquals(taskArgument, taskDefinition)
+    assert ColumnarTypeOfPlanner.IsSupportedType(taskArgument)
+
+    funcDefinition := typeof(Func<int, int>).GetGenericTypeDefinition()
+    delegateArguments := new Type[](2)
+    delegateArguments[0] = taskArgument
+    delegateArguments[1] = taskArgument
+    delegateType := funcDefinition.MakeGenericType(delegateArguments)
+    assert ColumnarTypeOfPlanner.IsSupportedType(delegateType)
+}
+
 // ── `typeof` IS THE ONE TYPE POSITION THAT ADMITS `void` ───────────────────────────────────────
 //
 // `AnalyzerTypeReferenceFacts` states the split the language already had: `void` is a built-in

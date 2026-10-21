@@ -2,6 +2,8 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
 
 
 // These tests stay at the resolver boundary: they build a real semantic catalog and call the
@@ -764,4 +766,67 @@ test "the delegate families resolve over a type parameter like every other const
     // Fully external delegates keep resolving unchanged.
     concrete := CanonicalResolverWithTypeParams("Action<int>")
     assert concrete == typeof(Action<int>)
+}
+
+test "a delegate over Task of a synthesized owner parameter resolves with source whitespace" {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("ColumnarCanonicalOpenTaskDelegateProbe"), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("ColumnarCanonicalOpenTaskDelegateProbe")
+    owner := module.DefineType("ColumnarCanonicalOpenTaskDelegateOwner", TypeAttributes.Public)
+    parameter := owner.DefineGenericParameters(["U"])[0]
+    typeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+    typeParameters["U"] = parameter
+    resolution := CanonicalResolverBaselineResolution()
+    resolution.StructuralTypeReferences.RegisterGenericParameters(
+        typeParameters,
+        ColumnarStructuralGenericOwnerIdentity.SourceType(0, "ColumnarCanonicalOpenTaskDelegateOwner")
+    )
+    resolved := typeof(object)
+    taskResolved := typeof(object)
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+        "Task<U>",
+        typeParameters,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out taskResolved
+    ), "Task<U> must resolve for a synthesized owner parameter"
+    assert ColumnarTypeOfPlanner.IsSupportedType(taskResolved), "Task<U> must be storable in the generated state machine"
+    taskArgument := ColumnarSelectedTypeReference.Missing(resolution.StructuralTypeReferences)
+    assert ColumnarCanonicalTypeResolver.TrySelectDelegateArgument(
+        "Task<U>",
+        typeParameters,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out taskArgument
+    ), "Task<U> must be accepted as a delegate argument"
+    delegateResolved := ColumnarSelectedTypeReference.Missing(resolution.StructuralTypeReferences)
+    assert ColumnarCanonicalTypeResolver.TrySelectDelegateCanonical(
+        "Task<U>, Task<U>",
+        true,
+        typeParameters,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out delegateResolved
+    ), "delegate resolver must accept Task<U> in both signature positions"
+
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+        "Func<Task<U>, Task<U>>",
+        typeParameters,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out resolved
+    ), "the generic-aware resolver must resolve a delegate over Task<U>"
+    assert resolved.GetGenericTypeDefinition() == typeof(Func<int, int>).GetGenericTypeDefinition(), "the outer type must remain Func<,>"
+    resolvedArguments := resolved.GetGenericArguments()
+    firstTask := resolvedArguments[0]
+    secondTask := resolvedArguments[1]
+    firstTaskArguments := firstTask.GetGenericArguments()
+    secondTaskArguments := secondTask.GetGenericArguments()
+    assert firstTaskArguments[0].IsGenericParameter, "the first Task argument must remain an owner parameter"
+    assert secondTaskArguments[0].IsGenericParameter, "the second Task argument must remain an owner parameter"
+    assert firstTaskArguments[0].Name == "U", "the first Task argument must be U"
+    assert secondTaskArguments[0].Name == "U", "the second Task argument must be U"
 }

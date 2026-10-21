@@ -113,11 +113,17 @@ static class RuntimeTypeShapeFacts {
             return elementType != null && ContainsBuilderBoundType(elementType)
         }
 
-        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+        if !valueType.IsGenericType {
             return false
         }
 
         definition := valueType.GetGenericTypeDefinition()
+        // A Reflection.Emit constructed type can report IsGenericTypeDefinition while its arguments
+        // still contain GenericTypeParameterBuilder values. Reference the actual definition to
+        // distinguish that open construction from the definition object itself.
+        if Object.ReferenceEquals(valueType, definition) {
+            return false
+        }
         if definition is TypeBuilder || IsEnumBuilder(definition) {
             return true
         }
@@ -143,11 +149,14 @@ static class RuntimeTypeShapeFacts {
             return element != null && ContainsBuilderBoundTypeThroughElements(element)
         }
 
-        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+        if !valueType.IsGenericType {
             return false
         }
 
         definition := valueType.GetGenericTypeDefinition()
+        if Object.ReferenceEquals(valueType, definition) {
+            return false
+        }
         if definition is TypeBuilder {
             return true
         }

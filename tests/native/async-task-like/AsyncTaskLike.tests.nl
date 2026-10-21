@@ -420,6 +420,19 @@ test "a generic async local function has a closed resumable state machine" {
     assert pending.Result == "generic local"
 }
 
+test "async locals close over generic async function owners" {
+    plainGate := new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously)
+    genericGate := new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously)
+    plain := GenericAsyncOwnerLocal(plainGate.Task)
+    generic := GenericAsyncOwnerGenericLocal(genericGate.Task)
+    assert !plain.IsCompleted && !generic.IsCompleted
+
+    plainGate.SetResult("owner type parameter")
+    genericGate.SetResult("local type parameter")
+    assert plain.Result == "owner type parameter"
+    assert generic.Result == "local type parameter"
+}
+
 test "`GetAwaiter()` written out works on a generic task, not only on a unit one" {
     assert AwaitedSynchronously() == 41
     assert AwaiterThroughALocal() == 11
@@ -573,6 +586,34 @@ test "a generic async method on a generic class carries both type parameter sets
 
     gate.SetResult("combined generic owner and method")
     assert pending.AsTask().Result == "combined generic owner and method"
+}
+
+test "async locals and lambdas close over generic class and method owners" {
+    localGate := new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously)
+    lambdaGate := new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously)
+    methodLambdaGate := new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously)
+    service := new AsyncGenericContainer<string>("class owner")
+    local := service.ReadLocal(localGate.Task)
+    lambda := service.ReadThroughLambda(lambdaGate.Task)
+    methodLambda := service.ReadThroughMethodLambda(methodLambdaGate.Task)
+    assert !local.IsCompleted && !lambda.IsCompleted && !methodLambda.IsCompleted
+
+    localGate.SetResult("class owner local")
+    lambdaGate.SetResult("class owner lambda")
+    methodLambdaGate.SetResult("method owner lambda")
+    assert local.Result == "class owner local"
+    assert lambda.Result == "class owner lambda"
+    assert methodLambda.Result == "method owner lambda"
+}
+
+test "a generic async local closes over its generic class and method owners" {
+    gate := new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously)
+    service := new AsyncGenericContainer<string>("outer value")
+    pending := service.ReadThroughGenericLocal(gate.Task)
+    assert !pending.IsCompleted
+
+    gate.SetResult("inner value")
+    assert pending.Result == "inner value"
 }
 
 test "both async calls reach their awaits before either task is released" {

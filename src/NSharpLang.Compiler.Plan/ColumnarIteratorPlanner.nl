@@ -2358,10 +2358,11 @@ class ColumnarIteratorAsyncLambdaRequest {
     WrappedType: Type
     EnclosingFieldNames: string[]
     EnclosingFields: FieldInfo[]
+    KickoffReceiverField: FieldInfo?
     AsyncClosureBoxNames: string[]
     AsyncClosureBoxFields: FieldInfo[]
 
-    constructor(node: int, ordinal: int, bodyNode: int, kickoff: MethodBuilder, ownerType: TypeBuilder, ownerIsValueType: bool, parameterNames: string[], parameterTypes: Type[], resultType: Type, wrappedType: Type, enclosingFieldNames: string[], enclosingFields: FieldInfo[], asyncClosureBoxNames: string[], asyncClosureBoxFields: FieldInfo[]) {
+    constructor(node: int, ordinal: int, bodyNode: int, kickoff: MethodBuilder, ownerType: TypeBuilder, ownerIsValueType: bool, parameterNames: string[], parameterTypes: Type[], resultType: Type, wrappedType: Type, enclosingFieldNames: string[], enclosingFields: FieldInfo[], asyncClosureBoxNames: string[], asyncClosureBoxFields: FieldInfo[], kickoffReceiverField: FieldInfo? = null) {
         Node = node
         Ordinal = ordinal
         BodyNode = bodyNode
@@ -2374,6 +2375,7 @@ class ColumnarIteratorAsyncLambdaRequest {
         WrappedType = wrappedType
         EnclosingFieldNames = enclosingFieldNames
         EnclosingFields = enclosingFields
+        KickoffReceiverField = kickoffReceiverField
         AsyncClosureBoxNames = asyncClosureBoxNames
         AsyncClosureBoxFields = asyncClosureBoxFields
     }
@@ -2832,6 +2834,19 @@ class ColumnarIteratorLambdaDisplay {
     }
 }
 
+class ColumnarDelegateInvokeSignature {
+    ParameterTypes: Type[]
+    ReturnType: Type
+
+    constructor(parameterTypes: Type[], returnType: Type) {
+        if parameterTypes == null || returnType == null {
+            throw new InvalidOperationException("A delegate Invoke signature requires its exact parameter and return types.")
+        }
+        ParameterTypes = parameterTypes
+        ReturnType = returnType
+    }
+}
+
 // Mutable state threaded through the recursive MoveNext lowering.
 class ColumnarMoveNextEmit {
     Plan: ColumnarCodePlan
@@ -3092,7 +3107,6 @@ class ColumnarIteratorBodyPlanner {
             // would report the ABANDONMENT rather than the shape that could not be lowered.
             return plan
         }
-
         plan.AppendMarkLabel(endLabel)
         EmitInt(emit, 0)
         if !exitViaResult {
@@ -4200,7 +4214,13 @@ class ColumnarIteratorBodyPlanner {
             return ColumnarNullableArgumentLowering.TryAppendNullArgument(emit.Plan, parentFragment, nodes.Kind(nullNode), nullNode, storageType)
         }
         if ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(node)) {
-            return AppendLambda(emit, node, storageType, emit.Context.RequiredScope().Bindings, emit.Plan)
+            if !AppendLambda(emit, node, storageType, emit.Context.RequiredScope().Bindings, emit.Plan) {
+                if !emit.Context.Declined {
+                    emit.Context.Decline("emit.iterator.lambda-unsupported", "an async lambda value could not be lowered to its target delegate type")
+                }
+                return false
+            }
+            return true
         }
         if nodes.Kind(node) == ColumnarExpressionNodeKind.DefaultExpression {
             if storageType == null || storageType.IsByRef || ColumnarCodePlanExecutor.IsVoidType(storageType) {
@@ -4665,13 +4685,13 @@ class ColumnarIteratorBodyPlanner {
         if invoke == null || constructor == null {
             return false
         }
-        invokeParameters := invoke.GetParameters()
+        invokeParameters := invoke.ParameterTypes
         if invokeParameters.Length != sibling.ParameterTypes.Length || invoke.ReturnType != sibling.ReturnType {
             return false
         }
         index := 0
         while index < invokeParameters.Length {
-            if invokeParameters[index].ParameterType != sibling.ParameterTypes[index] || sibling.ParameterModifierKinds[index] != 0 {
+            if invokeParameters[index] != sibling.ParameterTypes[index] || sibling.ParameterModifierKinds[index] != 0 {
                 return false
             }
             index = index + 1
@@ -5235,10 +5255,13 @@ class ColumnarIteratorBodyPlanner {
         let display: ColumnarIteratorLambdaDisplay? = null
         needsDisplay := captureNames.Length > 0 || isAsync || (emit.Context.StateMachineIsValueType && !nestedOwner)
         if needsDisplay && !TryCreateLambdaDisplay(emit, captureNames, out display) {
+            if !emit.Context.Declined {
+                emit.Context.Decline("emit.iterator.lambda-display", "the capture display for an async lambda could not be built")
+            }
             return false
         }
 
-        invokeParameters := invoke.GetParameters()
+        invokeParameters := invoke.ParameterTypes
         childCount := nodes.ChildCount(node)
         if childCount - 1 != invokeParameters.Length {
             emit.Context.Decline("emit.iterator.lambda-unsupported", "this lambda declares " + (childCount - 1).ToString() + " parameter(s) but '" + delegateType.Name + "' takes " + invokeParameters.Length.ToString())
@@ -5259,10 +5282,11 @@ class ColumnarIteratorBodyPlanner {
         ownerParameters := ownerBuilder.GetGenericArguments()
         p := 0
         while p < invokeParameters.Length {
-            parameterType := invokeParameters[p].ParameterType
+            parameterType := invokeParameters[p]
             if display != null && smParameters.Length > 0 {
                 substitutedParameter := parameterType
                 if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(smParameters, ownerParameters, parameterType, out substitutedParameter) {
+                    emit.Context.Decline("emit.iterator.lambda-generic-signature", "an async lambda parameter type could not be rebound to its capture display")
                     return false
                 }
                 parameterType = substitutedParameter
@@ -5278,6 +5302,7 @@ class ColumnarIteratorBodyPlanner {
         if display != null && smParameters.Length > 0 {
             substitutedReturn := returnType
             if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(smParameters, ownerParameters, returnType, out substitutedReturn) {
+                emit.Context.Decline("emit.iterator.lambda-generic-signature", "the async lambda's return type could not be rebound to its capture display")
                 return false
             }
             returnType = substitutedReturn
@@ -5301,6 +5326,7 @@ class ColumnarIteratorBodyPlanner {
             lambdaScope = CreateLambdaBodyScope(emit, display, parameterOrdinals, parameterTypeMap)
         }
         if lambdaScope == null {
+            emit.Context.Decline("emit.iterator.lambda-scope", "the body scope for an async lambda could not be built")
             return false
         }
         if isAsync {
@@ -5322,10 +5348,14 @@ class ColumnarIteratorBodyPlanner {
                 new string[](0),
                 new FieldInfo[](0),
                 display.CaptureNames,
-                display.CaptureFields
+                display.CaptureFields,
+                display.EnclosingReceiverField
             )
             emit.Context.AsyncLambdaRequests.Add(request)
         } else if !AppendLambdaBody(emit, nodes.Child(node, childCount - 1), lambdaMethod, lambdaScope, bodyReturnType, returnType) {
+            if !emit.Context.Declined {
+                emit.Context.Decline("emit.iterator.lambda-body", "the body of a lambda could not be lowered")
+            }
             return false
         }
 
@@ -5347,6 +5377,9 @@ class ColumnarIteratorBodyPlanner {
             }
             for captureName in display.CaptureNames {
                 if !emit.Context.IsLoopCaptured(captureName) && !AppendEnsureAsyncCaptureBox(emit, captureName) {
+                    if !emit.Context.Declined {
+                        emit.Context.Decline("emit.iterator.lambda-capture", "captured value '" + captureName + "' could not be moved into async lambda storage")
+                    }
                     return false
                 }
             }
@@ -5702,29 +5735,80 @@ class ColumnarIteratorBodyPlanner {
     }
 
     // A delegate's `Invoke`, which is the signature a lambda converted to it must have.
-    static func DelegateInvokeOrNull(delegateType: Type): MethodInfo? {
-        if delegateType == null || !typeof(Delegate).IsAssignableFrom(delegateType) {
+    static func DelegateInvokeOrNull(delegateType: Type): ColumnarDelegateInvokeSignature? {
+        if delegateType == null {
             return null
         }
-        return delegateType.GetMethod("Invoke")
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateType) && delegateType.IsGenericType {
+            definition := delegateType.GetGenericTypeDefinition()
+            if Object.ReferenceEquals(delegateType, definition) {
+                return null
+            }
+            definitionInvoke := definition.GetMethod("Invoke")
+            if definitionInvoke == null {
+                return null
+            }
+            definitionParameters := definition.GetGenericArguments()
+            constructedParameters := delegateType.GetGenericArguments()
+            if definitionParameters.Length != constructedParameters.Length {
+                return null
+            }
+            definitionInvokeParameters := definitionInvoke.GetParameters()
+            parameterTypes := new Type[](definitionInvokeParameters.Length)
+            parameterIndex := 0
+            while parameterIndex < parameterTypes.Length {
+                let parameterType: Type? = null
+                if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(definitionParameters, constructedParameters, definitionInvokeParameters[parameterIndex].ParameterType, out parameterType) || parameterType == null {
+                    return null
+                }
+                parameterTypes[parameterIndex] = parameterType
+                parameterIndex += 1
+            }
+            let returnType: Type? = null
+            if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(definitionParameters, constructedParameters, definitionInvoke.ReturnType, out returnType) || returnType == null {
+                return null
+            }
+            return new ColumnarDelegateInvokeSignature(parameterTypes, returnType)
+        }
+        if !typeof(Delegate).IsAssignableFrom(delegateType) {
+            return null
+        }
+        invoke := delegateType.GetMethod("Invoke")
+        if invoke == null {
+            return null
+        }
+        reflectedParameters := invoke.GetParameters()
+        parameterTypes := new Type[](reflectedParameters.Length)
+        parameterIndex := 0
+        while parameterIndex < parameterTypes.Length {
+            parameterTypes[parameterIndex] = reflectedParameters[parameterIndex].ParameterType
+            parameterIndex += 1
+        }
+        return new ColumnarDelegateInvokeSignature(parameterTypes, invoke.ReturnType)
     }
 
     // The `(object, native int)` constructor every delegate declares, which is the second half of a
     // delegate creation.
     static func DelegateConstructorOrNull(delegateType: Type): ConstructorInfo? {
-        if delegateType == null || !typeof(Delegate).IsAssignableFrom(delegateType) {
+        if delegateType == null {
             return null
         }
         parameters := new Type[](2)
         parameters[0] = typeof(object)
         parameters[1] = typeof(IntPtr)
-        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateType) && delegateType.IsGenericType && !delegateType.IsGenericTypeDefinition {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateType) && delegateType.IsGenericType {
             definition := delegateType.GetGenericTypeDefinition()
+            if Object.ReferenceEquals(delegateType, definition) {
+                return null
+            }
             openConstructor := definition.GetConstructor(parameters)
             if openConstructor == null {
                 return null
             }
             return TypeBuilder.GetConstructor(delegateType, openConstructor)
+        }
+        if !typeof(Delegate).IsAssignableFrom(delegateType) {
+            return null
         }
         return delegateType.GetConstructor(parameters)
     }
@@ -5842,6 +5926,9 @@ class ColumnarIteratorBodyPlanner {
                         return false
                     }
                 } else if !AppendBoundFieldStore(emit, nodes.Child(node, 1), typedName, fieldType) {
+                    if !emit.Context.Declined {
+                        emit.Context.Decline("emit.iterator.local-initializer", "the initializer for local '" + typedName + "' could not be lowered")
+                    }
                     return false
                 }
             } else if emit.Context.IsLoopCaptured(typedName) && !AppendFreshLoopCaptureBox(emit, typedName, 0, emit.Context.FieldForName(typedName).FieldType, false) {

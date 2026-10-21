@@ -928,6 +928,28 @@ class ColumnarCanonicalTypeResolver {
             return true
         }
 
+        // A nested generic argument such as Task<U> can make the general external resolver claim a
+        // Func signature before this scope's parameter map can close it over U.
+        delegateHeadOpen := canonical.IndexOf('<')
+        if delegateHeadOpen > 0 && canonical[canonical.Length - 1] == '>' && (canonical.StartsWith("Func<", StringComparison.Ordinal) || canonical.StartsWith("Action<", StringComparison.Ordinal)) {
+            if TrySelectDelegateCanonical(
+                canonical.Substring(delegateHeadOpen + 1, canonical.Length - delegateHeadOpen - 2),
+                canonical[0] == 'F',
+                typeParams,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                out selected
+            ) {
+                return true
+            }
+            if TrySelectDelegateWithTypeParams(canonical, typeParams, enumRegistry, structRegistry, unionRegistry, out selected) {
+                return true
+            }
+            selected = ColumnarSelectedTypeReference.Missing(table)
+            return false
+        }
+
         claimed := false
         if structRegistry.Resolver.TryResolveSelected(canonical, out selected, out claimed) {
             if IsOpenGenericUnionDefinition(selected.RuntimeType, unionRegistry) {
@@ -1022,45 +1044,6 @@ class ColumnarCanonicalTypeResolver {
             runtimeType := elementParameter.MakeArrayType()
             selected = table.SelectSzArray(runtimeType, element)
             return true
-        }
-
-        // The DELEGATE FAMILIES, resolved on this walk rather than the ordinary one so that a type
-        // parameter in scope is a name they can see. `Action<T>` and `Func<T, bool>` are ordinary
-        // constructed external generics; they were the only such family that could not name a type
-        // parameter, and only because this arm handed them to the wrong resolver.
-        genericHeadOpen := canonical.IndexOf('<')
-        if genericHeadOpen > 0 && canonical[canonical.Length - 1] == '>' && (canonical.StartsWith("Func<", StringComparison.Ordinal) || canonical.StartsWith("Action<", StringComparison.Ordinal)) {
-            delegateSelected := ColumnarSelectedTypeReference.Missing(table)
-            if TrySelectDelegateCanonical(
-                canonical.Substring(genericHeadOpen + 1, canonical.Length - genericHeadOpen - 2),
-                canonical[0] == 'F',
-                typeParams,
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                out delegateSelected
-            ) {
-                selected = delegateSelected
-                return true
-            }
-
-            // A delegate written over the ENCLOSING SCOPE'S TYPE PARAMETERS — `Func<T, TResult>` in a
-            // generic member's signature. The plain reader cannot see them, so the arguments are read
-            // under the binding here and the open `Func`/`Action` definition of the matching arity is
-            // constructed over them.
-            openDelegateSelected := ColumnarSelectedTypeReference.Missing(table)
-            if TrySelectDelegateWithTypeParams(
-                canonical,
-                typeParams,
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                out openDelegateSelected
-            ) {
-                selected = openDelegateSelected
-                return true
-            }
-            selected = ColumnarSelectedTypeReference.Missing(table)
         }
 
         // ARRAY AND NULLABLE SUFFIXES OVER A TYPE-PARAMETER SHAPE. The ordinary resolver below owns
@@ -1279,6 +1262,7 @@ class ColumnarCanonicalTypeResolver {
         arguments := new ColumnarSelectedTypeReference[](argumentCanonicals.Count)
         i := 0
         while i < arguments.Length {
+            argumentCanonicals[i] = argumentCanonicals[i].Trim()
             argument := ColumnarSelectedTypeReference.Missing(table)
             if !TrySelectRuntimeTypeWithTypeParams(
                 argumentCanonicals[i],

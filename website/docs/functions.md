@@ -1429,11 +1429,8 @@ func main() {
 
 Type arguments are inferred from arguments where they can be, a constraint (`where T : class`)
 applies, a `T` local may live across an `await`, and the result may be `T`, `T[]`, a tuple, or
-`Box<T>`. Generic async local functions also work when their enclosing function is synchronous.
-An async local function inside a generic async owner, or a generic async local function inside an
-async owner, cannot yet carry all of those type parameters into its state machine; these shapes report
-[`NL354`](./errors/NL354.md). Async lambdas inside generic methods or types report
-[`NL355`](./errors/NL355.md).
+`Box<T>`. Generic async local functions and async lambdas also work inside generic and async owners:
+their generated state machines close over the owner's type parameters and preserve their constraints.
 
 ### No `async void`
 
@@ -2317,9 +2314,9 @@ func passThrough<T>(value: T): T {
 The compiler preserves the two owners in CLR metadata: a capture-free local copies enclosing
 parameters onto its synthesized static method, while a capturing local places them on its display
 type. Declaring a local parameter with the same name as an enclosing parameter is still NL316; use a
-distinct name such as `U`. Generic async local functions work in synchronous owners. The generic
-async-local combinations that cannot yet preserve their owners' parameters report
-[`NL354`](./errors/NL354.md); see [generic async functions and methods](#generic-async-functions-and-methods).
+distinct name such as `U`. Generic async local functions can also be nested inside generic or async
+owners; their state machines close over the owner's parameters and preserve the local function's own
+constraints. See [generic async functions and methods](#generic-async-functions-and-methods).
 
 ### Scope: a local function is visible in its whole block
 

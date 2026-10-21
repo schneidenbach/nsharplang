@@ -1920,8 +1920,8 @@ sealed class ColumnarIlEmitter {
         if typeResolution == null || _lambdaCounter == null || _displayClasses == null {
             return DeclineMember("emit.lambda.async-context", "the async lambda is missing its task state-machine emission context", lambdaNode, "lambda")
         }
-        if ownerType == null || (ownerType.IsGenericTypeDefinition && ownerType.GetGenericArguments().Length > 0) || (_typeParameters != null && _typeParameters.Count > 0) {
-            return DeclineMember("emit.lambda.async-generic-owner", "an async lambda inside a generic type or method cannot yet be rebound to its state machine", lambdaNode, "lambda")
+        if ownerType == null {
+            return DeclineMember("emit.lambda.async-owner", "an async lambda has no synthesized method owner for its state machine", lambdaNode, "lambda")
         }
 
         resultCanonical := "void"
@@ -2038,7 +2038,8 @@ sealed class ColumnarIlEmitter {
             AsyncWrapperUsesTaskBuilder(methodReturnType),
             isInstance ? ownerType : null,
             closureBoxNames,
-            closureBoxSourceFields
+            closureBoxSourceFields,
+            null
         )
         if result.Succeeded {
             return true
@@ -4837,6 +4838,7 @@ sealed class ColumnarIlEmitter {
             defaultUsesTaskBuilder,
             null,
             null,
+            null,
             null
         )
         if result.Succeeded {
@@ -7454,7 +7456,16 @@ sealed class ColumnarIlEmitter {
             memberGenericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null
             memberDeclaredLocalFuncNodes: Dictionary<int, string>? = null
             memberVisibleLocalFuncNames: List<string>? = null
+            hasSynchronousLocalFunction := false
             if (job.Item2.LocalFunctions != null) {
+                for memberLocalFunction in job.Item2.LocalFunctions {
+                    if !memberLocalFunction.Function.IsAsync {
+                        hasSynchronousLocalFunction = true
+                        break
+                    }
+                }
+            }
+            if (hasSynchronousLocalFunction) {
                 // A method parameter can move onto the synthesized static/display owner exactly as
                 // it does for a generic free function. A declaring TYPE's parameters require the
                 // nested-owner substitution used by the broader generic-member backbone and remain
@@ -8727,7 +8738,8 @@ sealed class ColumnarIlEmitter {
                         program.AsyncDefaultFamily == AsyncTaskFamily.Task,
                         localIsInstance ? localSynthesizedMethodOwner : null,
                         localAsyncClosureBoxNames,
-                        localAsyncClosureBoxFields
+                        localAsyncClosureBoxFields,
+                        null
                     )
                     if !result.Succeeded {
                         return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)

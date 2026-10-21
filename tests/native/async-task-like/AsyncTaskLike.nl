@@ -105,6 +105,22 @@ async func GenericAwait<T>(source: Task<T>): Task<T> {
     return await source
 }
 
+async func GenericAsyncOwnerLocal<T>(source: Task<T>): Task<T> {
+    async func local(value: Task<T>): Task<T> {
+        await Task.Yield()
+        return await value
+    }
+    return await local(source)
+}
+
+async func GenericAsyncOwnerGenericLocal<T>(source: Task<T>): Task<T> {
+    async func local<U>(value: Task<U>): Task<U> {
+        await Task.Yield()
+        return await value
+    }
+    return await local(source)
+}
+
 async func TrackedValue(source: Task<int>, started: List<int>, id: int): Task<int> {
     started.Add(id)
     value := await source
@@ -224,6 +240,38 @@ class AsyncGenericContainer<T> {
     async func Echo<U>(source: Task<U>): U {
         await Task.Yield()
         return await source
+    }
+
+    async func ReadLocal(source: Task<T>): Task<T> {
+        async func local(value: Task<T>): Task<T> {
+            await Task.Yield()
+            return await value
+        }
+        return await local(source)
+    }
+
+    async func ReadThroughLambda(source: Task<T>): Task<T> {
+        read: Func<Task<T>> = async () => {
+            await Task.Yield()
+            return await source
+        }
+        return await read()
+    }
+
+    async func ReadThroughMethodLambda<U>(source: Task<U>): Task<U> {
+        read: Func<Task<U>, Task<U>> = async value => {
+            await Task.Yield()
+            return await value
+        }
+        return await read(source)
+    }
+
+    async func ReadThroughGenericLocal(source: Task<T>): Task<T> {
+        async func local<V>(value: Task<V>): Task<V> {
+            await Task.Yield()
+            return await value
+        }
+        return await local<T>(source)
     }
 }
 

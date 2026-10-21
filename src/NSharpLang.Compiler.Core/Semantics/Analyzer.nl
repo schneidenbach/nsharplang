@@ -1379,17 +1379,6 @@ class Analyzer: IDisposable {
         localFunction := statement as LocalFunctionStatement
         if localFunction != null {
             localDeclaration := localFunction.Function
-            localFunctionIsGeneric := localDeclaration.TypeParameters != null && localDeclaration.TypeParameters.Count > 0
-            if Ambient.CurrentFunctionIsAsync && AnalyzerAmbientContext.HasModifier(localDeclaration, Modifiers.Async) && (Ambient.CurrentFunctionIsGeneric || Ambient.CurrentTypeIsGeneric || localFunctionIsGeneric) {
-                Diagnostics.Report(
-                    ErrorCode.AsyncLocalFunctionInGenericAsyncOwner,
-                    "This async local function uses generic parameters that its state machine cannot preserve from this owner yet",
-                    localDeclaration.Line,
-                    localDeclaration.Column,
-                    "Move the async local function to a non-generic owner, or remove its type parameters when the owner is non-generic.",
-                    Math.Max(1, localDeclaration.Name.Length)
-                )
-            }
             // The enclosing function's byref parameters travel INTO the local function's walk, so a
             // read of one inside the body is reported at the read (NL331) rather than declining the
             // whole program at emission with nowhere to point.
@@ -2322,10 +2311,6 @@ class Analyzer: IDisposable {
     }
 
     private func DriveLambda(state: LambdaAnalysisState): FunctionTypeInfo {
-        if state.Lambda.IsAsync && state.ReportInferenceFailure && (Ambient.CurrentFunctionIsGeneric || Ambient.CurrentTypeIsGeneric) {
-            LambdaAnalysis.ReportAsyncLambdaInGenericOwnerIfNeeded(state)
-        }
-
         step := LambdaAnalysis.NextLambdaStep(state)
         while step != null {
             answer: TypeInfo? = null

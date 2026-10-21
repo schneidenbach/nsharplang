@@ -90,8 +90,6 @@ test "the context-free suggestion table answers every code it names" {
     assert ErrorSuggestionText(ErrorCode.GuardNotBoolean) == "Guard expression must be boolean type"
     assert ErrorSuggestionText(ErrorCode.AwaitInCatchFilter) == "Keep the `when` expression synchronous; put awaited work in the selected `catch` body"
     assert ErrorSuggestionText(ErrorCode.AwaitOutsideAsync) == "Add `async` to the enclosing function or lambda, or remove `await` and return the task directly"
-    assert ErrorSuggestionText(ErrorCode.AsyncLocalFunctionInGenericAsyncOwner) == "Move the async local function to a non-generic owner, or remove its type parameters when the owner is non-generic"
-    assert ErrorSuggestionText(ErrorCode.AsyncLambdaInGenericOwner) == "Move the async body to a non-generic helper and pass its required values explicitly"
     assert ErrorSuggestionText(ErrorCode.WrongArgumentCount) == "Check the function signature for required parameters"
     assert ErrorSuggestionText(ErrorCode.MethodGroupUsedAsValue) == "Call the method with parentheses, or pass it to a parameter with a delegate type"
     assert ErrorSuggestionText(ErrorCode.FeatureNotImplemented) == "This language feature is parsed for forward compatibility, but it is not available in production builds yet"

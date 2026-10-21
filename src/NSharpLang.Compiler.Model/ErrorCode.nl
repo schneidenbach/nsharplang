@@ -71,8 +71,6 @@ enum ErrorCode {
     SuspensionInLock = 351,
     AwaitInCatchFilter = 352,
     AwaitOutsideAsync = 353,
-    AsyncLocalFunctionInGenericAsyncOwner = 354,
-    AsyncLambdaInGenericOwner = 355,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

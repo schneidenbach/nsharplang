@@ -123,14 +123,14 @@ class ColumnarIteratorBodyFacts {
     // Local async-function kickoffs are synthesized on the enclosing state machine after its fields
     // are known. Publish their exact method and signature as ordinary callable facts so the shared
     // direct-call planner selects the same overload and argument conversions as it does for siblings.
-    func AddLocalAsyncCallable(name: string, method: MethodInfo, parameterTypes: Type[], parameterNames: string[], parameterModifierKinds: int[], returnType: Type, defaultKinds: int[], defaultTexts: string[]) {
+    func AddLocalAsyncCallable(name: string, method: MethodInfo, parameterTypes: Type[], parameterNames: string[], parameterModifierKinds: int[], returnType: Type, defaultKinds: int[], defaultTexts: string[], typeParameterCount: int = 0, typeParameterSpecialConstraints: int[]? = null, typeParameterBaseConstraints: Type?[]? = null, typeParameterInterfaceConstraints: Type[][]? = null) {
         if name == null || name.Length == 0 || method == null || parameterTypes == null || parameterNames == null || parameterModifierKinds == null || returnType == null || defaultKinds == null || defaultTexts == null || parameterTypes.Length != parameterNames.Length || parameterTypes.Length != parameterModifierKinds.Length || parameterTypes.Length != defaultKinds.Length || parameterTypes.Length != defaultTexts.Length {
             throw new InvalidOperationException("An async local callable requires a complete exact signature.")
         }
         if SiblingCallables.ContainsKey(name) {
             throw new InvalidOperationException("An async local callable cannot replace an existing sibling named '" + name + "'.")
         }
-        SiblingCallables[name] = new ColumnarSiblingCallFacts(method, parameterTypes, parameterModifierKinds, returnType, 0, parameterNames, defaultKinds, defaultTexts)
+        SiblingCallables[name] = new ColumnarSiblingCallFacts(method, parameterTypes, parameterModifierKinds, returnType, typeParameterCount, parameterNames, defaultKinds, defaultTexts, typeParameterSpecialConstraints, typeParameterBaseConstraints, typeParameterInterfaceConstraints)
         names := SiblingNames as List<string>
         if names == null {
             throw new InvalidOperationException("Emission sibling names must be mutable while async local methods are added.")

@@ -140,8 +140,6 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL351`](./NL351.md) | A `yield` or `await` inside a `lock` statement. |
 | [`NL352`](./NL352.md) | An `await` inside a catch filter. |
 | [`NL353`](./NL353.md) | An `await` outside an async function or lambda. |
-| [`NL354`](./NL354.md) | A generic async local function context the state machine cannot preserve yet. |
-| [`NL355`](./NL355.md) | An async lambda inside a generic method or type. |
 
 ## Calls — `NL4xx`
 

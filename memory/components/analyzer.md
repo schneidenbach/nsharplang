@@ -1714,10 +1714,9 @@ on the new owner. `StrongBox<T>` construction and field access use `TypeBuilder.
 before bake. The generic ones ride a SEPARATE map on `ColumnarLocalFunctionLowering`
 (`GenericLocalFuncs`) because the direct map's entries are handles a call site dispatches without
 closing. The same model applies inside a generic method on a non-generic source type. Generic async
-free functions, methods and local functions in synchronous owners carry their type parameters on
-real state-machine types. An async local function inside an async owner is diagnosed as NL354 when
-the owner or local function is generic; the nested state machine still cannot preserve both generic
-contexts. Async lambdas inside generic methods or types are diagnosed as NL355 before emission.
+free functions, methods, local functions and lambdas carry their type parameters on real state-machine
+types. Nested state machines copy the owner's parameter metadata and constraints onto their own
+generic owners, then close their kickoff methods over the generated capture display.
 
 **THE CONTEXTUAL-TIER GATE ASKS ALL THREE METHOD-GROUP SHAPES** (2026-09-14, stream CAPTURE3).
 `ColumnarIlEmitter.IsContextualDelegateValueNode` — the predicate `HasContextualDelegateArgument`
