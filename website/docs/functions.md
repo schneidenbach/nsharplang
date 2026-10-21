@@ -2543,15 +2543,15 @@ A parameter is the better conversion target when:
    a `short`.
 
 Only when the conversions cannot separate two candidates do the remaining rules run, in this order: a
-**non-generic** signature beats a generic one whose parameters are the same types after
-substitution, a call in **normal form** beats one that had to expand a `params` tail, and a signature
-that fills **fewer defaults** beats one that fills more.
+**non-generic** signature beats a generic one whose supplied parameter types are identical after
+substitution, a call in **normal form** beats one that had to expand a `params` tail, and an exact-arity
+candidate beats one that needs optional parameters filled.
 
-That ordering applies when candidates differ in how many parameters they omit. For example, given
-`Pick(value: object)` and `Pick(value: string, suffix: string = "")`, `Pick("x")` selects the string
-overload: the identity conversion from `string` is better before the omitted-default tie-break runs.
-When the written argument conversions tie, an overload that needs no defaults beats one that needs
-them.
+For example, given `Pick(value: string)` and `Pick(value: string, suffix: string = "")`,
+`Pick("x")` selects the exact-arity overload because the supplied conversions tie and only the other
+candidate needs a default. If both candidates need optional parameters filled, differing omitted
+parameter types or counts do not by themselves decide the call; it remains ambiguous unless another
+overload rule separates them. Omitted parameters are not conversion arguments.
 
 ```n#
 import System.Collections.Generic
