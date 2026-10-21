@@ -161,7 +161,9 @@ class OperandGenericGetResultAwaitable {
 
 class OperandGenericGetResultAwaiter: INotifyCompletion {
     IsCompleted: bool {
-        get { return true }
+        get {
+            return true
+        }
     }
 
     func GetResult<T>(): int {
@@ -180,7 +182,9 @@ class OperandPrivateMemberAwaitable {
 
 class OperandPrivateMemberAwaiter: INotifyCompletion {
     private IsCompleted: bool {
-        get { return true }
+        get {
+            return true
+        }
     }
 
     private func GetResult(): int {
@@ -1280,7 +1284,11 @@ test "AN AWAITED ROW VIEW IS REFUSED AND THE AWAITABLE RULE IS NOT THEN ALSO APP
 }
 
 test "the shared await binder resolves framework critical awaiters" {
-    awaiterType := typeof(YieldAwaitable).GetMethod("GetAwaiter").ReturnType
+    getAwaiter := typeof(YieldAwaitable).GetMethod("GetAwaiter")
+    if getAwaiter == null {
+        throw new InvalidOperationException("YieldAwaitable.GetAwaiter was not found")
+    }
+    awaiterType := getAwaiter.ReturnType
     assert AwaitablePatternBinder.SelectReadableBooleanProperty(awaiterType, "IsCompleted") != null
     assert AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(awaiterType, "GetResult") != null
     contract := AwaitablePatternBinder.FindCompletionInterface(awaiterType, typeof(ICriticalNotifyCompletion))
@@ -1299,7 +1307,14 @@ test "the shared await binder resolves framework awaiters from a metadata load c
     tasks := context.LoadFromAssemblyName("System.Threading.Tasks")
     taskType := tasks.GetType("System.Threading.Tasks.Task")
     assert taskType != null
-    yieldType := taskType.GetMethod("Yield").ReturnType
+    if taskType == null {
+        throw new InvalidOperationException("System.Threading.Tasks.Task was not found in the metadata context")
+    }
+    yieldMethod := taskType.GetMethod("Yield")
+    if yieldMethod == null {
+        throw new InvalidOperationException("Task.Yield was not found in the metadata context")
+    }
+    yieldType := yieldMethod.ReturnType
     getAwaiter := AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(yieldType, "GetAwaiter")
     assert getAwaiter != null, "metadata GetAwaiter lookup failed"
     awaiterType := getAwaiter.ReturnType
