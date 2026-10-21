@@ -3,6 +3,7 @@ namespace NSharpLang.RecordWith.Tests
 import System
 import System.Collections
 import System.IO
+import NSharpLang.RecordWith.Library
 
 // --- Reference-record control ---------------------------------------------------------------------
 test "a reference-record with clones and replaces the named member, leaving the source unchanged" {
@@ -81,14 +82,14 @@ test "a reference-record with through a named method persists and leaves the sou
 
 // --- Exact emitted shape (reflection over the strategy N# selected) ---------------------------------
 
-test "a value record carries no <Clone>$ method: its with lowers to a value copy, not a clone virtual" {
+test "a value record carries no <Clone>$ method: its with lowers to a value copy" {
     cloneMethod := typeof(Rgb).GetMethod("<Clone>$")
-    assert cloneMethod == null, "a record struct must not synthesize a <Clone>$ clone virtual"
+    assert cloneMethod == null, "a record struct must not synthesize a <Clone>$ method"
 }
 
-test "a reference record carries the <Clone>$ clone virtual its with clones through" {
+test "a reference record carries the public <Clone>$ method its with clones through" {
     cloneMethod := typeof(Point).GetMethod("<Clone>$")
-    assert cloneMethod != null, "a record class must synthesize a <Clone>$ clone virtual"
+    assert cloneMethod != null, "a record class must synthesize a public <Clone>$ method"
     if cloneMethod != null {
         assert cloneMethod.get_ReturnType() == typeof(Point)
     }
@@ -110,9 +111,10 @@ func SetFixtureObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
 
-// Drive the real production compiler on a single-file fixture through the public whole-project emit-only
-// route and report whether it succeeded plus the first diagnostic.
-func CompileRecordWithFixture(source: string): RecordWithFixtureResult {
+// Drive the real production compiler on a single-file fixture and report whether it succeeded plus the
+// first diagnostic. Most backend decline contracts use the emit-only route; semantic-diagnostic cases
+// opt into the analyzed route so the test proves the analyzer owns the user-facing error.
+func CompileRecordWithFixture(source: string, referencedAssemblyPath: string? = null, validateWithLegacyAnalysis: bool = false): RecordWithFixtureResult {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
         "nsharp-record-with-" + Guid.NewGuid().ToString("N")
@@ -133,6 +135,36 @@ func CompileRecordWithFixture(source: string): RecordWithFixtureResult {
         throw new InvalidOperationException("The production project configuration constructor was not found.")
     }
     config := configConstructor.Invoke(new object?[](0))
+    if (referencedAssemblyPath != null) {
+        referenceType := Type.GetType("NSharpLang.Compiler.Reference, NSharpLang.Compiler.Model")
+        if referenceType == null {
+            throw new InvalidOperationException("The production reference model was not loadable.")
+        }
+        referenceConstructor := referenceType.GetConstructor(new Type[](0))
+        dllProperty := referenceType.GetProperty("Dll")
+        dllField := referenceType.GetField("Dll")
+        dependenciesProperty := projectConfigType.GetProperty("Dependencies")
+        if referenceConstructor == null || (dllProperty == null && dllField == null) || dependenciesProperty == null {
+            throw new InvalidOperationException(
+                "The production project reference contract was incomplete: constructor=" + (referenceConstructor != null).ToString() +
+                ", Dll property=" + (dllProperty != null).ToString() +
+                ", Dll field=" + (dllField != null).ToString() +
+                ", Dependencies property=" + (dependenciesProperty != null).ToString()
+            )
+        }
+        reference := referenceConstructor.Invoke(new object?[](0))
+        if (dllProperty != null) {
+            dllProperty.SetValue(reference, referencedAssemblyPath)
+        } else {
+            (must dllField).SetValue(reference, referencedAssemblyPath)
+        }
+        dependenciesValue := dependenciesProperty.GetValue(config)
+        dependencies := dependenciesValue as IList
+        if dependencies == null {
+            throw new InvalidOperationException("The production project dependency list was unavailable.")
+        }
+        dependencies.Add(reference)
+    }
 
     constructorTypes := new Type[](2)
     constructorTypes[0] = typeof(string)
@@ -163,7 +195,7 @@ func CompileRecordWithFixture(source: string): RecordWithFixtureResult {
         Path.Combine(fixtureRoot, "out/RecordWithFixture.dll")
     )
     SetFixtureObject(compileArguments, 2, false)
-    SetFixtureObject(compileArguments, 3, false)
+    SetFixtureObject(compileArguments, 3, validateWithLegacyAnalysis)
     compilation := compileMethod.Invoke(compiler, compileArguments)
     if compilation == null {
         throw new InvalidOperationException("The production compiler returned no compilation result.")
@@ -271,4 +303,82 @@ func main() {
 """
     )
     assert result.Succeeded, result.Diagnostics
+}
+
+test "a with over a referenced class that is not a record names the type and says why" {
+    result := CompileRecordWithFixture(
+        """
+import System.Text
+
+func main() {
+    builder := new StringBuilder()
+    copy := builder with { Capacity: 5 }
+    _ := copy
+}
+""",
+        null,
+        true
+    )
+    assert !result.Succeeded, result.Diagnostics
+    assert result.Diagnostics.Contains("'StringBuilder' is not a record: it has no '<Clone>$' copy method"), result.Diagnostics
+    assert result.Diagnostics.Contains("NL202"), result.Diagnostics
+    assert !result.Diagnostics.Contains("Columnar emission is required"), result.Diagnostics
+}
+
+test "a with over a source class that is not a record names the type and says why" {
+    result := CompileRecordWithFixture(
+        """
+class Plain {
+    Value: int
+}
+
+func main() {
+    p := new Plain { Value: 1 }
+    q := p with { Value: 2 }
+    _ := q
+}
+""",
+        null,
+        true
+    )
+    assert !result.Succeeded, result.Diagnostics
+    assert result.Diagnostics.Contains("'Plain' is not a record"), result.Diagnostics
+    assert result.Diagnostics.Contains("NL202"), result.Diagnostics
+    assert !result.Diagnostics.Contains("Columnar emission is required"), result.Diagnostics
+}
+
+test "a with over fixture class Plain reports why its referenced type is not a record" {
+    result := CompileRecordWithFixture(
+        """
+import NSharpLang.RecordWith.Library
+
+func main() {
+    p := new Plain { Value: 1 }
+    q := p with { Value: 2 }
+    _ := q
+}
+""",
+        typeof(Plain).Assembly.Location,
+        true
+    )
+    assert !result.Succeeded, result.Diagnostics
+    assert result.Diagnostics.Contains("'Plain' is not a record: it has no '<Clone>$' copy method"), result.Diagnostics
+    assert result.Diagnostics.Contains("NL202"), result.Diagnostics
+    assert !result.Diagnostics.Contains("Columnar emission is required"), result.Diagnostics
+}
+
+test "a with over a referenced generic class without a clone method says so" {
+    result := CompileRecordWithFixture(
+        """
+import System.Collections.Generic
+
+func main() {
+    items := new List<int>()
+    copy := items with { Capacity: 5 }
+    _ := copy
+}
+"""
+    )
+    assert !result.Succeeded, result.Diagnostics
+    assert result.Diagnostics.Contains("has no '<Clone>$' copy method"), result.Diagnostics
 }

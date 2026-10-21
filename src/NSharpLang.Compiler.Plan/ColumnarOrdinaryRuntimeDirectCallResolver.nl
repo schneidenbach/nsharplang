@@ -299,18 +299,14 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return declared
         }
 
-        baseInterfaces := lookupType.GetInterfaces()
-        if baseInterfaces == null || baseInterfaces.Length == 0 {
-            return declared
-        }
-
         combined := new List<MethodInfo>()
         for declaredItem in declared {
             combined.Add(declaredItem)
         }
 
+        baseInterfaces := lookupType.GetInterfaces()
         baseIndex := 0
-        while baseIndex < baseInterfaces.Length {
+        while baseInterfaces != null && baseIndex < baseInterfaces.Length {
             inherited := baseInterfaces[baseIndex].GetMethods(CandidateMethodFlags(allowInheritedProtected, baseInterfaces[baseIndex]))
             baseIndex = baseIndex + 1
             if inherited == null {
@@ -322,6 +318,16 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 AddOrKeepMostDerived(combined, inherited[inheritedIndex])
                 inheritedIndex = inheritedIndex + 1
             }
+        }
+
+        // AN INTERFACE'S MEMBER LOOKUP INCLUDES `object`'S (C# §12.5: "if T is an interface type, the
+        // base types of T are the base interfaces of T and the class type object"). `GetMethods` on an
+        // interface never reports them, so `list.ToString()` and `model.GetType()` found no candidate
+        // and declined. They join LAST and through the same hiding rule, so an interface that
+        // re-declares `ToString()` keeps its own declaration. Only the PUBLIC INSTANCE surface joins:
+        // an interface-typed value is not an inheriting class, so `MemberwiseClone` stays out of reach.
+        for objectMethod in typeof(object).GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+            AddOrKeepMostDerived(combined, objectMethod)
         }
 
         return combined.ToArray()

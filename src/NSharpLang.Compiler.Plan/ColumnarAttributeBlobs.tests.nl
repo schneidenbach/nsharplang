@@ -2,6 +2,8 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
 
 // The expected blobs are not derived here -- they are the bytes `CustomAttributeBuilder` itself wrote,
 // read back out of the `#Blob` heap of an assembly built both ways in one process and compared
@@ -55,6 +57,62 @@ test "the two test slots are named, so the fact slot can be identified rather th
     assert ColumnarAttributeBlobs.TraitConstructorSlot() == 0
     assert ColumnarAttributeBlobs.FactConstructorSlot() == 1
     assert ColumnarAttributeBlobs.TraitConstructorSlot() != ColumnarAttributeBlobs.FactConstructorSlot()
+}
+
+func CabDefineSettableProperty(owner: TypeBuilder, name: string, propertyType: Type) {
+    field := owner.DefineField("_" + name, propertyType, FieldAttributes.Private)
+    getter := owner.DefineMethod("get_" + name, MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig, propertyType, Type.EmptyTypes)
+    getterIl := getter.GetILGenerator()
+    getterIl.Emit(OpCodes.Ldarg_0)
+    getterIl.Emit(OpCodes.Ldfld, field)
+    getterIl.Emit(OpCodes.Ret)
+
+    setter := owner.DefineMethod("set_" + name, MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig, typeof(void), [propertyType])
+    setterIl := setter.GetILGenerator()
+    setterIl.Emit(OpCodes.Ldarg_0)
+    setterIl.Emit(OpCodes.Ldarg_1)
+    setterIl.Emit(OpCodes.Stfld, field)
+    setterIl.Emit(OpCodes.Ret)
+
+    property := owner.DefineProperty(name, PropertyAttributes.None, propertyType, Type.EmptyTypes)
+    property.SetGetMethod(getter)
+    property.SetSetMethod(setter)
+}
+
+func CabHiddenAttributeType(): Type {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("ColumnarAttributeHidden" + Guid.NewGuid().ToString("N")), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("Fixture")
+    baseBuilder := module.DefineType("BaseAttribute", TypeAttributes.Public | TypeAttributes.Class, typeof(Attribute))
+    baseBuilder.DefineDefaultConstructor(MethodAttributes.Public)
+    CabDefineSettableProperty(baseBuilder, "Marker", typeof(object))
+    baseType := baseBuilder.CreateType() ?? typeof(Attribute)
+    derivedBuilder := module.DefineType("DerivedAttribute", TypeAttributes.Public | TypeAttributes.Class, baseType)
+    derivedBuilder.DefineDefaultConstructor(MethodAttributes.Public)
+    CabDefineSettableProperty(derivedBuilder, "Marker", typeof(string))
+    return derivedBuilder.CreateType() ?? typeof(Attribute)
+}
+
+test "a source attribute blob lookup writes the derived hidden metadata property value" {
+    attributeType := CabHiddenAttributeType()
+    lookupOutcome := "no exception"
+    try {
+        attributeType.GetProperty("Marker", BindingFlags.Public | BindingFlags.Instance)
+    } catch ex: AmbiguousMatchException {
+        lookupOutcome = "ambiguous"
+    }
+    assert lookupOutcome == "ambiguous"
+
+    memberType := typeof(object)
+    isField := true
+    assert NSharpLang.Compiler.Columnar.ColumnarSourceAttributeBinder.TryResolveMetadataNamedMember(attributeType, "Marker", out memberType, out isField)
+    assert !isField
+    assert memberType == typeof(string)
+
+    instance := Activator.CreateInstance(attributeType)
+    property := ReflectedMemberLookup.FindProperty(attributeType, "Marker", BindingFlags.Public | BindingFlags.Instance)
+    assert property != null
+    property.SetValue(instance, "derived")
+    assert Convert.ToString(property.GetValue(instance)) == "derived"
 }
 
 test "a fact-derived attribute walk crosses from a built type to a reference-loaded base" {

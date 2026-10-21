@@ -87,7 +87,7 @@ test "record value-member owner defines and executes all three reference-record 
     assert clone.GetType() == runtimeType
 }
 
-test "record value-member owner skips non-record and nonnull-generic rows before structural selection" {
+test "record value-member owner skips non-records and emits only a clone for generic records" {
     ordinaryInput := RecordFactsRecordInput("RecordValueMemberOrdinarySkip", true)
     ordinaryInput.IsRecord = false
     ColumnarRecordValueMemberPlanner.EmitRecordValueMembers(
@@ -96,9 +96,23 @@ test "record value-member owner skips non-record and nonnull-generic rows before
         new ColumnarStructuralTypeReferenceTable()
     )
 
-    genericInput := RecordFactsRecordInput("RecordValueMemberGenericSkip", true)
-    genericDefinition := RecordFactsRecordDefinition("RecordValueMemberGenericSkip", true)
-    genericDefinition.GenericParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
+    genericName := "RecordValueMemberGenericSkip"
+    genericInput := RecordFactsRecordInput(genericName, true)
+    genericBuilder := TypeOfCreateBuilder(genericName, "ColumnarRecordValueMemberFacts." + genericName, 1)
+    genericBuilder.DefineDefaultConstructor(MethodAttributes.Public)
+    genericDefinition := new ColumnarStructDef(
+        genericBuilder,
+        new string[](0),
+        new Dictionary<string, FieldBuilder>(StringComparer.Ordinal),
+        true,
+        true,
+        false,
+        TypeArityNames.Key(genericName, 1)
+    )
+    genericParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+    genericParameters["T0"] = genericBuilder.GetGenericArguments()[0]
+    genericDefinition.GenericParameters = genericParameters
+    genericDefinition.GenericParameterNames = ["T0"]
     genericTable := new ColumnarStructuralTypeReferenceTable()
     ColumnarRecordValueMemberPlanner.EmitRecordValueMembers(
         RecordFactsSingleInput(genericInput),
@@ -108,7 +122,24 @@ test "record value-member owner skips non-record and nonnull-generic rows before
     assert genericTable.RowCount == 0
     assert genericDefinition.RecordEquals == null
     assert genericDefinition.RecordGetHashCode == null
-    assert genericDefinition.RecordClone == null
+    assert genericDefinition.RecordClone != null
+    assert ColumnarTypeEquivalenceFacts.TypesEquivalent(
+        genericDefinition.RecordClone.ReturnType,
+        genericBuilder.MakeGenericType(genericBuilder.GetGenericArguments())
+    )
+
+    genericRuntimeDefinition := PlanFixtureBake(genericBuilder)
+    closedGenericRuntimeType := genericRuntimeDefinition.MakeGenericType([typeof(int)])
+    closedGenericConstructor := closedGenericRuntimeType.GetConstructor(System.Type.EmptyTypes)
+    closedGenericClone := closedGenericRuntimeType.GetMethod("<Clone>$", System.Type.EmptyTypes)
+    if closedGenericConstructor == null || closedGenericClone == null {
+        throw new InvalidOperationException("The generic record clone did not bake with its closed self type.")
+    }
+    genericOriginal := closedGenericConstructor.Invoke(new object[](0))
+    genericClone := closedGenericClone.Invoke(genericOriginal, new object[](0))
+    assert genericClone != null
+    assert !Object.ReferenceEquals(genericOriginal, genericClone)
+    assert genericClone.GetType() == closedGenericRuntimeType
 }
 
 test "record value-member plans retain all five same-table structural type pairs" {

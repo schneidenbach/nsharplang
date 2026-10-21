@@ -5329,11 +5329,10 @@ test "`using r { }` is the UNBOUND resource form — an already-bound name dispo
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 11: a non-effect allow value (`dispatch: virtual`) records `dispatch:<error>` (Parser.cs :2370/:6819)" {
+test "016 N+1c tranche 11: a reserved allow value keeps its name-shaped recovery node (Parser.cs :2370/:6819)" {
     actual := RunBody("allow(dispatch: virtual) { a() }")
     effects := Golden.NoNames()
-    Golden.AddName(effects, "dispatch:<error>")
-    Golden.AddName(effects, "<error>")
+    Golden.AddName(effects, "dispatch:virtual")
     expected := BodyUnit1(Golden.Allow(effects, null, null, Golden.Block1(CallStmt("a", 2, 44), 2, 42), 2, 17))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }

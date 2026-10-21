@@ -66,6 +66,7 @@ class Lexer {
         parenBracketDepth := 0
         hasBaseIndent := false
         baseIndent := 0
+        previousSignificantType := TokenType.Eof
 
         for token in tokens {
             if token.Type == TokenType.Newline {
@@ -95,9 +96,9 @@ class Lexer {
                 }
 
                 currentIndent := Math.Max(0, rawIndent - baseIndent)
-                canIndent := parenBracketDepth == 0 && explicitBraceDepth == 0
+                canAdjustIndent := parenBracketDepth == 0 && explicitBraceDepth == 0 && !ParserTokenFacts.ContinuesExpressionAcrossLineBreak(previousSignificantType, token.Type)
 
-                if canIndent {
+                if canAdjustIndent {
                     previousIndent := indentStack.Peek()
 
                     if currentIndent > previousIndent {
@@ -125,6 +126,7 @@ class Lexer {
             }
 
             output.Add(token)
+            previousSignificantType = token.Type
         }
 
         return output

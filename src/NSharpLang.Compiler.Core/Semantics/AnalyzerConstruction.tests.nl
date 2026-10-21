@@ -148,6 +148,11 @@ func ConstructionTypeName(candidate: TypeInfo?): string {
         return "class:" + classType.Name
     }
 
+    recordType := candidate as RecordTypeInfo
+    if recordType != null {
+        return "record:" + recordType.Name
+    }
+
     structType := candidate as StructTypeInfo
     if structType != null {
         return "struct:" + structType.Name
@@ -348,6 +353,10 @@ func ConstructionPlainClass(name: string): ClassTypeInfo {
     return new ClassTypeInfo(name, 1, 1, false, null, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes(), true)
 }
 
+func ConstructionPlainRecord(name: string): RecordTypeInfo {
+    return new RecordTypeInfo(name, 1, 1, false, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes())
+}
+
 func ConstructionPlainStruct(name: string): StructTypeInfo {
     return new StructTypeInfo(name, 1, 1, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes())
 }
@@ -369,6 +378,21 @@ func ConstructionClosedBox(argument: TypeInfo): TypeInfo {
     arguments := new List<TypeInfo>()
     arguments.Add(argument)
     closed: TypeInfo = new GenericTypeInfo("Box", arguments, ConstructionOpenBox())
+    return closed
+}
+
+func ConstructionOpenRecord(): RecordTypeInfo {
+    typeParameters := new TypeParameter[](1)
+    typeParameters[0] = new TypeParameter("T")
+    membersArray := new DeclaredMemberInfo[](1)
+    membersArray[0] = ConstructionFieldMember("Box", "Item", new SimpleTypeReference("T", 1, 1), false)
+    return new RecordTypeInfo("Box", 1, 1, false, ConstructionEmptyTypeReferences(), typeParameters, ConstructionEmptyParameters(), membersArray, ConstructionEmptyNestedTypes())
+}
+
+func ConstructionClosedRecord(argument: TypeInfo): TypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(argument)
+    closed: TypeInfo = new GenericTypeInfo("Box", arguments, ConstructionOpenRecord())
     return closed
 }
 
@@ -852,17 +876,33 @@ test "EVERY initializer entry is walked, in order" {
 test "a `with` walks its TARGET first and answers the target's type" {
     harness := ConstructionArm()
     state := harness.Arm.BeginWith(ConstructionWithOf(ConstructionNoEntries()))
-    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.String))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(ConstructionPlainRecord("Status")))
 
     assert trace.Kinds == "1"
-    assert trace.Answer == "simple:string"
+    assert trace.Answer == "record:Status"
+}
+
+test "a `with` on a known ordinary class reports the missing record copy contract at its receiver" {
+    harness := ConstructionArm()
+    target := new IdentifierExpression("value", 4, 9)
+    node := new WithExpression(target, ConstructionOneNamed("Item"), 4, 1)
+    state := harness.Arm.BeginWith(node)
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(ConstructionPlainClass("Plain")))
+
+    assert trace.Kinds == "1"
+    assert trace.Answer == "unknown"
+    assert trace.Codes == "202"
+    assert harness.Errors[0].Message == "'Plain' is not a record: it has no '<Clone>$' copy method for 'with' to call"
+    assert harness.Errors[0].Line == 4
+    assert harness.Errors[0].Column == 9
+    assert harness.Errors[0].Length == 5
 }
 
 test "a `with` entry whose member RESOLVED goes through kind 2 — the named-expected-type door" {
     harness := ConstructionArm()
     pt := ConstructionPlainStruct("Pt")
     state := harness.Arm.BeginWith(ConstructionWithOf(ConstructionOneNamed("Item")))
-    answers := ConstructionAnswerPair(ConstructionClosedBox(pt), pt)
+    answers := ConstructionAnswerPair(ConstructionClosedRecord(pt), pt)
     trace := ConstructionDrive(harness, state, answers)
 
     // A `with` value can be a lambda, which the owner cannot simulate by writing the ambient slot.
@@ -873,7 +913,7 @@ test "a `with` entry whose member RESOLVED goes through kind 2 — the named-exp
 test "THE FRONT DOOR, AGAIN: a `with` value that does not fit its member is REFUSED" {
     harness := ConstructionArm()
     state := harness.Arm.BeginWith(ConstructionWithOf(ConstructionOneNamed("Item")))
-    answers := ConstructionAnswerPair(ConstructionClosedBox(ConstructionPlainStruct("Pt")), ConstructionPlainStruct("Rs"))
+    answers := ConstructionAnswerPair(ConstructionClosedRecord(ConstructionPlainStruct("Pt")), ConstructionPlainStruct("Rs"))
     trace := ConstructionDrive(harness, state, answers)
 
     assert trace.Codes == "202"

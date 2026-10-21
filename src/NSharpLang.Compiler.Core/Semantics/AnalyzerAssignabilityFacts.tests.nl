@@ -956,3 +956,55 @@ test "with metadata facts a concrete delegate is one and the two abstract roots 
         scan.Dispose()
     }
 }
+
+test "a single source function binds to the two abstract delegate roots through its natural type, and nothing else does" {
+    owner := AssignabilityOwner("/tmp/assign-broad-delegate.nl")
+    delegateRoot := new ReflectionTypeInfo(AssignabilityOpen("System.Delegate"))
+    multicastRoot := new ReflectionTypeInfo(AssignabilityOpen("System.MulticastDelegate"))
+
+    declared := CallableSourceFunction("Probe")
+    assert owner.CanBindCallableReferenceToBroadDelegate(delegateRoot, declared)
+    assert owner.CanBindCallableReferenceToBroadDelegate(multicastRoot, declared)
+
+    // The shells are transparent, as they are for the narrower question.
+    assert owner.CanBindCallableReferenceToBroadDelegate(new NullableTypeInfo(delegateRoot), declared)
+    assert owner.CanBindCallableReferenceToBroadDelegate(new ObliviousTypeInfo(delegateRoot), declared)
+
+    // The narrower question still refuses the roots: an `event E: Delegate` keeps its error.
+    assert !owner.CanBindCallableReferenceToExpectedType(delegateRoot)
+    assert !owner.CanBindCallableReferenceToExpectedType(multicastRoot)
+
+    // A signature no Func/Action can spell has no natural type.
+    byRef := CallableModifierFunction(CallableModifierList([Ast.ParameterModifier.Ref]))
+    assert !owner.CanBindCallableReferenceToBroadDelegate(delegateRoot, byRef)
+
+    // A lambda (no declared identity) is not a method group; an overloaded group is not one function.
+    assert !owner.CanBindCallableReferenceToBroadDelegate(delegateRoot, AssignabilityFunction(BuiltInTypes.Int, AssignabilityNoParameters()))
+    unresolvedLambda := AssignabilityFunction(BuiltInTypes.Unknown, AssignabilityArgs(BuiltInTypes.Unknown))
+    assert owner.CanDeferUnresolvedLambdaToBroadDelegate(delegateRoot, unresolvedLambda)
+    assert owner.CanDeferUnresolvedLambdaToBroadDelegate(multicastRoot, unresolvedLambda)
+    assert !owner.CanDeferUnresolvedLambdaToBroadDelegate(delegateRoot, declared)
+    assert !owner.CanDeferUnresolvedLambdaToBroadDelegate(new ReflectionTypeInfo(AssignabilityActionType()), unresolvedLambda)
+    singleGroup := new List<FunctionTypeInfo>()
+    singleGroup.Add(declared)
+    assert owner.CanBindCallableReferenceToBroadDelegate(delegateRoot, NSharpMethodGroupInfoFactory.FromFunctions(singleGroup))
+    group := new List<FunctionTypeInfo>()
+    group.Add(declared)
+    group.Add(CallableSourceFunction("Probe"))
+    assert !owner.CanBindCallableReferenceToBroadDelegate(delegateRoot, NSharpMethodGroupInfoFactory.FromFunctions(group))
+
+    reflected := new ReflectionMethodInfo(CallableProbeMethod())
+    assert owner.CanBindCallableReferenceToBroadDelegate(delegateRoot, reflected)
+    oneReflected := new MethodInfo[](1)
+    oneReflected[0] = CallableProbeMethod()
+    assert owner.CanBindCallableReferenceToBroadDelegate(delegateRoot, new ReflectionMethodGroupInfo(oneReflected))
+    repeatedReflected := new MethodInfo[](2)
+    repeatedReflected[0] = CallableProbeMethod()
+    repeatedReflected[1] = CallableProbeMethod()
+    assert !owner.CanBindCallableReferenceToBroadDelegate(delegateRoot, new ReflectionMethodGroupInfo(repeatedReflected))
+
+    // Only the roots: a real delegate, a string and a plain object are decided elsewhere.
+    assert !owner.CanBindCallableReferenceToBroadDelegate(new ReflectionTypeInfo(AssignabilityActionType()), declared)
+    assert !owner.CanBindCallableReferenceToBroadDelegate(BuiltInTypes.String, declared)
+    assert !owner.CanBindCallableReferenceToBroadDelegate(BuiltInTypes.Object, declared)
+}

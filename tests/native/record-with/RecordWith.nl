@@ -2,7 +2,7 @@ namespace NSharpLang.RecordWith.Tests
 
 import System.Collections.Generic
 
-// A reference record. A `with` expression clones through the synthesized `<Clone>$` virtual (a
+// A reference record. A `with` expression clones through the synthesized public `<Clone>$` method (a
 // MemberwiseClone downcast) and writes each replacement on the cloned object reference. The original
 // instance is a distinct object, unaffected by the replacements.
 record Point {
@@ -13,8 +13,8 @@ record Point {
 
 // A value record. A `with` expression copies the receiver value into a fresh local and writes each
 // replacement through that copy's ADDRESS. Like a C# record struct it carries NO `<Clone>$` method — a
-// value clone virtual would be reached by `callvirt` on a value, which is unverifiable — and the source
-// value is never mutated by the copy's replacements.
+// value instance method would be reached by `callvirt` on a value, which is unverifiable — and the
+// source value is never mutated by the copy's replacements.
 record struct Rgb {
     R: int
     G: int
