@@ -70,21 +70,29 @@ class ColumnarBaseTypePlanner {
                 duplicateInterface = true
             }
         }
-        if duplicateInterface {
-            return ColumnarBaseTypeApplyOutcome.Applied
+        if !duplicateInterface {
+            def.ImplementedInterfaces.Add(implementedInterfaceDef)
+            def.ImplementedInterfaceTypes.Add(resolvedBaseType)
+            def.Builder.AddInterfaceImplementation(resolvedBaseType)
+            seenImplementedInterfaces.Add(implementedInterfaceDef.Builder)
         }
 
-        def.ImplementedInterfaces.Add(implementedInterfaceDef)
-        def.ImplementedInterfaceTypes.Add(resolvedBaseType)
-        def.Builder.AddInterfaceImplementation(resolvedBaseType)
-        seenImplementedInterfaces.Add(implementedInterfaceDef.Builder)
+        // A source interface can inherit runtime interfaces through one or more source interface
+        // declarations. The implementing CLR type must expose those runtime interfaces in its
+        // interface metadata as well, or interface constrained calls (including await builders'
+        // INotifyCompletion constraint) cannot see the inherited slot on the implementation.
+        transitive := new List<ColumnarStructDef>()
+        EnumerateInterfaceAndBases(implementedInterfaceDef, transitive)
+        for inheritedInterface in transitive {
+            for externalInterface in inheritedInterface.ExternalInterfaces {
+                AddExternalInterface(externalInterface)
+            }
+        }
 
         // A bare (non-constructed) source interface contributes its inherited interfaces to this
         // type's metadata. A closed-generic source interface resolves to a distinct constructed
         // handle, so only the constructed interface itself is added.
         if Object.ReferenceEquals(resolvedBaseType, implementedInterfaceDef.Builder) {
-            transitive := new List<ColumnarStructDef>()
-            EnumerateInterfaceAndBases(implementedInterfaceDef, transitive)
             for implemented in transitive {
                 if !Object.ReferenceEquals(implemented, implementedInterfaceDef) && seenImplementedInterfaces.Add(implemented.Builder) {
                     def.Builder.AddInterfaceImplementation(implemented.Builder)
@@ -92,6 +100,16 @@ class ColumnarBaseTypePlanner {
             }
         }
         return ColumnarBaseTypeApplyOutcome.Applied
+    }
+
+    func AddExternalInterface(interfaceType: Type) {
+        for existingInterface in def.ExternalInterfaces {
+            if SameInterfaceType(existingInterface, interfaceType) {
+                return
+            }
+        }
+        def.ExternalInterfaces.Add(interfaceType)
+        def.Builder.AddInterfaceImplementation(interfaceType)
     }
 
     func ApplyUserBase(baseDef: ColumnarStructDef, resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {

@@ -22718,3 +22718,15 @@ test "a redundant must warning survives reflected overload rollback and selected
     assert AcErrorCount(analysis) == 2
     assert AcCodeCount(analysis, "NullabilityWarning") == 2
 }
+
+test "an applicable instance GetAwaiter with an invalid result blocks extension fallback" {
+    source := "import System\nimport System.Runtime.CompilerServices\nimport System.Threading.Tasks\n\nclass ContractAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(): int { return 61 }\n    func OnCompleted(continuation: Action) { continuation() }\n}\n\nclass InvalidInstanceAwaitable {\n    func GetAwaiter(): int { return 0 }\n}\n\nfunc GetAwaiter(this value: InvalidInstanceAwaitable): ContractAwaiter {\n    return new ContractAwaiter()\n}\n\nclass ExtensionOnlyAwaitable {}\n\nfunc GetAwaiter(this value: ExtensionOnlyAwaitable): ContractAwaiter {\n    return new ContractAwaiter()\n}\n\nasync func InvalidUse(value: InvalidInstanceAwaitable): Task<int> {\n    return await value\n}\n\nasync func ExtensionControl(value: ExtensionOnlyAwaitable): Task<int> {\n    return await value\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+
+    analysis := AcAnalyze(source)
+
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1, AcCensus(analysis)
+    anchor := AcCodeAnchor(analysis, "TypeMismatch")
+    assert anchor != "<no-such-code>" && anchor.Contains("@"), anchor
+}

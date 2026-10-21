@@ -933,6 +933,7 @@ class Analyzer: IDisposable {
         ImplicitConversionGuard.Clear()
         ExtensionMethods.Clear()
         SemanticModel = new SemanticModel()
+        PassThroughOperands.SetAwaitBindingServices(MemberResolution, SyntheticCallWalk, SyntheticCallValidator, ReflectionArgumentBinder, ClrTypeConversion, SemanticModel)
         BindingMap = new BindingMap()
 
         SoaEscape.BeginAnalysis()

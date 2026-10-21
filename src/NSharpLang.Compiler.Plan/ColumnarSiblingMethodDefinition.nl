@@ -8,6 +8,10 @@ import System.Reflection
 // same handles and arrays by reference, with no validation or projection at construction time.
 class ColumnarSiblingMethodDefinition {
     Method: MethodInfo
+    SourceFileId: int
+    SourceFilePath: string?
+    SourceLine: int
+    SourceColumn: int
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
@@ -45,6 +49,10 @@ class ColumnarSiblingMethodDefinition {
         interfaceConstraints: Type[][]
     ) {
         DoesNotReturn = false
+        SourceFileId = -1
+        SourceFilePath = null
+        SourceLine = 0
+        SourceColumn = 0
         ParameterDoesNotReturnIf = new int[](0)
         ParamNames = new string[](0)
         ParamDefaultKinds = new int[](0)

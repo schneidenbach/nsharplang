@@ -705,6 +705,124 @@ async func AwaitExplicitNotify(source: ExplicitNotifyAwaitable): Task<int> {
     return await source
 }
 
+interface InheritedNotifyCompletion: INotifyCompletion {}
+
+class InheritedNotifyAwaitable {
+    Source: Task<int>
+
+    constructor(source: Task<int>) {
+        Source = source
+    }
+
+    func GetAwaiter(): InheritedNotifyAwaiter {
+        return new InheritedNotifyAwaiter(Source)
+    }
+}
+
+class InheritedNotifyAwaiter: InheritedNotifyCompletion {
+    Source: Task<int>
+
+    constructor(source: Task<int>) {
+        Source = source
+    }
+
+    IsCompleted: bool {
+        get { return Source.IsCompleted }
+    }
+
+    func GetResult(): int {
+        return Source.GetAwaiter().GetResult()
+    }
+
+    func OnCompleted(continuation: Action) {
+        Source.GetAwaiter().OnCompleted(continuation)
+    }
+}
+
+async func AwaitInheritedNotify(source: InheritedNotifyAwaitable): Task<int> {
+    return await source
+}
+
+class GenericExtensionBox<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+}
+
+class GenericExtensionAwaiter<T>: INotifyCompletion {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    IsCompleted: bool {
+        get { return true }
+    }
+
+    func GetResult(): T {
+        return Value
+    }
+
+    func OnCompleted(continuation: Action) {
+        continuation()
+    }
+}
+
+func GetAwaiter<T>(this value: GenericExtensionBox<T>): GenericExtensionAwaiter<T> {
+    return new GenericExtensionAwaiter<T>(value.Value)
+}
+
+async func AwaitGenericExtension<T>(value: GenericExtensionBox<T>): Task<T> {
+    return await value
+}
+
+class BaseExtensionAwaitable {}
+
+class DerivedExtensionAwaitable: BaseExtensionAwaitable {}
+
+class BaseExtensionAwaiter: INotifyCompletion {
+    IsCompleted: bool {
+        get { return true }
+    }
+
+    func GetResult(): int {
+        return 51
+    }
+
+    func OnCompleted(continuation: Action) {
+        continuation()
+    }
+}
+
+class DerivedExtensionAwaiter: INotifyCompletion {
+    IsCompleted: bool {
+        get { return true }
+    }
+
+    func GetResult(): int {
+        return 52
+    }
+
+    func OnCompleted(continuation: Action) {
+        continuation()
+    }
+}
+
+func GetAwaiter(this _value: BaseExtensionAwaitable): BaseExtensionAwaiter {
+    return new BaseExtensionAwaiter()
+}
+
+func GetAwaiter(this _value: DerivedExtensionAwaitable): DerivedExtensionAwaiter {
+    return new DerivedExtensionAwaiter()
+}
+
+async func AwaitMostSpecificExtension(): Task<int> {
+    return await new DerivedExtensionAwaitable()
+}
+
 async func CaptureAsyncLambda(gate: Task): Task<int> {
     captured := 3
     read: Func<Task<int>> = async () => {

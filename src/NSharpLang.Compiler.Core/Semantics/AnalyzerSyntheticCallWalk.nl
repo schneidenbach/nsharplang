@@ -153,7 +153,7 @@ class AnalyzerSyntheticCallWalk {
             column := 0
             while column < count {
                 if row != column {
-                    comparisons[row * count + column] = CompareNSharpCandidates(applicable[row], applicable[column], scores[row], scores[column], comparisonsByCandidate[row], comparisonsByCandidate[column], call, argTypes)
+                    comparisons[row * count + column] = CompareNSharpCandidates(applicable[row], applicable[column], scores[row], scores[column], comparisonsByCandidate[row], comparisonsByCandidate[column], call, argTypes, receiverType)
                 }
 
                 column = column + 1
@@ -180,7 +180,7 @@ class AnalyzerSyntheticCallWalk {
     //
     // The score decides first for the same reason it does in the reflected world: it is the
     // applicability ladder, and specificity separates the candidates it rated the same.
-    func CompareNSharpCandidates(left: FunctionTypeInfo, right: FunctionTypeInfo, leftScore: int, rightScore: int, leftComparisons: SyntheticArgumentComparison?[], rightComparisons: SyntheticArgumentComparison?[], call: CallExpression, argTypes: IReadOnlyList<TypeInfo>): int {
+    func CompareNSharpCandidates(left: FunctionTypeInfo, right: FunctionTypeInfo, leftScore: int, rightScore: int, leftComparisons: SyntheticArgumentComparison?[], rightComparisons: SyntheticArgumentComparison?[], call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): int {
         if leftScore != rightScore {
             if leftScore > rightScore {
                 return AnalyzerOverloadSpecificity.LeftIsBetter
@@ -226,6 +226,29 @@ class AnalyzerSyntheticCallWalk {
                 assignability.IsAssignable(rightExpected, leftExpected),
                 assignability.IsAssignable(leftExpected, rightExpected)
             ))
+        }
+
+        // A receiver-style invocation supplies its receiver as argument zero for overload
+        // resolution even though it is absent from the written argument list. Compare those
+        // conversions alongside explicit arguments so a receiver convertible to both Base and
+        // Derived selects Derived, exactly as an ordinary extension call does.
+        if receiverType != null && AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(left, call) > 0 && AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(right, call) > 0 {
+            leftParameters := left.ParameterTypes
+            rightParameters := right.ParameterTypes
+            if leftParameters != null && rightParameters != null && leftParameters.Count > 0 && rightParameters.Count > 0 {
+                leftBindings := InferGenericBindings(left, call, argTypes, receiverType)
+                rightBindings := InferGenericBindings(right, call, argTypes, receiverType)
+                leftReceiverType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(leftParameters[0], leftBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(left.GenericConstraints))
+                rightReceiverType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(rightParameters[0], rightBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(right.GenericConstraints))
+                if !BuiltInTypes.IsUnknown(receiverType) && !BuiltInTypes.IsUnknown(leftReceiverType) && !BuiltInTypes.IsUnknown(rightReceiverType) {
+                    verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
+                        TypeInfoIdentityFacts.AreEqual(leftReceiverType, receiverType),
+                        TypeInfoIdentityFacts.AreEqual(rightReceiverType, receiverType),
+                        assignability.IsAssignable(rightReceiverType, leftReceiverType),
+                        assignability.IsAssignable(leftReceiverType, rightReceiverType)
+                    ))
+                }
+            }
         }
 
         conversionVerdict := AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)

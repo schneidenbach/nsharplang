@@ -136,6 +136,10 @@ class ColumnarFreeFunctionScope {
             position := ColumnarEmissionPlanner.PositionAt(sourceFile, function.SourceDeclarationStart)
             sourceDeclarationLines.Add(position.Line)
             sourceDeclarationColumns.Add(position.Column)
+            definition.SourceFileId = function.SourceFileId
+            definition.SourceFilePath = sourceFile.FileName
+            definition.SourceLine = position.Line
+            definition.SourceColumn = position.Column
         } else {
             sourceDeclarationLines.Add(0)
             sourceDeclarationColumns.Add(0)

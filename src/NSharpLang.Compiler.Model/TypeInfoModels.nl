@@ -891,6 +891,7 @@ class NullableTypeInfo: TypeInfo {
 }
 
 class FunctionTypeInfo: TypeInfo {
+    SourceDeclaration: FunctionDeclaration?
     SyntheticName: string?
     SourceName: string?
     SourceContainingType: string?
@@ -950,6 +951,7 @@ class FunctionTypeInfo: TypeInfo {
     func WithSignatureTypes(parameterTypes: List<TypeInfo>?, returnType: TypeInfo?): FunctionTypeInfo {
         substituted := new FunctionTypeInfo()
         substituted.SyntheticName = SyntheticName
+        substituted.SourceDeclaration = SourceDeclaration
         substituted.SourceName = SourceName
         substituted.SourceContainingType = SourceContainingType
         substituted.SourceIsStatic = SourceIsStatic

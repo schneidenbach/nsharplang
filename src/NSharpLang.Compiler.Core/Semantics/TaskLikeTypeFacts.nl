@@ -114,14 +114,18 @@ class TaskLikeTypeFacts {
     }
 
     static func IsTaskLikeName(name: string): bool {
-        if name == "Task" || name == "ValueTask" {
+        if name == "Task" || IsValueTaskName(name) {
             return true
         }
 
-        if name == "System.Threading.Tasks.Task" || name == "System.Threading.Tasks.ValueTask" {
+        if name == "System.Threading.Tasks.Task" {
             return true
         }
 
-        return name.EndsWith(".Task", StringComparison.Ordinal) || name.EndsWith(".ValueTask", StringComparison.Ordinal)
+        return name.EndsWith(".Task", StringComparison.Ordinal)
+    }
+
+    static func IsValueTaskName(name: string): bool {
+        return name == "ValueTask" || name == "System.Threading.Tasks.ValueTask" || name.EndsWith(".ValueTask", StringComparison.Ordinal)
     }
 }

@@ -379,6 +379,24 @@ test "an explicit INotifyCompletion implementation resumes through interface dis
     assert pending.Result == 39
 }
 
+test "source interface inheritance preserves the INotifyCompletion slot during emission" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitInheritedNotify(new InheritedNotifyAwaitable(gate.Task))
+    assert !pending.IsCompleted
+
+    gate.SetResult(41)
+    assert pending.Result == 41
+}
+
+test "a receiver-inferred generic GetAwaiter extension is emitted and returns its closed value" {
+    pending := AwaitGenericExtension(new GenericExtensionBox<int>(47))
+    assert pending.Result == 47
+}
+
+test "GetAwaiter extension overload resolution selects the most specific receiver" {
+    assert AwaitMostSpecificExtension().Result == 52
+}
+
 test "async lambda and local function captures remain shared across their awaits" {
     lambdaGate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
     lambdaTask := CaptureAsyncLambda(lambdaGate.Task)

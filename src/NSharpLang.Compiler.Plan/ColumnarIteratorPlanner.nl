@@ -6535,7 +6535,7 @@ class ColumnarIteratorBodyPlanner {
     // a statement-position `await` follows.
     static func AppendDiscardedAwait(emit: ColumnarMoveNextEmit, awaitableType: Type) {
         resultType := VoidReturnType()
-        if !AppendAwaitOfStackValue(emit, awaitableType, out resultType) {
+        if !AppendAwaitOfStackValue(emit, awaitableType, -1, out resultType) {
             return
         }
         if !ColumnarCodePlanExecutor.IsVoidType(resultType) {
@@ -7633,7 +7633,7 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), enumPool)
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), moveNextAsyncPool)
         movedType := VoidReturnType()
-        if !AppendAwaitOfStackValue(emit, ValueTaskOfBoolRuntimeType(), out movedType) {
+        if !AppendAwaitOfStackValue(emit, ValueTaskOfBoolRuntimeType(), -1, out movedType) {
             return false
         }
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
@@ -8303,7 +8303,7 @@ class ColumnarIteratorBodyPlanner {
         LoadThis(emit)
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), operandLocal)
 
-        return AppendAwaitOfStackValue(emit, operandType, out resultType)
+        return AppendAwaitOfStackValue(emit, operandType, awaitNode, out resultType)
     }
 
     // THE SUSPENSION ITSELF, over an awaitable ALREADY ON THE STACK. The rows above it are the
@@ -8313,10 +8313,23 @@ class ColumnarIteratorBodyPlanner {
     // Splitting the sequence here is what lets a SYNTHESIZED await — the `DisposeAsync()` an
     // `await using` owes its resource, the one an `await foreach` owes its enumerator — go through
     // exactly the same suspension as a written `await`, with no second copy of the awaitable pattern.
-    static func AppendAwaitOfStackValue(emit: ColumnarMoveNextEmit, operandType: Type, out resultType: Type): bool {
+    static func AppendAwaitOfStackValue(emit: ColumnarMoveNextEmit, operandType: Type, awaitNode: int, out resultType: Type): bool {
         resultType = VoidReturnType()
         pattern: AwaitablePatternBinding? = null
-        if !TryBindAwaitablePatternForEmit(emit, operandType, out pattern) || pattern == null {
+        sharedBindingFound := false
+        sharedBindingResolved := true
+        if awaitNode >= 0 {
+            sharedBindingResolved = TryBindSharedAwaitablePatternForEmit(emit, awaitNode, operandType, out sharedBindingFound, out pattern)
+        }
+        if sharedBindingFound && (!sharedBindingResolved || pattern == null) {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "the analyzer-selected awaitable pattern could not be mapped to emitted members")
+            return false
+        }
+        if !sharedBindingFound && !TryBindAwaitablePatternForEmit(emit, operandType, out pattern) {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + operandType.Name + "' is not awaitable: it has no `GetAwaiter()`")
+            return false
+        }
+        if pattern == null {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + operandType.Name + "' is not awaitable: it has no `GetAwaiter()`")
             return false
         }
@@ -8444,6 +8457,524 @@ class ColumnarIteratorBodyPlanner {
 
     static func InstanceCallOpcode(emit: ColumnarMoveNextEmit, receiverType: Type): short {
         return (short)(IsAwaitPatternValueType(emit, receiverType) ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt())
+    }
+
+    // Explicit source `await` expressions consume the analyzer's selected binding. This is the
+    // semantic handoff: lowering resolves declaration identities to MethodBuilder/MethodInfo
+    // handles, but never repeats member-name lookup or extension ranking after analysis.
+    static func TryBindSharedAwaitablePatternForEmit(emit: ColumnarMoveNextEmit, awaitNode: int, operandType: Type, out found: bool, out binding: AwaitablePatternBinding?): bool {
+        found = false
+        binding = null
+        facts := emit.Context.RequiredScope().Facts
+        semanticModel := facts.SemanticModel
+        if semanticModel == null {
+            return true
+        }
+        nodes := CurrentExpressionNodes(emit)
+        source := CurrentExpressionSource(emit)
+        sourceFile := new ColumnarSourceFile("", source, emit.Context.SourceFileId, ColumnarEmissionPlanner.BuildLineStarts(source))
+        position := ColumnarEmissionPlanner.PositionAt(sourceFile, nodes.SpanStart(awaitNode))
+        selected: AnalyzerAwaitablePatternBinding = null
+        if !semanticModel.AwaitablePatterns.TryGetValue((Line: position.Line, Column: position.Column), out selected) || selected == null {
+            return true
+        }
+        found = true
+        if selected.ReflectedAwaiter != null {
+            reflected := selected.ReflectedAwaiter
+            getAwaiter: MethodInfo? = null
+            selectedGetAwaiter := selected.GetAwaiterMethod
+            if selectedGetAwaiter == null {
+                selectedGetAwaiter = reflected.GetAwaiter
+            }
+            if selectedGetAwaiter != null {
+                closedOwner: Type? = null
+                if !selected.GetAwaiterIsExtension {
+                    closedOwner = operandType
+                }
+                if !TryResolveSelectedRuntimeMethod(selectedGetAwaiter, closedOwner, out getAwaiter) {
+                    return false
+                }
+            }
+            if getAwaiter == null {
+                if selected.GetAwaiterIsExtension {
+                    if selected.GetAwaiterFunction != null && !TryResolveSelectedSourceExtension(emit, selected, out getAwaiter) {
+                        return false
+                    }
+                } else if !TryResolveSelectedSourceInstanceMethod(emit, operandType, selected.GetAwaiterDeclaration, out getAwaiter) {
+                    return false
+                }
+            }
+            if getAwaiter == null {
+                return false
+            }
+            awaiterType := AwaitPatternReturnType(operandType, getAwaiter)
+            isCompleted: MethodInfo? = null
+            getResult: MethodInfo? = null
+            completionSlot: MethodInfo? = null
+            if !TryResolveSelectedRuntimeMethod(reflected.IsCompletedGetter, awaiterType, out isCompleted) || !TryResolveSelectedRuntimeMethod(reflected.GetResult, awaiterType, out getResult) || !TryResolveSelectedRuntimeMethod(reflected.CompletionSlot, null, out completionSlot) || isCompleted == null || getResult == null || completionSlot == null {
+                return false
+            }
+            binding = new AwaitablePatternBinding(
+                operandType,
+                awaiterType,
+                getAwaiter,
+                isCompleted,
+                getResult,
+                completionSlot,
+                reflected.IsCritical,
+                selected.GetAwaiterIsExtension
+            )
+            return true
+        }
+
+        sourceAwaiter := selected.SourceAwaiter
+        if sourceAwaiter == null {
+            return false
+        }
+        getAwaiter: MethodInfo? = null
+        if selected.GetAwaiterIsExtension {
+            if !TryResolveSelectedSourceExtension(emit, selected, out getAwaiter) {
+                return false
+            }
+        } else if !TryResolveSelectedSourceInstanceMethod(emit, operandType, selected.GetAwaiterDeclaration, out getAwaiter) {
+            return false
+        }
+
+        let awaiterType: Type = null
+        if !TryResolveSelectedSourceAwaiterType(emit, selected, out awaiterType) && !TryResolveAwaitPatternType(emit, selected.AwaiterType, out awaiterType) || awaiterType == null {
+            return false
+        }
+        let awaiterDefinition: ColumnarStructDef? = null
+        if !ColumnarSourceDefinitionResolver.TryResolveStruct(awaiterType, facts.StructDefinitions, out awaiterDefinition) || awaiterDefinition == null {
+            return false
+        }
+        isCompletedProperty: ColumnarPropertyDef? = null
+        if !awaiterDefinition.Properties.TryGetValue(sourceAwaiter.IsCompleted.Name, out isCompletedProperty) || isCompletedProperty == null || isCompletedProperty.PropertyType != typeof(bool) {
+            return false
+        }
+        isCompleted := BindSourceMethodToConstructedOwner(awaiterType, awaiterDefinition.Builder, isCompletedProperty.Getter)
+        getResult: MethodInfo? = null
+        if !TryResolveSelectedSourceInstanceMethod(emit, awaiterType, sourceAwaiter.GetResult, out getResult) {
+            return false
+        }
+        completion: MethodInfo? = null
+        if !TryResolveSelectedSourceInstanceMethod(emit, awaiterType, sourceAwaiter.Completion, out completion) {
+            return false
+        }
+        if getAwaiter == null || isCompleted == null || getResult == null || completion == null {
+            return false
+        }
+        binding = new AwaitablePatternBinding(operandType, awaiterType, getAwaiter, isCompleted, getResult, completion, sourceAwaiter.IsCritical, selected.GetAwaiterIsExtension)
+        return true
+    }
+
+    static func TryResolveSelectedSourceAwaiterType(emit: ColumnarMoveNextEmit, selected: AnalyzerAwaitablePatternBinding, out runtimeType: Type): bool {
+        runtimeType = null
+        if emit == null || selected == null || selected.SourceAwaiterTypeName == null || selected.SourceAwaiterTypeName.Length == 0 {
+            return false
+        }
+        facts := emit.Context.RequiredScope().Facts
+        definition: ColumnarStructDef? = null
+        for candidate in facts.StructDefinitions {
+            if candidate.DeclaredTypeName == selected.SourceAwaiterTypeName {
+                definition = candidate
+                break
+            }
+        }
+        if definition == null {
+            return false
+        }
+        constructed := selected.AwaiterType as GenericTypeInfo
+        if constructed == null || constructed.TypeArguments.Count == 0 {
+            runtimeType = definition.Builder
+            return true
+        }
+        arguments := new Type[constructed.TypeArguments.Count]
+        index := 0
+        while index < arguments.Length {
+            resolvedArgument: Type = null
+            if !TryResolveAwaitPatternType(emit, constructed.TypeArguments[index], out resolvedArgument) || resolvedArgument == null {
+                return false
+            }
+            arguments[index] = resolvedArgument
+            index += 1
+        }
+        try {
+            runtimeType = definition.Builder.MakeGenericType(arguments)
+            return runtimeType != null
+        } catch failure: ArgumentException {
+            return false
+        }
+    }
+
+    // The shared analyzer binding may contain MethodInfo handles from its MetadataLoadContext.
+    // Emission needs the corresponding runtime member, while preserving the exact MethodDef the
+    // binder selected. Recover by module identity and metadata token, then close it over the runtime
+    // receiver that the expression planner already resolved.
+    static func TryResolveSelectedRuntimeMethod(selectedMethod: MethodInfo?, receiverType: Type?, out method: MethodInfo?): bool {
+        method = null
+        if selectedMethod == null || selectedMethod.DeclaringType == null {
+            return false
+        }
+
+        selectedDefinition := selectedMethod
+        if selectedMethod.IsGenericMethod && !selectedMethod.IsGenericMethodDefinition {
+            selectedDefinition = selectedMethod.GetGenericMethodDefinition()
+        }
+        metadataOwner := selectedDefinition.DeclaringType
+        if metadataOwner == null {
+            return false
+        }
+        metadataDefinition := metadataOwner
+        if metadataOwner.IsGenericType && !metadataOwner.IsGenericTypeDefinition {
+            metadataDefinition = metadataOwner.GetGenericTypeDefinition()
+        }
+        runtimeDefinition: Type? = null
+        if !TryResolveAwaitPatternRuntimeType(metadataDefinition, out runtimeDefinition) || runtimeDefinition == null {
+            Console.WriteLine("await-map runtime-type failed " + metadataDefinition.ToString() + " aq=" + (metadataDefinition.AssemblyQualifiedName ?? "null"))
+            return false
+        }
+        runtimeDefinitionOwner := runtimeDefinition
+        if runtimeDefinition.IsGenericType && !runtimeDefinition.IsGenericTypeDefinition {
+            runtimeDefinitionOwner = runtimeDefinition.GetGenericTypeDefinition()
+        }
+        runtimeOpenMethod: MethodInfo? = null
+        if !ColumnarExternalMethodDescriptor.TryRecoverOpenMethod(selectedDefinition, runtimeDefinitionOwner, out runtimeOpenMethod) || runtimeOpenMethod == null {
+            if !TryFindSelectedRuntimeMethodBySignature(selectedDefinition, runtimeDefinitionOwner, out runtimeOpenMethod) || runtimeOpenMethod == null {
+                Console.WriteLine("await-map signature failed " + selectedDefinition.ToString() + " runtime=" + runtimeDefinitionOwner.ToString())
+                return false
+            }
+        }
+
+        resolvedOwner: Type? = null
+        if receiverType != null {
+            if !TryFindSelectedRuntimeMemberOwner(receiverType, runtimeDefinitionOwner, out resolvedOwner) || resolvedOwner == null {
+                Console.WriteLine("await-map owner failed receiver=" + receiverType.ToString() + " definition=" + runtimeDefinitionOwner.ToString())
+                return false
+            }
+        } else if runtimeOpenMethod.IsStatic {
+            resolvedOwner = runtimeDefinitionOwner
+        } else {
+            runtimeDeclaringType := runtimeOpenMethod.DeclaringType
+            if runtimeDeclaringType != null && !runtimeDeclaringType.ContainsGenericParameters {
+                resolvedOwner = runtimeDeclaringType
+            }
+        }
+
+        resolvedMethod := runtimeOpenMethod
+        if resolvedOwner != null && resolvedOwner.IsGenericType && !resolvedOwner.IsGenericTypeDefinition {
+            try {
+                resolvedMethod = ColumnarClosedGenericMemberResolver.ResolveMethod(resolvedOwner, runtimeOpenMethod)
+            } catch failure: ArgumentException {
+                return false
+            } catch failure: InvalidOperationException {
+                return false
+            }
+        }
+
+        if selectedMethod.IsGenericMethod && !selectedMethod.IsGenericMethodDefinition {
+            metadataArguments := selectedMethod.GetGenericArguments()
+            runtimeArguments := new Type[metadataArguments.Length]
+            index := 0
+            while index < metadataArguments.Length {
+                runtimeArgument: Type? = null
+                if !TryResolveAwaitPatternRuntimeType(metadataArguments[index], out runtimeArgument) || runtimeArgument == null {
+                    return false
+                }
+                runtimeArguments[index] = runtimeArgument
+                index += 1
+            }
+            try {
+                resolvedMethod = resolvedMethod.MakeGenericMethod(runtimeArguments)
+            } catch failure: ArgumentException {
+                return false
+            }
+        }
+        method = resolvedMethod
+        return true
+    }
+
+    static func TryFindSelectedRuntimeMethodBySignature(selectedMethod: MethodInfo, runtimeOwner: Type, out method: MethodInfo?): bool {
+        method = null
+        if selectedMethod == null || runtimeOwner == null {
+            return false
+        }
+        selectedParameters := selectedMethod.GetParameters()
+        selectedGenericArity := selectedMethod.IsGenericMethod ? selectedMethod.GetGenericArguments().Length : 0
+        matches := new List<MethodInfo>()
+        for candidate in runtimeOwner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
+            if candidate.Name != selectedMethod.Name || candidate.IsStatic != selectedMethod.IsStatic || candidate.GetParameters().Length != selectedParameters.Length || (candidate.IsGenericMethod ? candidate.GetGenericArguments().Length : 0) != selectedGenericArity {
+                continue
+            }
+            if !SelectedRuntimeSignatureTypeMatches(selectedMethod.ReturnType, candidate.ReturnType) {
+                continue
+            }
+            candidateParameters := candidate.GetParameters()
+            parametersMatch := true
+            index := 0
+            while index < selectedParameters.Length {
+                if !SelectedRuntimeSignatureTypeMatches(selectedParameters[index].ParameterType, candidateParameters[index].ParameterType) {
+                    parametersMatch = false
+                    break
+                }
+                index += 1
+            }
+            if parametersMatch {
+                matches.Add(candidate)
+            }
+        }
+        if matches.Count != 1 {
+            return false
+        }
+        method = matches[0]
+        return true
+    }
+
+    static func SelectedRuntimeSignatureTypeMatches(selectedType: Type, runtimeType: Type): bool {
+        if selectedType == null || runtimeType == null {
+            return selectedType == runtimeType
+        }
+        if selectedType.IsGenericParameter || runtimeType.IsGenericParameter {
+            return selectedType.IsGenericParameter && runtimeType.IsGenericParameter && selectedType.GenericParameterPosition == runtimeType.GenericParameterPosition && ((selectedType.DeclaringMethod == null) == (runtimeType.DeclaringMethod == null))
+        }
+        if selectedType.IsByRef || runtimeType.IsByRef {
+            if !selectedType.IsByRef || !runtimeType.IsByRef {
+                return false
+            }
+            selectedElement := selectedType.GetElementType()
+            runtimeElement := runtimeType.GetElementType()
+            return selectedElement != null && runtimeElement != null && SelectedRuntimeSignatureTypeMatches(selectedElement, runtimeElement)
+        }
+        if selectedType.IsArray || runtimeType.IsArray {
+            if !selectedType.IsArray || !runtimeType.IsArray || selectedType.GetArrayRank() != runtimeType.GetArrayRank() {
+                return false
+            }
+            selectedElement := selectedType.GetElementType()
+            runtimeElement := runtimeType.GetElementType()
+            return selectedElement != null && runtimeElement != null && SelectedRuntimeSignatureTypeMatches(selectedElement, runtimeElement)
+        }
+        if selectedType.IsGenericType || runtimeType.IsGenericType {
+            if !selectedType.IsGenericType || !runtimeType.IsGenericType {
+                return false
+            }
+            selectedDefinition := selectedType.GetGenericTypeDefinition()
+            runtimeDefinition := runtimeType.GetGenericTypeDefinition()
+            selectedRuntimeDefinition: Type? = null
+            if TryResolveAwaitPatternRuntimeType(selectedDefinition, out selectedRuntimeDefinition) && selectedRuntimeDefinition != null {
+                if !ColumnarTypeEquivalenceFacts.TypesEquivalent(selectedRuntimeDefinition, runtimeDefinition) {
+                    return false
+                }
+            } else if selectedDefinition.FullName != runtimeDefinition.FullName {
+                return false
+            }
+            selectedArguments := selectedType.GetGenericArguments()
+            runtimeArguments := runtimeType.GetGenericArguments()
+            if selectedArguments.Length != runtimeArguments.Length {
+                return false
+            }
+            index := 0
+            while index < selectedArguments.Length {
+                if !SelectedRuntimeSignatureTypeMatches(selectedArguments[index], runtimeArguments[index]) {
+                    return false
+                }
+                index += 1
+            }
+            return true
+        }
+        selectedRuntimeType: Type? = null
+        if TryResolveAwaitPatternRuntimeType(selectedType, out selectedRuntimeType) && selectedRuntimeType != null {
+            return ColumnarTypeEquivalenceFacts.TypesEquivalent(selectedRuntimeType, runtimeType)
+        }
+        return selectedType.FullName == runtimeType.FullName && selectedType.Assembly.GetName().Name == runtimeType.Assembly.GetName().Name
+    }
+
+    static func TryFindSelectedRuntimeMemberOwner(receiverType: Type, declaringType: Type, out owner: Type?): bool {
+        owner = null
+        current: Type? = receiverType
+        while current != null {
+            currentDefinition := current
+            if current.IsGenericType && !current.IsGenericTypeDefinition {
+                currentDefinition = current.GetGenericTypeDefinition()
+            }
+            if ColumnarTypeEquivalenceFacts.TypesEquivalent(currentDefinition, declaringType) {
+                owner = current
+                return true
+            }
+            current = current.BaseType
+        }
+        if receiverType.IsInterface {
+            if ColumnarTypeEquivalenceFacts.TypesEquivalent(receiverType, declaringType) {
+                owner = receiverType
+                return true
+            }
+        }
+        return false
+    }
+
+    static func TryResolveAwaitPatternRuntimeType(metadataType: Type, out runtimeType: Type?): bool {
+        runtimeType = null
+        if metadataType == null {
+            return false
+        }
+        if metadataType is TypeBuilder || metadataType.Assembly.IsDynamic {
+            runtimeType = metadataType
+            return true
+        }
+        name := metadataType.AssemblyQualifiedName
+        if name != null {
+            runtimeType = Type.GetType(name, false)
+            if runtimeType != null {
+                return true
+            }
+        }
+        metadataAssemblyName := metadataType.Assembly.GetName().Name
+        metadataFullName := metadataType.FullName
+        if metadataFullName == null {
+            return false
+        }
+        for loadedAssembly in AppDomain.CurrentDomain.GetAssemblies() {
+            if loadedAssembly.GetName().Name != metadataAssemblyName {
+                continue
+            }
+            candidate := loadedAssembly.GetType(metadataFullName, false)
+            if candidate != null {
+                runtimeType = candidate
+                return true
+            }
+        }
+        return false
+    }
+
+    static func TryResolveSelectedSourceExtension(emit: ColumnarMoveNextEmit, selected: AnalyzerAwaitablePatternBinding, out method: MethodInfo?): bool {
+        method = null
+        function := selected.GetAwaiterFunction
+        facts := emit.Context.RequiredScope().Facts
+        overloads := facts.SiblingOverloads
+        if function == null || overloads == null || function.SourceName == null || function.SourceFilePath == null || function.SourceLine <= 0 || function.SourceColumn <= 0 {
+            return false
+        }
+        candidates: List<ColumnarSiblingMethodDefinition> = null
+        if !overloads.TryGetValue(function.SourceName, out candidates) || candidates == null {
+            return false
+        }
+        for candidate in candidates {
+            if candidate.SourceFilePath != null && string.Equals(candidate.SourceFilePath, function.SourceFilePath, StringComparison.OrdinalIgnoreCase) && candidate.SourceLine == function.SourceLine && candidate.SourceColumn == function.SourceColumn {
+                selectedMethod := candidate.Method
+                if selected.GetAwaiterTypeArguments != null && selected.GetAwaiterTypeArguments.Length > 0 {
+                    typeArguments := new Type[selected.GetAwaiterTypeArguments.Length]
+                    index := 0
+                    while index < typeArguments.Length {
+                        resolvedArgument: Type = null
+                        if !TryResolveAwaitPatternType(emit, selected.GetAwaiterTypeArguments[index], out resolvedArgument) || resolvedArgument == null {
+                            return false
+                        }
+                        typeArguments[index] = resolvedArgument
+                        index += 1
+                    }
+                    try {
+                        selectedMethod = selectedMethod.MakeGenericMethod(typeArguments)
+                    } catch failure: ArgumentException {
+                        return false
+                    }
+                }
+                method = selectedMethod
+                return true
+            }
+        }
+        return false
+    }
+
+    static func TryResolveSelectedSourceInstanceMethod(emit: ColumnarMoveNextEmit, ownerType: Type, declaration: FunctionDeclaration?, out method: MethodInfo?): bool {
+        method = null
+        if declaration == null {
+            return false
+        }
+        facts := emit.Context.RequiredScope().Facts
+        owner: ColumnarStructDef? = null
+        if !ColumnarSourceDefinitionResolver.TryResolveStruct(ownerType, facts.StructDefinitions, out owner) || owner == null {
+            return false
+        }
+        for overloads in owner.MethodOverloads.Values {
+            for candidate in overloads {
+                if candidate.SourceLine == declaration.Line && candidate.SourceColumn == declaration.Column {
+                    method = BindSourceMethodToConstructedOwner(ownerType, owner.Builder, candidate.Builder)
+                    return method != null
+                }
+            }
+        }
+        return false
+    }
+
+    static func BindSourceMethodToConstructedOwner(ownerType: Type, ownerDefinition: Type, method: MethodInfo): MethodInfo? {
+        if ownerType == ownerDefinition || !ownerType.IsGenericType || ownerType.IsGenericTypeDefinition || !RuntimeTypeShapeFacts.ContainsBuilderBoundType(ownerType) {
+            return method
+        }
+        try {
+            return TypeBuilder.GetMethod(ownerType, method)
+        } catch failure: ArgumentException {
+            return null
+        } catch failure: InvalidOperationException {
+            return null
+        }
+    }
+
+    static func TryResolveAwaitPatternType(emit: ColumnarMoveNextEmit, typeInfo: TypeInfo, out runtimeType: Type): bool {
+        runtimeType = null
+        if typeInfo == null {
+            return false
+        }
+        reflected := typeInfo as ReflectionTypeInfo
+        if reflected != null {
+            runtimeType = reflected.Type
+            return runtimeType != null
+        }
+        if typeInfo is SimpleTypeInfo && emit.Context.TypeParameters != null && emit.Context.TypeParameters.TryGetValue(typeInfo.ToString(), out runtimeType) {
+            return runtimeType != null
+        }
+        builtInRuntimeType := AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(typeInfo)
+        if builtInRuntimeType != null {
+            runtimeType = builtInRuntimeType
+            return true
+        }
+
+        facts := emit.Context.RequiredScope().Facts
+        constructed := typeInfo as GenericTypeInfo
+        if constructed != null {
+            let genericDefinition: Type = null
+            definitionInfo := constructed.GenericDefinition
+            if definitionInfo == null || !TryResolveAwaitPatternType(emit, definitionInfo, out genericDefinition) || genericDefinition == null || !genericDefinition.IsGenericTypeDefinition {
+                return false
+            }
+            arguments := new Type[constructed.TypeArguments.Count]
+            index := 0
+            while index < arguments.Length {
+                resolvedArgument: Type = null
+                if !TryResolveAwaitPatternType(emit, constructed.TypeArguments[index], out resolvedArgument) || resolvedArgument == null {
+                    return false
+                }
+                arguments[index] = resolvedArgument
+                index += 1
+            }
+            try {
+                runtimeType = genericDefinition.MakeGenericType(arguments)
+                return runtimeType != null
+            } catch failure: ArgumentException {
+                runtimeType = null
+                return false
+            }
+        }
+
+        name := typeInfo.ToString()
+        if facts.ExactSourceTypes.TryGetValue(name, out runtimeType) && runtimeType != null {
+            return true
+        }
+        for definition in facts.StructDefinitions {
+            if definition.DeclaredTypeName == name {
+                runtimeType = definition.Builder
+                return true
+            }
+        }
+        return false
     }
 
     // A public parameterless instance method, by ordinary CLR lookup. `null` when the type does not

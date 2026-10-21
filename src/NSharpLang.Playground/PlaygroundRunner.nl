@@ -90,6 +90,10 @@ internal sealed class PlaygroundRunner {
             parentEnvironment = receiver.Environment
         }
         environment := new RuntimeEnvironment(parentEnvironment)
+        semanticModel: SemanticModel? = null
+        if semanticModelsByDeclaration.TryGetValue(function, out semanticModel) {
+            environment.SetSemanticModel(semanticModel)
+        }
         if receiver != null {
             environment.Declare(PlaygroundRunFacts.ReceiverBindingName(), receiver)
         }
@@ -265,7 +269,7 @@ internal sealed class PlaygroundRunner {
         awaited := expression as AwaitExpression
         if awaited != null {
             try {
-                return await AwaitTaskValue(await EvaluateAsync(awaited.Expression, environment, depth))
+                return await AwaitTaskValue(await EvaluateAsync(awaited.Expression, environment, depth), awaited, environment.SemanticModel)
             } catch unsupported: PlaygroundRunUnsupportedException {
                 if unsupported.Line > 0 {
                     throw unsupported
@@ -409,7 +413,7 @@ internal sealed class PlaygroundRunner {
                 runtimeFunction := boundValue as RuntimeFunction
                 if runtimeFunction != null {
                     if AnalyzerAmbientContext.HasModifier(runtimeFunction.Declaration, Modifiers.Async) {
-                        return InvokeFunctionAsync(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
+                        return InvokeAsyncFunctionValue(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
                     }
                     return InvokeFunction(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
                 }
@@ -417,7 +421,7 @@ internal sealed class PlaygroundRunner {
             function: FunctionDeclaration? = null
             if functions.TryGetValue(identifier.Name, out function) {
                 if AnalyzerAmbientContext.HasModifier(function, Modifiers.Async) {
-                    return InvokeFunctionAsync(function, arguments, null, depth)
+                    return InvokeAsyncFunctionValue(function, arguments, null, depth)
                 }
                 return InvokeFunction(function, arguments, null, depth)
             }
@@ -455,21 +459,20 @@ internal sealed class PlaygroundRunner {
 
         target := await EvaluateAsync(member.Object, environment, depth)
         if member.MemberName == "ConfigureAwait" && arguments.Length == 1 {
-            if target as Task != null {
-                // There is no UI synchronization context in the hosted runner, so ConfigureAwait's
-                // capture flag cannot change where its continuation runs. Keep the original Task.
-                return target
-            }
             if target != null {
-                configuredValueTaskType := target.GetType()
-                if configuredValueTaskType == typeof(ValueTask) || (configuredValueTaskType.IsGenericType && configuredValueTaskType.GetGenericTypeDefinition() == typeof(ValueTask<object?>).GetGenericTypeDefinition()) {
-                    asTask := configuredValueTaskType.GetMethod("AsTask", BindingFlags.Public | BindingFlags.Instance)
-                    if asTask != null {
-                        try {
-                            return asTask.Invoke(target, null)
-                        } catch invocationFailure: TargetInvocationException {
-                            RethrowInvocationFailure(invocationFailure)
-                        }
+                configureAwait: MethodInfo? = null
+                for candidate in target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+                    parameters := candidate.GetParameters()
+                    if candidate.Name == "ConfigureAwait" && !candidate.IsGenericMethod && parameters.Length == 1 && parameters[0].ParameterType == typeof(bool) {
+                        configureAwait = candidate
+                        break
+                    }
+                }
+                if configureAwait != null {
+                    try {
+                        return configureAwait.Invoke(target, arguments)
+                    } catch invocationFailure: TargetInvocationException {
+                        RethrowInvocationFailure(invocationFailure)
                     }
                 }
             }
@@ -481,7 +484,7 @@ internal sealed class PlaygroundRunner {
                 throw Unsupported(PlaygroundRunFacts.MethodNotFound(member.MemberName))
             }
             if AnalyzerAmbientContext.HasModifier(method, Modifiers.Async) {
-                return InvokeFunctionAsync(method, arguments, runtimeObject, depth)
+                return InvokeAsyncFunctionValue(method, arguments, runtimeObject, depth)
             }
             return InvokeFunction(method, arguments, runtimeObject, depth)
         }
@@ -493,7 +496,7 @@ internal sealed class PlaygroundRunner {
                 throw Unsupported(PlaygroundRunFacts.StaticMethodNotFound(member.MemberName))
             }
             if AnalyzerAmbientContext.HasModifier(method, Modifiers.Async) {
-                return InvokeFunctionAsync(method, arguments, null, depth)
+                return InvokeAsyncFunctionValue(method, arguments, null, depth)
             }
             return InvokeFunction(method, arguments, null, depth)
         }
@@ -501,14 +504,35 @@ internal sealed class PlaygroundRunner {
         return CallClrLikeMember(target, member.MemberName, arguments)
     }
 
-    async func AwaitTaskValue(value: object?): Task<object?> {
+    private func InvokeAsyncFunctionValue(function: FunctionDeclaration, arguments: IReadOnlyList<object?>, receiver: RuntimeObject?, depth: int): object {
+        task := InvokeFunctionAsync(function, arguments, receiver, depth)
+        return WrapAsyncFunctionTaskValue(function.ReturnType, task)
+    }
+
+    private static func WrapAsyncFunctionTaskValue(returnType: TypeReference?, task: Task<object?>): object {
+        generic := returnType as GenericTypeReference
+        if generic != null && TaskLikeTypeFacts.IsValueTaskName(generic.Name) {
+            return new ValueTask<object?>(task)
+        }
+        simple := returnType as SimpleTypeReference
+        if simple != null && TaskLikeTypeFacts.IsValueTaskName(simple.Name) {
+            return new ValueTask(task)
+        }
+        return task
+    }
+
+    async func AwaitTaskValue(value: object?, awaitNode: AwaitExpression? = null, semanticModel: SemanticModel? = null): Task<object?> {
         if value == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand without a task value"))
         }
 
         runtimeObject := value as RuntimeObject
         if runtimeObject != null {
-            return await AwaitSourceAwaitable(runtimeObject)
+            sourceBinding := AwaitablePatternAt(semanticModel, awaitNode)
+            if sourceBinding == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await has no shared source awaitable binding"))
+            }
+            return await AwaitSourceAwaitable(runtimeObject, sourceBinding)
         }
 
         awaitableType := value.GetType()
@@ -518,25 +542,90 @@ internal sealed class PlaygroundRunner {
             await Task.Yield()
             return null
         }
-        pattern: AwaitablePatternBinding? = null
-        if !AwaitablePatternBinder.TryBindReflection(awaitableType, out pattern) || pattern == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand has no accessible C# awaitable pattern"))
+        if semanticModel == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await has no semantic model"))
         }
+        if awaitNode == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await has no source node"))
+        }
+        semanticBinding := AwaitablePatternAt(semanticModel, awaitNode)
+        if semanticBinding == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await has no shared awaitable binding"))
+        }
+        if semanticBinding.ReflectedAwaiter == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared awaitable binding has no reflected awaiter pattern"))
+        }
+        pattern := semanticBinding.ReflectedAwaiter
         getAwaiter := pattern.GetAwaiter
+        if getAwaiter != null && !pattern.GetAwaiterIsExtension {
+            getAwaiter = SelectedRuntimeMethodFor(getAwaiter, value.GetType())
+        }
         isCompletedGetter := pattern.IsCompletedGetter
         if getAwaiter == null || isCompletedGetter == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand has no complete C# awaitable pattern"))
         }
         awaiter: object? = null
         try {
-            awaiter = getAwaiter.Invoke(value, null)
+            if pattern.GetAwaiterIsExtension {
+                extensionArguments := new object?[](1)
+                extensionArguments[0] = value
+                awaiter = getAwaiter.Invoke(null, extensionArguments)
+            } else {
+                awaiter = getAwaiter.Invoke(value, null)
+            }
         } catch invocationFailure: TargetInvocationException {
             RethrowInvocationFailure(invocationFailure)
         }
         if awaiter == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("GetAwaiter returned no awaiter"))
         }
+        return await AwaitReflectedAwaiter(awaiter, pattern)
+    }
 
+    private static func SelectedRuntimeMethodFor(selected: MethodInfo?, runtimeOwner: Type): MethodInfo? {
+        if selected == null || runtimeOwner == null {
+            return null
+        }
+        selectedOwner := selected.DeclaringType
+        if selectedOwner == null || selectedOwner.IsInterface {
+            return selected
+        }
+        for candidate in runtimeOwner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
+            if candidate.MetadataToken == selected.MetadataToken {
+                return candidate
+            }
+        }
+        // Reference assemblies and runtime assemblies can assign different metadata tokens. The
+        // shared binder already selected this exact member; map its declaring type and signature
+        // to the execution assembly without running overload resolution again.
+        selectedOwnerName := RuntimeTypeDefinitionName(selectedOwner)
+        for candidate in runtimeOwner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
+            candidateOwnerName := RuntimeTypeDefinitionName(candidate.DeclaringType)
+            if candidateOwnerName == selectedOwnerName && candidate.Name == selected.Name && candidate.IsGenericMethod == selected.IsGenericMethod && candidate.GetGenericArguments().Length == selected.GetGenericArguments().Length && candidate.GetParameters().Length == selected.GetParameters().Length {
+                return candidate
+            }
+        }
+        return selected
+    }
+
+    private static func RuntimeTypeDefinitionName(type: Type?): string? {
+        if type == null {
+            return null
+        }
+        if type.IsGenericType {
+            definition := type.GetGenericTypeDefinition()
+            return definition.FullName
+        }
+        return type.FullName
+    }
+
+    private async func AwaitReflectedAwaiter(awaiter: object, pattern: AwaitablePatternBinding): Task<object?> {
+        isCompletedGetter := SelectedRuntimeMethodFor(pattern.IsCompletedGetter, awaiter.GetType())
+        getResult := SelectedRuntimeMethodFor(pattern.GetResult, awaiter.GetType())
+        completionSlot := pattern.CompletionSlot
+        if isCompletedGetter == null || getResult == null || completionSlot == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected awaiter members do not match the runtime awaiter"))
+        }
         isCompleted := Convert.ToBoolean(isCompletedGetter.Invoke(awaiter, null))
         if !isCompleted {
             completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
@@ -544,44 +633,55 @@ internal sealed class PlaygroundRunner {
             callbackArguments := new object?[](1)
             callbackArguments[0] = continuation
             try {
-                pattern.CompletionSlot.Invoke(awaiter, callbackArguments)
+                completionSlot.Invoke(awaiter, callbackArguments)
             } catch invocationFailure: TargetInvocationException {
                 RethrowInvocationFailure(invocationFailure)
             }
             await completion.Task
         }
         try {
-            return pattern.GetResult.Invoke(awaiter, null)
+            return getResult.Invoke(awaiter, null)
         } catch invocationFailure: TargetInvocationException {
             RethrowInvocationFailure(invocationFailure)
         }
         return null
     }
 
-    private async func AwaitSourceAwaitable(value: RuntimeObject): Task<object?> {
-        getAwaiter := AwaitablePatternBinder.SelectSourceMethod(value.Declaration, "GetAwaiter", 0)
-        if getAwaiter == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand has no GetAwaiter method"))
+    private static func AwaitablePatternAt(semanticModel: SemanticModel?, awaitNode: AwaitExpression?): AnalyzerAwaitablePatternBinding? {
+        if semanticModel == null || awaitNode == null {
+            return null
         }
-        awaiterValue := InvokeFunction(getAwaiter, new object?[](0), value, 0)
+        selected: AnalyzerAwaitablePatternBinding? = null
+        if semanticModel.AwaitablePatterns.TryGetValue((Line: awaitNode.Line, Column: awaitNode.Column), out selected) {
+            return selected
+        }
+        return null
+    }
+
+    private async func AwaitSourceAwaitable(value: RuntimeObject, pattern: AnalyzerAwaitablePatternBinding): Task<object?> {
+        getAwaiter := pattern.GetAwaiterDeclaration
+        if getAwaiter == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared source awaitable binding has no GetAwaiter declaration"))
+        }
+        awaiterValue: object? = null
+        if pattern.GetAwaiterIsExtension {
+            arguments := new object?[](1)
+            arguments[0] = value
+            awaiterValue = InvokeFunction(getAwaiter, arguments, null, 0)
+        } else {
+            awaiterValue = InvokeFunction(getAwaiter, new object?[](0), value, 0)
+        }
         awaiter := awaiterValue as RuntimeObject
         if awaiter == null {
-            return await AwaitTaskValue(awaiterValue)
+            reflectedPattern := pattern.ReflectedAwaiter
+            if reflectedPattern == null || awaiterValue == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared source awaitable binding has no reflected awaiter pattern"))
+            }
+            return await AwaitReflectedAwaiter(awaiterValue, reflectedPattern)
         }
-        semanticModel: SemanticModel? = null
-        sourcePattern: SourceAwaiterPatternBinding? = null
-        if awaiter.Declaration == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter has no source declaration"))
-        }
-        if !semanticModelsByDeclaration.TryGetValue(awaiter.Declaration, out semanticModel) || semanticModel == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter has no bound source semantic model"))
-        }
-        failureReason: string = ""
-        if !AwaitablePatternBinder.TryBindSourceAwaiter(awaiter.Declaration, semanticModel, out sourcePattern, out failureReason) {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression(failureReason))
-        }
+        sourcePattern := pattern.SourceAwaiter
         if sourcePattern == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter pattern binding returned no result"))
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared source awaitable binding has no source awaiter pattern"))
         }
         isCompletedValue := ReadRuntimeProperty(awaiter, sourcePattern.IsCompleted, 0)
         if !Convert.ToBoolean(isCompletedValue) {
@@ -642,6 +742,10 @@ internal sealed class PlaygroundRunner {
             parentEnvironment = receiver.Environment
         }
         environment := new RuntimeEnvironment(parentEnvironment)
+        semanticModel: SemanticModel? = null
+        if semanticModelsByDeclaration.TryGetValue(function, out semanticModel) {
+            environment.SetSemanticModel(semanticModel)
+        }
         if receiver != null {
             environment.Declare(PlaygroundRunFacts.ReceiverBindingName(), receiver)
         }
@@ -1830,10 +1934,16 @@ internal sealed class PlaygroundRunner {
     private sealed class RuntimeEnvironment {
         private parent: RuntimeEnvironment?
         private values: Dictionary<string, object?>
+        SemanticModel: SemanticModel?
 
         constructor(parentEnvironment: RuntimeEnvironment?) {
             parent = parentEnvironment
             values = new Dictionary<string, object?>(StringComparer.Ordinal)
+            SemanticModel = parentEnvironment == null ? null : parentEnvironment.SemanticModel
+        }
+
+        func SetSemanticModel(model: SemanticModel) {
+            SemanticModel = model
         }
 
         func Declare(name: string, value: object?) {

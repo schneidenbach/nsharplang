@@ -100,6 +100,10 @@ class ColumnarGenericMethodFacts {
 // would otherwise surface to C# as Item1/Item2/Item3.
 class ColumnarInstanceMethodDef {
     Builder: MethodBuilder
+    SourceFileId: int
+    SourceFilePath: string?
+    SourceLine: int
+    SourceColumn: int
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
@@ -130,6 +134,10 @@ class ColumnarInstanceMethodDef {
         }
 
         Builder = builder
+        SourceFileId = -1
+        SourceFilePath = null
+        SourceLine = 0
+        SourceColumn = 0
         ParamTypes = paramTypes
         ParamModifierKinds = new int[](0)
         ReturnType = returnType
@@ -152,6 +160,10 @@ class ColumnarInstanceMethodDef {
         }
 
         Builder = builder
+        SourceFileId = -1
+        SourceFilePath = null
+        SourceLine = 0
+        SourceColumn = 0
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
@@ -180,6 +192,10 @@ class ColumnarInstanceMethodDef {
 
 class ColumnarStaticMethodDef {
     Builder: MethodBuilder
+    SourceFileId: int
+    SourceFilePath: string?
+    SourceLine: int
+    SourceColumn: int
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
@@ -202,6 +218,10 @@ class ColumnarStaticMethodDef {
 
     constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnLabeledCanonical: string? = null) {
         Builder = builder
+        SourceFileId = -1
+        SourceFilePath = null
+        SourceLine = 0
+        SourceColumn = 0
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType

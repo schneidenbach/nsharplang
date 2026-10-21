@@ -60,8 +60,15 @@ class AnalyzerAwaitablePatternBinding {
     GetResult: AnalyzerMemberSelection?
     ReflectedAwaiter: AwaitablePatternBinding?
     GetAwaiterExtension: TypeInfo?
+    GetAwaiterFunction: FunctionTypeInfo?
+    GetAwaiterMethod: MethodInfo?
+    GetAwaiterIsExtension: bool
+    GetAwaiterTypeArguments: TypeInfo[]
+    GetAwaiterDeclaration: FunctionDeclaration?
+    SourceAwaiter: SourceAwaiterPatternBinding?
+    SourceAwaiterTypeName: string?
 
-    constructor(awaitableType: TypeInfo, awaiterType: TypeInfo, resultType: TypeInfo, getAwaiter: AnalyzerMemberSelection?, isCompleted: AnalyzerMemberSelection?, getResult: AnalyzerMemberSelection?, reflectedAwaiter: AwaitablePatternBinding?, getAwaiterExtension: TypeInfo? = null) {
+    constructor(awaitableType: TypeInfo, awaiterType: TypeInfo, resultType: TypeInfo, getAwaiter: AnalyzerMemberSelection?, isCompleted: AnalyzerMemberSelection?, getResult: AnalyzerMemberSelection?, reflectedAwaiter: AwaitablePatternBinding?, getAwaiterExtension: TypeInfo? = null, getAwaiterFunction: FunctionTypeInfo? = null, getAwaiterMethod: MethodInfo? = null, getAwaiterIsExtension: bool = false, sourceAwaiter: SourceAwaiterPatternBinding? = null, sourceAwaiterTypeName: string? = null, getAwaiterTypeArguments: TypeInfo[]? = null) {
         AwaitableType = awaitableType
         AwaiterType = awaiterType
         ResultType = resultType
@@ -70,6 +77,13 @@ class AnalyzerAwaitablePatternBinding {
         GetResult = getResult
         ReflectedAwaiter = reflectedAwaiter
         GetAwaiterExtension = getAwaiterExtension
+        GetAwaiterFunction = getAwaiterFunction
+        GetAwaiterMethod = getAwaiterMethod
+        GetAwaiterIsExtension = getAwaiterIsExtension
+        GetAwaiterTypeArguments = getAwaiterTypeArguments ?? new TypeInfo[](0)
+        GetAwaiterDeclaration = getAwaiterFunction == null ? null : getAwaiterFunction.SourceDeclaration
+        SourceAwaiter = sourceAwaiter
+        SourceAwaiterTypeName = sourceAwaiterTypeName
     }
 }
 
@@ -134,7 +148,7 @@ class AwaitablePatternBinder {
     // selected extension plus the same reflected awaiter members used by ordinary instance patterns.
     static func TryBindReflectionGetAwaiterExtension(awaitableType: Type, method: MethodInfo, out binding: AwaitablePatternBinding?): bool {
         binding = null
-        if awaitableType == null || method == null || method.IsGenericMethod || !method.IsStatic || !HasExtensionAttribute(method) || method.GetParameters().Length != 1 || method.ReturnType == typeof(void) {
+        if awaitableType == null || method == null || (method.IsGenericMethod && method.ContainsGenericParameters) || !method.IsStatic || !HasExtensionAttribute(method) || method.GetParameters().Length != 1 || method.ReturnType == typeof(void) {
             return false
         }
         if !method.GetParameters()[0].ParameterType.IsAssignableFrom(awaitableType) {
@@ -276,185 +290,368 @@ class AwaitablePatternBinder {
     // the analyzer's one source-symbol entry point: owner-specific member enumeration supplies live
     // semantic declarations, while this binder owns candidate viability, accessibility, generic
     // arity, the IsCompleted/GetResult pair and the required completion interface.
-    static func TryBindAnalyzerSourceAwaitable(awaitableType: TypeInfo, declarations: AnalyzerDeclarationContext, accessingTypeName: string?, out binding: AnalyzerAwaitablePatternBinding?): bool {
+    // The analyzer-facing entry for reflected, source and extension awaitables. Task families may
+    // be recognized by their language type owner before this call; every remaining pattern reaches
+    // this binder and receives one selected GetAwaiter plus its already-bound awaiter members.
+    static func TryBindAnalyzerAwaitable(awaitableType: TypeInfo, declarations: AnalyzerDeclarationContext, semanticModel: SemanticModel?, memberResolution: AnalyzerMemberResolution?, extensions: AnalyzerExtensionMethodResolution?, sourceOverloads: AnalyzerSyntheticCallWalk?, sourceValidator: AnalyzerSyntheticCallValidator?, reflectionArguments: AnalyzerReflectionArgumentBinder?, clrConversion: AnalyzerClrTypeConversion?, accessingTypeName: string?, out binding: AnalyzerAwaitablePatternBinding?): bool {
         binding = null
-        if awaitableType == null || declarations == null || IsNullableValueType(awaitableType) {
+        if awaitableType == null || declarations == null || semanticModel == null || memberResolution == null || sourceOverloads == null || sourceValidator == null || reflectionArguments == null || clrConversion == null || IsNullableValueType(awaitableType) {
             return false
         }
 
-        owner := awaitableType
-        substitution := AnalyzerSourceAwaitSubstitution(owner)
+        reflectedAwaitableType := TryConstructReflectedAwaitableType(awaitableType, clrConversion)
+        lookupType := awaitableType
+        reflectionReceiverType := reflectedAwaitableType
+        if reflectedAwaitableType != null {
+            lookupType = new ReflectionTypeInfo(
+                reflectedAwaitableType.IsGenericType && !reflectedAwaitableType.IsGenericTypeDefinition
+                    ? reflectedAwaitableType.GetGenericTypeDefinition()
+                    : reflectedAwaitableType
+            )
+        } else {
+            genericAwaitable := awaitableType as GenericTypeInfo
+            reflectedDefinition := genericAwaitable == null ? null : genericAwaitable.GenericDefinition as ReflectionTypeInfo
+            if reflectedDefinition != null {
+                lookupType = reflectedDefinition
+                reflectionReceiverType = reflectedDefinition.Type
+            }
+        }
+
+        invocation := AwaiterInvocation(awaitableType)
+        selectedMember := memberResolution.ResolveMember(lookupType, "GetAwaiter", false, accessingTypeName, true)
+        selectedFunction: FunctionTypeInfo? = null
+        selectedMethod: MethodInfo? = null
+        isExtension := false
+
+        sourceCandidates := AwaiterSourceCandidates(selectedMember)
+        if sourceCandidates != null {
+            selectedFunction = sourceOverloads.BindNSharpCall(sourceCandidates, invocation, new List<TypeInfo>(), awaitableType)
+            if selectedFunction != null && !selectedFunction.SourceHasReceiverParameter && selectedFunction.TypeParameters != null && selectedFunction.TypeParameters.Count != 0 {
+                selectedFunction = null
+            }
+            if selectedFunction != null {
+                isExtension = selectedFunction.SourceHasReceiverParameter
+            }
+        } else {
+            reflectedCandidates := AwaiterReflectionCandidates(selectedMember)
+            receiverClrType := reflectionReceiverType
+            if receiverClrType != null {
+                best: ReflectionPreBoundCandidate? = null
+                for method in reflectedCandidates {
+                    if method.IsStatic || method.IsGenericMethod {
+                        continue
+                    }
+                    candidate := reflectionArguments.PreBindReflectionMethod(method, invocation, receiverClrType, awaitableType, new TypeInfo?[](0))
+                    if candidate != null && (best == null || candidate.Score > best.Score) {
+                        best = candidate
+                    }
+                }
+                if best != null {
+                    selectedMethod = best.RuntimeMethod
+                    isExtension = AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(best.SignatureMethod, invocation, receiverClrType)
+                    selectedResult := AnalyzerReflectionSelectedReturnType(best)
+                    if !TryBindAnalyzerSelectedAwaiter(awaitableType, selectedResult, declarations, semanticModel, accessingTypeName, null, selectedMethod, isExtension, clrConversion, new TypeInfo[](0), out binding) {
+                        return false
+                    }
+                    return binding != null
+                }
+            }
+        }
+
+        if selectedFunction != null {
+            selectedResult := sourceValidator.ResolveReturnType(selectedFunction, invocation, new List<TypeInfo>(), awaitableType)
+            typeArguments := isExtension ? AnalyzerSelectedGenericTypeArguments(selectedFunction, invocation, awaitableType, sourceOverloads) : new TypeInfo[](0)
+            return TryBindAnalyzerSelectedAwaiter(awaitableType, selectedResult, declarations, semanticModel, accessingTypeName, selectedFunction, null, isExtension, clrConversion, typeArguments, out binding)
+        }
+
+        // `ResolveMember` returns the instance method group first. If that group has no applicable
+        // zero-argument member, C# proceeds to extension lookup; if an instance call did bind, its
+        // result is validated above and an invalid awaiter never falls back here.
+        hasInstanceMember := AwaiterHasApplicableInstanceCandidate(selectedMember, invocation, awaitableType, sourceOverloads, reflectionArguments, clrConversion)
+        if hasInstanceMember || extensions == null {
+            return false
+        }
+        getAwaiterExtension := extensions.TryResolveExtensionMethod(awaitableType, "GetAwaiter", accessingTypeName)
+        extensionFunctionCandidates := AwaiterSourceCandidates(getAwaiterExtension)
+        if extensionFunctionCandidates != null {
+            selectedFunction = sourceOverloads.BindNSharpCall(extensionFunctionCandidates, invocation, new List<TypeInfo>(), awaitableType)
+            if selectedFunction == null {
+                return false
+            }
+            selectedResult := sourceValidator.ResolveReturnType(selectedFunction, invocation, new List<TypeInfo>(), awaitableType)
+            typeArguments := AnalyzerSelectedGenericTypeArguments(selectedFunction, invocation, awaitableType, sourceOverloads)
+            return TryBindAnalyzerSelectedAwaiter(awaitableType, selectedResult, declarations, semanticModel, accessingTypeName, selectedFunction, null, true, clrConversion, typeArguments, out binding)
+        }
+
+        receiverClrType := ReflectionReceiverTypeForBinding(awaitableType, clrConversion)
+        if receiverClrType == null {
+            return false
+        }
+        extensionCandidates := AwaiterReflectionCandidates(getAwaiterExtension)
+        bestExtension: ReflectionPreBoundCandidate? = null
+        for method in extensionCandidates {
+            candidate := reflectionArguments.PreBindReflectionMethod(method, invocation, receiverClrType, awaitableType, new TypeInfo?[](0))
+            if candidate != null && (bestExtension == null || candidate.Score > bestExtension.Score) {
+                bestExtension = candidate
+            }
+        }
+        if bestExtension == null {
+            return false
+        }
+        selectedMethod = bestExtension.RuntimeMethod
+        isExtension = true
+        selectedResult := AnalyzerReflectionSelectedReturnType(bestExtension)
+        return TryBindAnalyzerSelectedAwaiter(awaitableType, selectedResult, declarations, semanticModel, accessingTypeName, null, selectedMethod, isExtension, clrConversion, new TypeInfo[](0), out binding)
+    }
+
+    static func AnalyzerReflectionSelectedReturnType(candidate: ReflectionPreBoundCandidate): TypeInfo {
+        if candidate == null {
+            return BuiltInTypes.Unknown
+        }
+        // Prebinding may use an object-shaped CLR surrogate for source generic arguments. The
+        // selected call's TypeInfo bindings carry the real receiver inference and must be applied
+        // to the open signature before accepting the runtime handle's return type.
+        return AnalyzerReflectionTypeConversion.ConvertReturnWithOverrides(candidate.SignatureMethod, candidate.TypeInfoBindings, candidate.Bindings)
+    }
+
+    static func AnalyzerSelectedGenericTypeArguments(function: FunctionTypeInfo, call: CallExpression, receiverType: TypeInfo, sourceOverloads: AnalyzerSyntheticCallWalk): TypeInfo[] {
+        parameters: List<TypeParameter>? = function == null ? null : function.TypeParameters
+        if parameters == null || parameters.Count == 0 {
+            return new TypeInfo[](0)
+        }
+        inferred := sourceOverloads.InferGenericBindings(function, call, new List<TypeInfo>(), receiverType)
+        if inferred == null {
+            return new TypeInfo[](0)
+        }
+        parameterCount: int = parameters.Count
+        arguments := new TypeInfo[parameterCount]
+        index := 0
+        while index < parameterCount {
+            value: TypeInfo = BuiltInTypes.Unknown
+            if !inferred.TryGetValue(parameters[index].Name, out value) || value == null || BuiltInTypes.IsUnknown(value) {
+                return new TypeInfo[](0)
+            }
+            arguments[index] = value
+            index += 1
+        }
+        return arguments
+    }
+
+    static func TryConstructReflectedAwaitableType(awaitableType: TypeInfo, clrConversion: AnalyzerClrTypeConversion): Type? {
+        exact := clrConversion.TryConvertTypeInfoToClrType(awaitableType)
+        if exact != null {
+            return exact
+        }
+        constructed := awaitableType as GenericTypeInfo
+        definition := constructed == null ? null : constructed.GenericDefinition as ReflectionTypeInfo
+        if constructed == null || definition == null {
+            return null
+        }
+        parameters: Type[] = definition.Type.GetGenericArguments()
+        parameterCount: int = parameters.Length
+        if parameterCount != constructed.TypeArguments.Count {
+            return null
+        }
+        arguments := new Type[parameterCount]
+        index := 0
+        while index < parameterCount {
+            argument := clrConversion.TryConvertTypeInfoToClrType(constructed.TypeArguments[index])
+            if argument == null {
+                return null
+            }
+            arguments[index] = argument
+            index += 1
+        }
+        try {
+            return definition.Type.MakeGenericType(arguments)
+        } catch failure: ArgumentException {
+            // The source resolver has already checked generic constraints; a reconstruction failure
+            // only means this reflected member path cannot provide a CLR handle.
+            return null
+        }
+    }
+
+    static func AwaiterInvocation(awaitableType: TypeInfo): CallExpression {
+        receiver: Expression = new IdentifierExpression("awaitable", 1, 1)
+        callee: Expression = new MemberAccessExpression(receiver, "GetAwaiter", false, 1, 1)
+        return new CallExpression(callee, new List<Argument>(), null, 1, 1)
+    }
+
+    static func AwaiterSourceCandidates(candidate: TypeInfo): IReadOnlyList<FunctionTypeInfo>? {
+        function := candidate as FunctionTypeInfo
+        if function != null {
+            functions := new List<FunctionTypeInfo>()
+            functions.Add(function)
+            return functions
+        }
+        group := candidate as NSharpMethodGroupInfo
+        if group != null {
+            return NSharpMethodGroupInfoFactory.GetFunctions(group)
+        }
+        return null
+    }
+
+    static func AwaiterReflectionCandidates(candidate: TypeInfo): MethodInfo[] {
+        method := candidate as ReflectionMethodInfo
+        if method != null {
+            return [method.Method]
+        }
+        group := candidate as ReflectionMethodGroupInfo
+        if group != null {
+            return group.Methods
+        }
+        return new MethodInfo[](0)
+    }
+
+    static func AwaiterHasApplicableInstanceCandidate(candidate: TypeInfo, call: CallExpression, receiver: TypeInfo, sourceOverloads: AnalyzerSyntheticCallWalk, reflectionArguments: AnalyzerReflectionArgumentBinder, clrConversion: AnalyzerClrTypeConversion): bool {
+        sourceCandidates := AwaiterSourceCandidates(candidate)
+        if sourceCandidates != null {
+            for function in sourceCandidates {
+                candidates := new List<FunctionTypeInfo>()
+                candidates.Add(function)
+                if !function.SourceHasReceiverParameter && (function.TypeParameters == null || function.TypeParameters.Count == 0) && sourceOverloads.BindNSharpCall(candidates, call, new List<TypeInfo>(), receiver) != null {
+                    return true
+                }
+            }
+        }
+        receiverClrType := ReflectionReceiverTypeForBinding(receiver, clrConversion)
+        if receiverClrType != null {
+            for method in AwaiterReflectionCandidates(candidate) {
+                if method.IsStatic || method.IsGenericMethod || reflectionArguments.PreBindReflectionMethod(method, call, receiverClrType, receiver, new TypeInfo?[](0)) == null {
+                    continue
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    static func ReflectionReceiverTypeForBinding(receiver: TypeInfo, clrConversion: AnalyzerClrTypeConversion): Type? {
+        receiverClrType := clrConversion.TryConvertTypeInfoToClrType(receiver)
+        if receiverClrType != null {
+            return receiverClrType
+        }
+        receiverClrType = clrConversion.TryConvertTypeInfoToClrTypeForBinding(receiver)
+        if receiverClrType != null {
+            return receiverClrType
+        }
+        constructed := receiver as GenericTypeInfo
+        definition := constructed == null ? null : constructed.GenericDefinition as ReflectionTypeInfo
+        return definition == null ? null : definition.Type
+    }
+
+    static func TryBindAnalyzerSelectedAwaiter(awaitableType: TypeInfo, awaiterType: TypeInfo, declarations: AnalyzerDeclarationContext, semanticModel: SemanticModel, accessingTypeName: string?, selectedFunction: FunctionTypeInfo?, selectedMethod: MethodInfo?, isExtension: bool, clrConversion: AnalyzerClrTypeConversion, getAwaiterTypeArguments: TypeInfo[], out binding: AnalyzerAwaitablePatternBinding?): bool {
+        binding = null
+        if awaiterType == null || BuiltInTypes.IsUnknown(awaiterType) || awaiterType == BuiltInTypes.Void {
+            return false
+        }
+        // A reflected generic invocation has a closed result in the semantic call result even
+        // while the selected MethodInfo still names its open declaring signature. Bind the exact
+        // closed result so ConfigureAwait and other constructed awaiter shapes retain their type
+        // arguments through the same selected invocation.
+        runtimeAwaiterType := clrConversion.TryConvertTypeInfoToClrType(awaiterType)
+        if runtimeAwaiterType == null {
+            runtimeAwaiterType = clrConversion.TryConvertTypeInfoToClrTypeForBinding(awaiterType)
+        }
+        if runtimeAwaiterType != null {
+            closedReflectedAwaiter: AwaitablePatternBinding? = null
+            reflectedAwaiterBound := TryBindReflectionAwaiter(runtimeAwaiterType, out closedReflectedAwaiter)
+            if reflectedAwaiterBound && closedReflectedAwaiter != null {
+                resultType: TypeInfo = BuiltInTypes.Unknown
+                if !AnalyzerAwaitResultType(closedReflectedAwaiter.GetResult.ReturnType, out resultType) {
+                    return false
+                }
+                runtimeAwaitableType := clrConversion.TryConvertTypeInfoToClrType(awaitableType)
+                if runtimeAwaitableType == null {
+                    runtimeAwaitableType = clrConversion.TryConvertTypeInfoToClrTypeForBinding(awaitableType)
+                }
+                if runtimeAwaitableType == null {
+                    return false
+                }
+                getAwaiterMethod := selectedMethod
+                if getAwaiterMethod == null && selectedFunction != null && !isExtension {
+                    getAwaiterMethod = null
+                }
+                completePattern := new AwaitablePatternBinding(runtimeAwaitableType, runtimeAwaiterType, getAwaiterMethod, closedReflectedAwaiter.IsCompletedGetter, closedReflectedAwaiter.GetResult, closedReflectedAwaiter.CompletionSlot, closedReflectedAwaiter.IsCritical, isExtension)
+                binding = new AnalyzerAwaitablePatternBinding(awaitableType, AnalyzerReflectionTypeConversion.ConvertReflectionType(runtimeAwaiterType), resultType, null, null, null, completePattern, null, selectedFunction, selectedMethod, isExtension)
+                if selectedFunction != null {
+                    binding.GetAwaiterDeclaration = selectedFunction.SourceDeclaration
+                }
+                return true
+            }
+        }
+        if selectedMethod != null && selectedMethod.ReturnType != null && !selectedMethod.ReturnType.ContainsGenericParameters {
+            selectedRuntimeAwaiterType := selectedMethod.ReturnType
+            reflectedAwaiterPattern: AwaitablePatternBinding? = null
+            if TryBindReflectionAwaiter(selectedRuntimeAwaiterType, out reflectedAwaiterPattern) && reflectedAwaiterPattern != null {
+                resultType: TypeInfo = BuiltInTypes.Unknown
+                if !AnalyzerAwaitResultType(reflectedAwaiterPattern.GetResult.ReturnType, out resultType) {
+                    return false
+                }
+                selectedRuntimeAwaitableType := selectedMethod.DeclaringType
+                if isExtension {
+                    parameters := selectedMethod.GetParameters()
+                    selectedRuntimeAwaitableType = parameters.Length == 0 ? null : parameters[0].ParameterType
+                }
+                if selectedRuntimeAwaitableType == null {
+                    return false
+                }
+                completePattern := new AwaitablePatternBinding(selectedRuntimeAwaitableType, selectedRuntimeAwaiterType, selectedMethod, reflectedAwaiterPattern.IsCompletedGetter, reflectedAwaiterPattern.GetResult, reflectedAwaiterPattern.CompletionSlot, reflectedAwaiterPattern.IsCritical, isExtension)
+                binding = new AnalyzerAwaitablePatternBinding(awaitableType, new ReflectionTypeInfo(selectedRuntimeAwaiterType), resultType, null, null, null, completePattern, null, null, selectedMethod, isExtension)
+                return true
+            }
+        }
+        resultType: TypeInfo = BuiltInTypes.Unknown
+        isCompleted: AnalyzerMemberSelection? = null
+        getResult: AnalyzerMemberSelection? = null
+        reflectedAwaiter: AwaitablePatternBinding? = null
+        sourceAwaiterBound := TryBindAnalyzerSourceAwaiter(awaiterType, declarations, accessingTypeName, out resultType, out isCompleted, out getResult, out reflectedAwaiter)
+        if !sourceAwaiterBound {
+            return false
+        }
+        sourceAwaiter: SourceAwaiterPatternBinding? = null
+        sourceAwaiterOwner := declarations.ResolveDeclaredAlias(awaiterType)
+        constructedSourceAwaiter := sourceAwaiterOwner as GenericTypeInfo
+        if constructedSourceAwaiter != null && constructedSourceAwaiter.GenericDefinition != null && declarations.ContainsSourceType(constructedSourceAwaiter.GenericDefinition) {
+            sourceAwaiterOwner = constructedSourceAwaiter.GenericDefinition
+        }
+        sourceDeclaration := declarations.FindDeclarationForType(sourceAwaiterOwner) as Declaration
+        if sourceDeclaration != null {
+            failureReason: string = ""
+            TryBindSourceAwaiter(sourceDeclaration, semanticModel, out sourceAwaiter, out failureReason)
+        }
+        sourceAwaiterTypeName := SourceAwaiterCanonicalName(sourceAwaiterOwner, declarations)
+        selectedExtension: TypeInfo? = null
+        if isExtension {
+            if selectedFunction != null {
+                selectedExtension = selectedFunction
+            } else if selectedMethod != null {
+                selectedExtension = new ReflectionMethodInfo(selectedMethod)
+            }
+        }
+        binding = new AnalyzerAwaitablePatternBinding(awaitableType, awaiterType, resultType, null, isCompleted, getResult, reflectedAwaiter, selectedExtension, selectedFunction, selectedMethod, isExtension, sourceAwaiter, sourceAwaiterTypeName, getAwaiterTypeArguments)
+        return true
+    }
+
+    static func SourceAwaiterCanonicalName(awaiterType: TypeInfo, declarations: AnalyzerDeclarationContext): string? {
+        if awaiterType == null || declarations == null {
+            return null
+        }
+        owner := declarations.ResolveDeclaredAlias(awaiterType)
         constructed := owner as GenericTypeInfo
         if constructed != null && constructed.GenericDefinition != null && declarations.ContainsSourceType(constructed.GenericDefinition) {
             owner = constructed.GenericDefinition
         }
         if !declarations.ContainsSourceType(owner) {
-            return false
+            return null
         }
-
-        getAwaiter := new AnalyzerMemberSelection()
-        if !TrySelectAnalyzerSourceMethod(owner, "GetAwaiter", declarations, accessingTypeName, out getAwaiter) || getAwaiter.Member == null || getAwaiter.Member.ReturnType == null {
-            return false
+        name := TypeArityNames.Key(AnalyzerDeclarationContext.TypeName(owner), AnalyzerDeclarationContext.GenericHeadArity(owner))
+        filePath := declarations.GetDeclarationFile(owner)
+        namespaceName := declarations.GetNamespaceForFile(filePath)
+        if namespaceName != null && namespaceName.Length > 0 {
+            return namespaceName + "." + name
         }
-
-        awaiterType: TypeInfo = BuiltInTypes.Unknown
-        if !declarations.TryResolveTypeForOwner(getAwaiter.Member.ReturnType, getAwaiter.Owner, substitution, out awaiterType) || BuiltInTypes.IsUnknown(awaiterType) {
-            return false
-        }
-
-        resultType: TypeInfo = BuiltInTypes.Unknown
-        isCompleted: AnalyzerMemberSelection? = null
-        getResult: AnalyzerMemberSelection? = null
-        reflectedAwaiter: AwaitablePatternBinding? = null
-        if !TryBindAnalyzerSourceAwaiter(awaiterType, declarations, accessingTypeName, out resultType, out isCompleted, out getResult, out reflectedAwaiter) {
-            return false
-        }
-        binding = new AnalyzerAwaitablePatternBinding(awaitableType, awaiterType, resultType, getAwaiter, isCompleted, getResult, reflectedAwaiter)
-        return true
-    }
-
-    // The analyzer-facing entry for reflected, source and extension awaitables. Task families may
-    // be recognized by their language type owner before this call; every remaining pattern reaches
-    // this binder and receives one selected GetAwaiter plus its already-bound awaiter members.
-    static func TryBindAnalyzerAwaitable(awaitableType: TypeInfo, declarations: AnalyzerDeclarationContext, extensions: AnalyzerExtensionMethodResolution?, accessingTypeName: string?, out binding: AnalyzerAwaitablePatternBinding?): bool {
-        binding = null
-        if awaitableType == null || declarations == null || IsNullableValueType(awaitableType) {
-            return false
-        }
-
-        reflected := awaitableType as ReflectionTypeInfo
-        if reflected != null {
-            reflectedPattern: AwaitablePatternBinding? = null
-            if TryBindReflection(reflected.Type, out reflectedPattern) && reflectedPattern != null {
-                resultType: TypeInfo = BuiltInTypes.Unknown
-                if !AnalyzerAwaitResultType(reflectedPattern.GetResult.ReturnType, out resultType) {
-                    return false
-                }
-                binding = new AnalyzerAwaitablePatternBinding(awaitableType, new ReflectionTypeInfo(reflectedPattern.AwaiterType), resultType, null, null, null, reflectedPattern)
-                return true
-            }
-        }
-
-        constructed := awaitableType as GenericTypeInfo
-        if constructed != null {
-            definitionInfo := constructed.GenericDefinition as ReflectionTypeInfo
-            if definitionInfo != null {
-                reflectedPattern: AwaitablePatternBinding? = null
-                if TryBindReflection(definitionInfo.Type, out reflectedPattern) && reflectedPattern != null {
-                    resultType := AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-                        reflectedPattern.GetResult.ReturnType,
-                        AnalyzerReflectionTypeOverrides(definitionInfo.Type, constructed.TypeArguments),
-                        null
-                    )
-                    if BuiltInTypes.IsUnknown(resultType) {
-                        return false
-                    }
-                    binding = new AnalyzerAwaitablePatternBinding(awaitableType, new ReflectionTypeInfo(reflectedPattern.AwaiterType), resultType, null, null, null, reflectedPattern)
-                    return true
-                }
-            }
-        }
-
-        sourceBinding: AnalyzerAwaitablePatternBinding? = null
-        if TryBindAnalyzerSourceAwaitable(awaitableType, declarations, accessingTypeName, out sourceBinding) && sourceBinding != null {
-            binding = sourceBinding
-            return true
-        }
-
-        if extensions == null {
-            return false
-        }
-        getAwaiterExtension := extensions.TryResolveExtensionMethod(awaitableType, "GetAwaiter", accessingTypeName)
-        awaiterType: TypeInfo = BuiltInTypes.Unknown
-        selectedExtension: TypeInfo? = null
-        if !TrySelectAnalyzerGetAwaiterExtension(getAwaiterExtension, out selectedExtension, out awaiterType) || selectedExtension == null || BuiltInTypes.IsUnknown(awaiterType) {
-            return false
-        }
-
-        resultType: TypeInfo = BuiltInTypes.Unknown
-        isCompleted: AnalyzerMemberSelection? = null
-        getResult: AnalyzerMemberSelection? = null
-        reflectedAwaiter: AwaitablePatternBinding? = null
-        if !TryBindAnalyzerSourceAwaiter(awaiterType, declarations, accessingTypeName, out resultType, out isCompleted, out getResult, out reflectedAwaiter) {
-            return false
-        }
-        binding = new AnalyzerAwaitablePatternBinding(awaitableType, awaiterType, resultType, null, isCompleted, getResult, reflectedAwaiter, selectedExtension)
-        return true
-    }
-
-    static func TrySelectAnalyzerGetAwaiterExtension(candidate: TypeInfo, out selected: TypeInfo?, out returnType: TypeInfo): bool {
-        selected = null
-        returnType = BuiltInTypes.Unknown
-        function := candidate as FunctionTypeInfo
-        if function != null {
-            if !IsAnalyzerExtensionGetAwaiter(function) || function.ReturnType == null {
-                return false
-            }
-            selected = function
-            returnType = function.ReturnType
-            return true
-        }
-
-        sourceGroup := candidate as NSharpMethodGroupInfo
-        if sourceGroup != null {
-            index := 0
-            while index < sourceGroup.Functions.Count {
-                functionCandidate := sourceGroup.Functions[index]
-                if !IsAnalyzerExtensionGetAwaiter(functionCandidate) || functionCandidate.ReturnType == null {
-                    index += 1
-                    continue
-                }
-                if selected != null {
-                    selected = null
-                    returnType = BuiltInTypes.Unknown
-                    return false
-                }
-                selected = functionCandidate
-                returnType = functionCandidate.ReturnType
-                index += 1
-            }
-            return selected != null
-        }
-
-        reflectedMethod := candidate as ReflectionMethodInfo
-        if reflectedMethod != null {
-            return TrySelectReflectedGetAwaiterExtension([reflectedMethod.Method], out selected, out returnType)
-        }
-        reflectedGroup := candidate as ReflectionMethodGroupInfo
-        if reflectedGroup != null {
-            return TrySelectReflectedGetAwaiterExtension(reflectedGroup.Methods, out selected, out returnType)
-        }
-        return false
-    }
-
-    static func IsAnalyzerExtensionGetAwaiter(function: FunctionTypeInfo): bool {
-        if function == null || !function.SourceIsStatic || !function.SourceHasReceiverParameter || function.SourceParameterCount != 1 || function.ParameterTypes == null || function.ParameterTypes.Count != 1 || function.ReturnType == null {
-            return false
-        }
-        genericParameters := function.TypeParameters
-        if genericParameters != null && genericParameters.Count != 0 {
-            return false
-        }
-        requiredCount := function.RequiredParameterCount ?? function.SourceParameterCount
-        return requiredCount == 1 && !function.HasParamsParameter
-    }
-
-    static func TrySelectReflectedGetAwaiterExtension(methods: MethodInfo[], out selected: TypeInfo?, out returnType: TypeInfo): bool {
-        selected = null
-        returnType = BuiltInTypes.Unknown
-        for method in methods {
-            if method == null || !method.IsStatic || method.IsGenericMethod || method.GetParameters().Length != 1 || !HasExtensionAttribute(method) {
-                continue
-            }
-            if selected != null {
-                selected = null
-                returnType = BuiltInTypes.Unknown
-                return false
-            }
-            selected = new ReflectionMethodInfo(method)
-            returnType = AnalyzerReflectionTypeConversion.ConvertReflectionType(method.ReturnType)
-        }
-        return selected != null && !BuiltInTypes.IsUnknown(returnType)
+        return name
     }
 
     static func HasExtensionAttribute(method: MethodInfo): bool {
@@ -689,13 +886,9 @@ class AwaitablePatternBinder {
     }
 
     static func FindSourceInterfaceImplementation(owner: Declaration, members: List<Declaration>, semanticModel: SemanticModel, contractReference: TypeReference?, contractType: Type, methodName: string): FunctionDeclaration? {
-        implicitMethod := SelectSourceMethod(owner, methodName, 1)
-        if implicitMethod != null && IsPublicSourceFunction(implicitMethod) {
-            return implicitMethod
-        }
-        if contractReference == null {
-            return null
-        }
+        // Interface dispatch selects the explicit map entry even when the class also exposes a
+        // public method with the same spelling. Resolve that semantic qualifier first; a public
+        // overload is only the implicit implementation when there is no explicit slot mapping.
         for member in members {
             function := member as FunctionDeclaration
             if function == null || !ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) || function.Parameters.Count != 1 || (function.TypeParameters != null && function.TypeParameters.Count != 0) || ExplicitInterfaceMemberFacts.SimpleNameOf(function.Name) != methodName {
@@ -705,6 +898,11 @@ class AwaitablePatternBinder {
             if SourceQualifierResolvesTo(owner, semanticModel, qualifier, contractReference, contractType) {
                 return function
             }
+        }
+
+        implicitMethod := SelectSourceMethod(owner, methodName, 1)
+        if implicitMethod != null && IsPublicSourceFunction(implicitMethod) {
+            return implicitMethod
         }
         return null
     }
@@ -717,7 +915,7 @@ class AwaitablePatternBinder {
         }
         for reference in references {
             resolved: TypeInfo = null
-            if TryResolveSourceTypeReference(semanticModel, reference, out resolved) && TypeInfoImplementsCompletionInterface(resolved, expected) {
+            if TryResolveSourceTypeReference(semanticModel, reference, out resolved) && TypeInfoImplementsCompletionInterface(resolved, expected, semanticModel, 0) {
                 selectedReference = reference
                 return true
             }
@@ -746,7 +944,10 @@ class AwaitablePatternBinder {
         return semanticModel.TypesByIdentity.TryGetValue(TypeArityNames.Key(name, 0), out resolved) && resolved != null
     }
 
-    static func TypeInfoImplementsCompletionInterface(typeInfo: TypeInfo, expected: Type): bool {
+    static func TypeInfoImplementsCompletionInterface(typeInfo: TypeInfo, expected: Type, semanticModel: SemanticModel, depth: int): bool {
+        if typeInfo == null || semanticModel == null || depth > 32 {
+            return false
+        }
         reflected := typeInfo as ReflectionTypeInfo
         if reflected != null {
             if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(reflected.Type, expected) {
@@ -762,7 +963,37 @@ class AwaitablePatternBinder {
         if constructed != null {
             definition := constructed.GenericDefinition as ReflectionTypeInfo
             if definition != null {
-                return TypeInfoImplementsCompletionInterface(definition, expected)
+                return TypeInfoImplementsCompletionInterface(definition, expected, semanticModel, depth + 1)
+            }
+            if constructed.GenericDefinition != null {
+                typeInfo = constructed.GenericDefinition
+            }
+        }
+
+        references := new List<TypeReference>()
+        classType := typeInfo as ClassTypeInfo
+        if classType != null {
+            if classType.BaseClass != null {
+                references.Add(classType.BaseClass)
+            }
+            references.AddRange(classType.Interfaces)
+        }
+        structType := typeInfo as StructTypeInfo
+        if structType != null {
+            references.AddRange(structType.Interfaces)
+        }
+        recordType := typeInfo as RecordTypeInfo
+        if recordType != null {
+            references.AddRange(recordType.Interfaces)
+        }
+        interfaceType := typeInfo as InterfaceTypeInfo
+        if interfaceType != null {
+            references.AddRange(interfaceType.BaseInterfaces)
+        }
+        for reference in references {
+            resolved: TypeInfo = BuiltInTypes.Unknown
+            if TryResolveSourceTypeReference(semanticModel, reference, out resolved) && TypeInfoImplementsCompletionInterface(resolved, expected, semanticModel, depth + 1) {
+                return true
             }
         }
         return false
@@ -771,7 +1002,7 @@ class AwaitablePatternBinder {
     static func SourceQualifierResolvesTo(owner: Declaration, semanticModel: SemanticModel, qualifier: string, contractReference: TypeReference?, expected: Type): bool {
         if contractReference != null && TypeReferenceFacts.GetDisplayName(contractReference) == qualifier {
             resolvedContract: TypeInfo = BuiltInTypes.Unknown
-            if TryResolveSourceTypeReference(semanticModel, contractReference, out resolvedContract) && TypeInfoImplementsExactInterface(resolvedContract, expected) {
+            if TryResolveSourceTypeReference(semanticModel, contractReference, out resolvedContract) && TypeInfoImplementsCompletionInterface(resolvedContract, expected, semanticModel, 0) {
                 return true
             }
         }
@@ -780,7 +1011,7 @@ class AwaitablePatternBinder {
             for reference in references {
                 if TypeReferenceFacts.GetDisplayName(reference) == qualifier {
                     resolvedContract: TypeInfo = BuiltInTypes.Unknown
-                    if TryResolveSourceTypeReference(semanticModel, reference, out resolvedContract) && TypeInfoImplementsExactInterface(resolvedContract, expected) {
+                    if TryResolveSourceTypeReference(semanticModel, reference, out resolvedContract) && TypeInfoImplementsCompletionInterface(resolvedContract, expected, semanticModel, 0) {
                         return true
                     }
                 }
@@ -788,10 +1019,10 @@ class AwaitablePatternBinder {
         }
         resolved: TypeInfo? = null
         if semanticModel.Types.TryGetValue(qualifier, out resolved) && resolved != null {
-            return TypeInfoImplementsExactInterface(resolved, expected)
+            return TypeInfoImplementsCompletionInterface(resolved, expected, semanticModel, 0)
         }
         if semanticModel.TypesByIdentity.TryGetValue(TypeArityNames.Key(qualifier, 0), out resolved) && resolved != null {
-            return TypeInfoImplementsExactInterface(resolved, expected)
+            return TypeInfoImplementsCompletionInterface(resolved, expected, semanticModel, 0)
         }
         return false
     }

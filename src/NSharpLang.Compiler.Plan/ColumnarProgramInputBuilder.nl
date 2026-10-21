@@ -1114,6 +1114,7 @@ sealed class ColumnarProgramInputBuilder {
                         structName
                     )
                 }
+                methodInput.SourceDeclarationStart = cs[outMethodFuncIndices[m]]
                 methods.Add(methodInput)
                 m = m + 1
             }

@@ -179,6 +179,87 @@ async func main() {
         timeoutMs: 5000,
       },
       {
+        name: 'explicit INotifyCompletion slot wins over a public same-name no-op',
+        source: `import System
+import System.Runtime.CompilerServices
+import System.Threading.Tasks
+
+class PublicAndExplicitAwaitable(source: Task<int>) {
+    func GetAwaiter(): PublicAndExplicitAwaiter {
+        return new PublicAndExplicitAwaiter(source)
+    }
+}
+
+class PublicAndExplicitAwaiter(source: Task<int>): INotifyCompletion {
+    IsCompleted: bool {
+        get { return source.IsCompleted }
+    }
+
+    func GetResult(): int {
+        return source.GetAwaiter().GetResult()
+    }
+
+    func OnCompleted(_continuation: Action) {
+    }
+
+    func INotifyCompletion.OnCompleted(continuation: Action) {
+        source.GetAwaiter().OnCompleted(continuation)
+    }
+}
+
+async func DelayWork(): Task<int> {
+    await Task.Yield()
+    return 45
+}
+
+async func main() {
+    print await new PublicAndExplicitAwaitable(DelayWork())
+}
+`,
+        stdout: '45\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'source interface inheritance carries the INotifyCompletion slot closure',
+        source: `import System
+import System.Runtime.CompilerServices
+import System.Threading.Tasks
+
+interface ResumableCompletion: INotifyCompletion {}
+
+class InheritedInterfaceAwaitable(source: Task<int>) {
+    func GetAwaiter(): InheritedInterfaceAwaiter {
+        return new InheritedInterfaceAwaiter(source)
+    }
+}
+
+class InheritedInterfaceAwaiter(source: Task<int>): ResumableCompletion {
+    IsCompleted: bool {
+        get { return source.IsCompleted }
+    }
+
+    func GetResult(): int {
+        return source.GetAwaiter().GetResult()
+    }
+
+    func OnCompleted(continuation: Action) {
+        source.GetAwaiter().OnCompleted(continuation)
+    }
+}
+
+async func DelayWork(): Task<int> {
+    await Task.Yield()
+    return 46
+}
+
+async func main() {
+    print await new InheritedInterfaceAwaitable(DelayWork())
+}
+`,
+        stdout: '46\n',
+        timeoutMs: 5000,
+      },
+      {
         name: 'ConfigureAwait(false)',
         source: `import System.Threading.Tasks
 

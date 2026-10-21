@@ -151,13 +151,22 @@ class AnalyzerExtensionMethodResolution {
         }
 
         if applicableExtensions.Count == 1 {
+            declarationFile := declarationContext.GetDeclarationFileFor(applicableExtensions[0])
+            if declarationFile != null {
+                return functionTypeFactory.CreateFromDeclarationInFile(applicableExtensions[0], declarationFile)
+            }
             return functionTypeFactory.CreateFromDeclaration(applicableExtensions[0], currentTypeName)
         }
 
         // Several source extensions claim the name; overload resolution picks between them later.
         functionTypes := new List<FunctionTypeInfo>()
         for applicableExtension in applicableExtensions {
-            functionTypes.Add(functionTypeFactory.CreateFromDeclaration(applicableExtension, currentTypeName))
+            declarationFile := declarationContext.GetDeclarationFileFor(applicableExtension)
+            if declarationFile != null {
+                functionTypes.Add(functionTypeFactory.CreateFromDeclarationInFile(applicableExtension, declarationFile))
+            } else {
+                functionTypes.Add(functionTypeFactory.CreateFromDeclaration(applicableExtension, currentTypeName))
+            }
         }
 
         return NSharpMethodGroupInfoFactory.FromFunctions(functionTypes)

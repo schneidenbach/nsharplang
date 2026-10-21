@@ -19,4 +19,12 @@
     <type fullname="NSharpLang.Playground.PlaygroundDiagnostic" preserve="all" />
     <type fullname="NSharpLang.Playground.Wasm.PlaygroundVersionResponse" preserve="all" />
   </assembly>
+  <assembly fullname="System.Private.CoreLib">
+    <type fullname="System.Threading.Tasks.ValueTask" preserve="all" />
+    <type fullname="System.Threading.Tasks.ValueTask`1" preserve="all" />
+    <type fullname="System.Runtime.CompilerServices.ValueTaskAwaiter" preserve="all" />
+    <type fullname="System.Runtime.CompilerServices.ValueTaskAwaiter`1" preserve="all" />
+    <type fullname="System.Runtime.CompilerServices.INotifyCompletion" preserve="all" />
+    <type fullname="System.Runtime.CompilerServices.ICriticalNotifyCompletion" preserve="all" />
+  </assembly>
 </linker>

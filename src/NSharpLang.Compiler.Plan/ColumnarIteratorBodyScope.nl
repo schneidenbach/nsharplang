@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import NSharpLang.Compiler
 
 
 // THE LIVE SEMANTIC FACTS AN ITERATOR BODY NEEDS TO PLAN AN ORDINARY EXPRESSION.
@@ -24,10 +25,12 @@ class ColumnarIteratorBodyFacts {
     UnionDefinitions: IEnumerable<ColumnarUnionDef>
     ExactSourceTypes: Dictionary<string, Type>
     SiblingCallables: Dictionary<string, ColumnarSiblingCallFacts>
+    SiblingOverloads: IReadOnlyDictionary<string, List<ColumnarSiblingMethodDefinition>>?
     SiblingNames: IEnumerable<string>
     EnclosingTypeDefinition: ColumnarStructDef?
     StructuralTypeReferences: ColumnarStructuralTypeReferenceTable
     ModifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?
+    SemanticModel: SemanticModel?
 
     constructor(
         enums: Dictionary<string, ColumnarEnumDef>,
@@ -37,7 +40,8 @@ class ColumnarIteratorBodyFacts {
         siblingCallables: Dictionary<string, ColumnarSiblingCallFacts>,
         siblingNames: IEnumerable<string>,
         enclosingTypeDefinition: ColumnarStructDef?,
-        structuralTypeReferences: ColumnarStructuralTypeReferenceTable
+        structuralTypeReferences: ColumnarStructuralTypeReferenceTable,
+        siblingOverloads: IReadOnlyDictionary<string, List<ColumnarSiblingMethodDefinition>>? = null
     ) {
         if enums == null || structDefinitions == null || unionDefinitions == null || exactSourceTypes == null || siblingCallables == null || siblingNames == null || structuralTypeReferences == null {
             throw new InvalidOperationException("Iterator body facts cannot be null.")
@@ -47,10 +51,12 @@ class ColumnarIteratorBodyFacts {
         UnionDefinitions = unionDefinitions
         ExactSourceTypes = exactSourceTypes
         SiblingCallables = siblingCallables
+        SiblingOverloads = siblingOverloads
         SiblingNames = siblingNames
         EnclosingTypeDefinition = enclosingTypeDefinition
         StructuralTypeReferences = structuralTypeReferences
         ModifiedMemberReferences = null
+        SemanticModel = null
     }
 
     // The live emission facts of one program, in the shape the fragment-binding contract wants them.
@@ -63,7 +69,8 @@ class ColumnarIteratorBodyFacts {
         siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>,
         exactSourceTypes: Dictionary<string, Type>,
         enclosingTypeDefinition: ColumnarStructDef?,
-        structuralTypeReferences: ColumnarStructuralTypeReferenceTable
+        structuralTypeReferences: ColumnarStructuralTypeReferenceTable,
+        siblingOverloads: IReadOnlyDictionary<string, List<ColumnarSiblingMethodDefinition>>? = null
     ): ColumnarIteratorBodyFacts {
         structDefinitions := new List<ColumnarStructDef>()
         for entry in structs {
@@ -100,7 +107,8 @@ class ColumnarIteratorBodyFacts {
             callables,
             names,
             enclosingTypeDefinition,
-            structuralTypeReferences
+            structuralTypeReferences,
+            siblingOverloads
         )
     }
 

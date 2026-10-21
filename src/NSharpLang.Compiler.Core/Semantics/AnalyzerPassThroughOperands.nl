@@ -143,6 +143,12 @@ class AnalyzerPassThroughOperands {
     ambientValue: AnalyzerAmbientContext
     declarationContextValue: AnalyzerDeclarationContext
     extensionMethodResolutionValue: AnalyzerExtensionMethodResolution?
+    awaitMemberResolutionValue: AnalyzerMemberResolution?
+    awaitSourceCallWalkValue: AnalyzerSyntheticCallWalk?
+    awaitSourceCallValidatorValue: AnalyzerSyntheticCallValidator?
+    awaitReflectionArgumentBinderValue: AnalyzerReflectionArgumentBinder?
+    awaitClrTypeConversionValue: AnalyzerClrTypeConversion?
+    semanticModelValue: SemanticModel?
     loopSequenceValue: AnalyzerLoopSequence
     constantFactsValue: AnalyzerConstantExpressionFacts
     mustVerdictsValue: Dictionary<object, bool>
@@ -155,9 +161,24 @@ class AnalyzerPassThroughOperands {
         ambientValue = ambient
         declarationContextValue = declarationContext
         extensionMethodResolutionValue = extensionMethodResolution
+        awaitMemberResolutionValue = null
+        awaitSourceCallWalkValue = null
+        awaitSourceCallValidatorValue = null
+        awaitReflectionArgumentBinderValue = null
+        awaitClrTypeConversionValue = null
+        semanticModelValue = null
         loopSequenceValue = loopSequence
         constantFactsValue = constantFacts
         mustVerdictsValue = new Dictionary<object, bool>()
+    }
+
+    func SetAwaitBindingServices(members: AnalyzerMemberResolution, sourceCalls: AnalyzerSyntheticCallWalk, sourceValidator: AnalyzerSyntheticCallValidator, reflectionCalls: AnalyzerReflectionArgumentBinder, clrConversion: AnalyzerClrTypeConversion, semanticModel: SemanticModel) {
+        awaitMemberResolutionValue = members
+        awaitSourceCallWalkValue = sourceCalls
+        awaitSourceCallValidatorValue = sourceValidator
+        awaitReflectionArgumentBinderValue = reflectionCalls
+        awaitClrTypeConversionValue = clrConversion
+        semanticModelValue = semanticModel
     }
 
     // THE ENTRY, AND IT DECIDES NOTHING. Unlike the compile-time constants, no form in this family
@@ -689,8 +710,13 @@ class AnalyzerPassThroughOperands {
         }
 
         awaited: TypeInfo = BuiltInTypes.Unknown
-        if TryAwaitResultType(state.OperandType, out awaited) {
+        binding: AnalyzerAwaitablePatternBinding? = null
+        if TryAwaitResultType(state.OperandType, out awaited, out binding) && binding != null {
             state.ResultType = awaited
+            model := semanticModelValue
+            if model != null {
+                model.RecordAwaitablePattern(awaitNode.Line, awaitNode.Column, binding)
+            }
             return
         }
 
@@ -708,8 +734,9 @@ class AnalyzerPassThroughOperands {
     // Task-family aliases keep their language-owned result rules. Every other awaitable pattern is
     // resolved once by AwaitablePatternBinder, including reflected members, source declarations and
     // imported extension GetAwaiter methods.
-    func TryAwaitResultType(awaitableType: TypeInfo, out resultType: TypeInfo): bool {
+    func TryAwaitResultType(awaitableType: TypeInfo, out resultType: TypeInfo, out binding: AnalyzerAwaitablePatternBinding?): bool {
         resultType = BuiltInTypes.Unknown
+        binding = null
         if AwaitablePatternBinder.IsNullableValueType(awaitableType) {
             return false
         }
@@ -721,19 +748,110 @@ class AnalyzerPassThroughOperands {
         taskResult: TypeInfo = BuiltInTypes.Unknown
         if AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(resolved, out taskResult) {
             resultType = taskResult
+            TryBindTaskLikeReflectionPattern(resolved, resultType, out binding)
             return true
         }
         if AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(resolved) {
             resultType = BuiltInTypes.Void
+            TryBindTaskLikeReflectionPattern(resolved, resultType, out binding)
             return true
         }
 
-        binding: AnalyzerAwaitablePatternBinding? = null
-        if !AwaitablePatternBinder.TryBindAnalyzerAwaitable(resolved, declarationContextValue, extensionMethodResolutionValue, ambientValue.CurrentTypeName, out binding) || binding == null {
+        memberResolution := awaitMemberResolutionValue
+        sourceCalls := awaitSourceCallWalkValue
+        sourceValidator := awaitSourceCallValidatorValue
+        reflectionCalls := awaitReflectionArgumentBinderValue
+        clrConversion := awaitClrTypeConversionValue
+        semanticModel := semanticModelValue
+        if !AwaitablePatternBinder.TryBindAnalyzerAwaitable(resolved, declarationContextValue, semanticModel, memberResolution, extensionMethodResolutionValue, sourceCalls, sourceValidator, reflectionCalls, clrConversion, ambientValue.CurrentTypeName, out binding) || binding == null {
             return false
         }
         resultType = binding.ResultType
         return !BuiltInTypes.IsUnknown(resultType)
+    }
+
+    func TryBindTaskLikeReflectionPattern(awaitableType: TypeInfo, resultType: TypeInfo, out binding: AnalyzerAwaitablePatternBinding?): bool {
+        binding = null
+        conversion := awaitClrTypeConversionValue
+        if conversion == null {
+            return false
+        }
+        runtimeType: Type? = null
+        if !TryGetCoreTaskLikeRuntimeType(awaitableType, resultType, conversion, out runtimeType) || runtimeType == null {
+            return false
+        }
+        reflectedPattern: AwaitablePatternBinding? = null
+        if !AwaitablePatternBinder.TryBindReflection(runtimeType, out reflectedPattern) || reflectedPattern == null {
+            return false
+        }
+        binding = new AnalyzerAwaitablePatternBinding(awaitableType, new ReflectionTypeInfo(reflectedPattern.AwaiterType), resultType, null, null, null, reflectedPattern)
+        return true
+    }
+
+    static func TryGetCoreTaskLikeRuntimeType(awaitableType: TypeInfo, resultType: TypeInfo, conversion: AnalyzerClrTypeConversion, out runtimeType: Type?): bool {
+        runtimeType = null
+        reflected := awaitableType as ReflectionTypeInfo
+        generic := awaitableType as GenericTypeInfo
+        reflectedType: Type? = null
+        if reflected != null {
+            reflectedType = reflected.Type
+        } else if generic != null {
+            definition := generic.GenericDefinition as ReflectionTypeInfo
+            reflectedType = definition == null ? null : definition.Type
+        }
+        if reflectedType == null {
+            reflectedType = conversion.TryConvertTypeInfoToClrType(awaitableType)
+            if reflectedType == null {
+                return false
+            }
+        }
+
+        isTaskDefinition := AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType, "System.Threading.Tasks.Task`1")
+        isValueTaskDefinition := AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType, "System.Threading.Tasks.ValueTask`1")
+        if reflectedType.IsGenericType && !reflectedType.IsGenericTypeDefinition {
+            isTaskDefinition = AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType.GetGenericTypeDefinition(), "System.Threading.Tasks.Task`1")
+            isValueTaskDefinition = AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType.GetGenericTypeDefinition(), "System.Threading.Tasks.ValueTask`1")
+        }
+        if isTaskDefinition || isValueTaskDefinition {
+            if BuiltInTypes.Is(resultType, BuiltInTypes.Void) {
+                runtimeType = AnalyzerFunctionTypeFactory.RequiredCoreType(isTaskDefinition ? "System.Threading.Tasks.Task" : "System.Threading.Tasks.ValueTask")
+                return true
+            }
+            definitionName := isTaskDefinition ? "System.Threading.Tasks.Task`1" : "System.Threading.Tasks.ValueTask`1"
+            runtimeDefinition := AnalyzerFunctionTypeFactory.RequiredCoreType(definitionName)
+            resultTypeClr := conversion.TryConvertTypeInfoToClrType(resultType)
+            if resultTypeClr != null {
+                runtimeResultType: Type? = null
+                runtimeResultName := resultTypeClr.AssemblyQualifiedName
+                if runtimeResultName != null {
+                    runtimeResultType = Type.GetType(runtimeResultName, false)
+                }
+                if runtimeResultType == null && resultTypeClr.FullName != null {
+                    runtimeResultType = AnalyzerFunctionTypeFactory.RequiredCoreType(resultTypeClr.FullName)
+                }
+                if runtimeResultType != null {
+                    try {
+                        runtimeType = runtimeDefinition.MakeGenericType([runtimeResultType])
+                        return true
+                    } catch failure: ArgumentException {
+                        runtimeType = runtimeDefinition
+                        return true
+                    }
+                }
+            }
+            runtimeType = runtimeDefinition
+            return true
+        }
+
+        if AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType, "System.Threading.Tasks.Task") {
+            runtimeType = AnalyzerFunctionTypeFactory.RequiredCoreType("System.Threading.Tasks.Task")
+            return true
+        }
+        if AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType, "System.Threading.Tasks.ValueTask") {
+            runtimeType = AnalyzerFunctionTypeFactory.RequiredCoreType("System.Threading.Tasks.ValueTask")
+            return true
+        }
+        return false
     }
 
     // WHEN A NON-AWAITABLE VALUE IS ACCUSED. An unresolved shape stays quiet because an earlier
@@ -775,7 +893,8 @@ class AnalyzerPassThroughOperands {
 
     func HasSourceAwaiterPattern(awaitableType: TypeInfo): bool {
         resultType: TypeInfo = BuiltInTypes.Unknown
-        return TryAwaitResultType(awaitableType, out resultType)
+        binding: AnalyzerAwaitablePatternBinding? = null
+        return TryAwaitResultType(awaitableType, out resultType, out binding)
     }
 
     func AwaitMismatchMessage(awaitableType: TypeInfo): string {

@@ -123,12 +123,13 @@ class AnalyzerReflectionTypeConversion {
 
             name := clrType.Name
             tick := name.IndexOf('`')
+            genericName := tick > 0 ? name.Substring(0, tick) : name
             convertedArguments := new List<TypeInfo>()
             for argument in arguments {
                 convertedArguments.Add(ConvertReflectionType(argument))
             }
 
-            constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(name.Substring(0, tick), convertedArguments, clrType)
+            constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(genericName, convertedArguments, clrType)
             return constructed
         }
 

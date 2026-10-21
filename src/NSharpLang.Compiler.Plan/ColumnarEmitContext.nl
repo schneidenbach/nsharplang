@@ -54,14 +54,16 @@ sealed class ColumnarEmitContext {
     ProgramHolder: ColumnarFreeFunctionHolderSlot?
     private freeFunctions: ColumnarFreeFunctionScope?
     private holders: ColumnarFreeFunctionHolders?
+    private semanticModelsByFileId: IReadOnlyDictionary<int, SemanticModel>?
 
-    constructor(enums: Dictionary<string, ColumnarEnumDef>, structs: IReadOnlyDictionary<string, ColumnarStructDef>, unions: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCases: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, freeFunctionScope: ColumnarFreeFunctionScope? = null, freeFunctionHolders: ColumnarFreeFunctionHolders? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null, referenceMetadata: SharedReferenceMetadata? = null, anonymousTypes: ColumnarAnonymousTypeRegistry? = null) {
+    constructor(enums: Dictionary<string, ColumnarEnumDef>, structs: IReadOnlyDictionary<string, ColumnarStructDef>, unions: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCases: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, freeFunctionScope: ColumnarFreeFunctionScope? = null, freeFunctionHolders: ColumnarFreeFunctionHolders? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null, referenceMetadata: SharedReferenceMetadata? = null, anonymousTypes: ColumnarAnonymousTypeRegistry? = null, semanticModels: IReadOnlyDictionary<int, SemanticModel>? = null) {
         Enums = enums
         Structs = structs
         Unions = unions
         UnionCases = unionCases
         freeFunctions = freeFunctionScope
         holders = freeFunctionHolders
+        semanticModelsByFileId = semanticModels
         LambdaCounter = lambdaCounter
         DisplayClasses = displayClasses
         AnonymousTypes = anonymousTypes
@@ -81,7 +83,7 @@ sealed class ColumnarEmitContext {
     }
 
     private func Copy(): ColumnarEmitContext {
-        clone := new ColumnarEmitContext(Enums, Structs, Unions, UnionCases, freeFunctions, holders, LambdaCounter, DisplayClasses, ReferenceAssemblyPaths, GenericInterfaceConstraints, ModifiedMemberReferences, ReferenceMetadata, AnonymousTypes)
+        clone := new ColumnarEmitContext(Enums, Structs, Unions, UnionCases, freeFunctions, holders, LambdaCounter, DisplayClasses, ReferenceAssemblyPaths, GenericInterfaceConstraints, ModifiedMemberReferences, ReferenceMetadata, AnonymousTypes, semanticModelsByFileId)
         clone.TypeResolutionEnums = TypeResolutionEnums
         clone.TypeResolutionStructs = TypeResolutionStructs
         clone.TypeResolutionUnions = TypeResolutionUnions
@@ -148,6 +150,15 @@ sealed class ColumnarEmitContext {
         clone := Copy()
         clone.SourceFileId = sourceFileId
         return clone
+    }
+
+    func SemanticModelForCurrentFile(): SemanticModel? {
+        models := semanticModelsByFileId
+        if models == null || SourceFileId < 0 {
+            return null
+        }
+        model: SemanticModel = null
+        return models.TryGetValue(SourceFileId, out model) ? model : null
     }
 
     func TryGetBoundSibling(sourceOffset: int, out sibling: ColumnarSiblingMethodDefinition?): bool {

@@ -2003,9 +2003,11 @@ sealed class ColumnarIlEmitter {
             _context.Siblings,
             typeResolution.Structs.Resolver.ExactSourceTypes,
             ownerDefinition,
-            typeResolution.StructuralTypeReferences
+            typeResolution.StructuralTypeReferences,
+            _context.SiblingOverloads
         )
         bodyFacts.ModifiedMemberReferences = _context.ModifiedMemberReferences
+        bodyFacts.SemanticModel = _context.SemanticModelForCurrentFile()
         ordinal := _lambdaCounter[0]
         _lambdaCounter[0] = ordinal + 1
         module := _context.Module()
@@ -5326,11 +5328,20 @@ sealed class ColumnarIlEmitter {
             }
             for baseInterfaceName in iface.BaseInterfaceNames {
                 let baseInterface: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-                if (!typeResolution.Structs.TryGetValue(baseInterfaceName, out baseInterface) || !baseInterface.IsInterface || Object.ReferenceEquals(baseInterface, interfaceDef)) {
-                    return false
+                if (typeResolution.Structs.TryGetValue(baseInterfaceName, out baseInterface) && baseInterface != null) {
+                    if (!baseInterface.IsInterface || Object.ReferenceEquals(baseInterface, interfaceDef)) {
+                        return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseInterfaceName + "' could not be resolved for '" + iface.Name + "'", iface.Name, -1, 0)
+                    }
+                    interfaceDef.InterfaceBases.Add(baseInterface)
+                    interfaceDef.Builder.AddInterfaceImplementation(baseInterface.Builder)
+                    continue
                 }
-                interfaceDef.InterfaceBases.Add(baseInterface)
-                interfaceDef.Builder.AddInterfaceImplementation(baseInterface.Builder)
+                selectedBaseInterface := ColumnarSelectedTypeReference.Missing(typeResolution.StructuralTypeReferences)
+                if !ColumnarCanonicalTypeResolver.TrySelectMemberType(baseInterfaceName, interfaceDef, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out selectedBaseInterface) || selectedBaseInterface == null || !selectedBaseInterface.HasRuntimeType || !ColumnarBaseTypePlanner.IsRuntimeInterfaceType(selectedBaseInterface.RuntimeType) {
+                    return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseInterfaceName + "' could not be resolved for '" + iface.Name + "'", iface.Name, -1, 0)
+                }
+                interfaceDef.ExternalInterfaces.Add(selectedBaseInterface.RuntimeType)
+                interfaceDef.Builder.AddInterfaceImplementation(selectedBaseInterface.RuntimeType)
             }
             for m := 0; m < iface.MethodNames.Length; m++ {
                 let memberReturn: System.Type = null
@@ -5993,6 +6004,16 @@ sealed class ColumnarIlEmitter {
                     }
                     ColumnarSignatureMetadataEmitter.ApplyToReturn(declaredGenericInstance, mSignatureReturn, m.ReturnLabeledCanonical)
                     genericInstanceDefinition := new ColumnarInstanceMethodDef(declaredGenericInstance, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                    genericInstanceDefinition.SourceFileId = m.SourceFileId
+                    genericInstanceSourceFile := program.SourceFileForFileId(m.SourceFileId)
+                    if genericInstanceSourceFile != null {
+                        genericInstanceDefinition.SourceFilePath = genericInstanceSourceFile.FileName
+                        if m.SourceDeclarationStart >= 0 {
+                            genericInstancePosition := ColumnarEmissionPlanner.PositionAt(genericInstanceSourceFile, m.SourceDeclarationStart)
+                            genericInstanceDefinition.SourceLine = genericInstancePosition.Line
+                            genericInstanceDefinition.SourceColumn = genericInstancePosition.Column
+                        }
+                    }
                     genericInstanceDefinition.ParamNames = m.ParamNames
                     genericInstanceDefinition.ParamDefaultKinds = m.ParamDefaultKinds
                     genericInstanceDefinition.ParamDefaultTexts = m.ParamDefaultTexts
@@ -6112,6 +6133,16 @@ sealed class ColumnarIlEmitter {
                 ColumnarSignatureMetadataEmitter.ApplyToReturn(mb, mSignatureReturn, m.ReturnLabeledCanonical)
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences)
                 instanceDefinition := new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                instanceDefinition.SourceFileId = m.SourceFileId
+                instanceSourceFile := program.SourceFileForFileId(m.SourceFileId)
+                if instanceSourceFile != null {
+                    instanceDefinition.SourceFilePath = instanceSourceFile.FileName
+                    if m.SourceDeclarationStart >= 0 {
+                        instancePosition := ColumnarEmissionPlanner.PositionAt(instanceSourceFile, m.SourceDeclarationStart)
+                        instanceDefinition.SourceLine = instancePosition.Line
+                        instanceDefinition.SourceColumn = instancePosition.Column
+                    }
+                }
                 instanceDefinition.ParamNames = m.ParamNames
                 instanceDefinition.ParamDefaultKinds = m.ParamDefaultKinds
                 instanceDefinition.ParamDefaultTexts = m.ParamDefaultTexts
@@ -7088,6 +7119,16 @@ sealed class ColumnarIlEmitter {
                 fnBaseConstraints,
                 fnInterfaceConstraints
             )
+            siblingDefinition.SourceFileId = fn.SourceFileId
+            siblingSourceFile := program.SourceFileForFileId(fn.SourceFileId)
+            if siblingSourceFile != null {
+                siblingDefinition.SourceFilePath = siblingSourceFile.FileName
+                if fn.SourceDeclarationStart >= 0 {
+                    siblingPosition := ColumnarEmissionPlanner.PositionAt(siblingSourceFile, fn.SourceDeclarationStart)
+                    siblingDefinition.SourceLine = siblingPosition.Line
+                    siblingDefinition.SourceColumn = siblingPosition.Column
+                }
+            }
             siblingDefinition.ParamNames = fn.ParamNames
             siblingDefinition.ParamDefaultKinds = fn.ParamDefaultKinds
             siblingDefinition.ParamDefaultTexts = fn.ParamDefaultTexts
@@ -7109,7 +7150,7 @@ sealed class ColumnarIlEmitter {
         displayClasses := new List<TypeBuilder>()
         // THE EMIT SESSION'S ENVIRONMENT, BUILT ONCE. Every body emitter below is handed a derivation
         // of this instead of the fourteen arguments each construction site used to spell by hand.
-        emitContext := new ColumnarEmitContext(enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, freeFunctionScope, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, null, modifiedMemberReferences, program.ReferenceMetadata, new ColumnarAnonymousTypeRegistry(module, displayClasses))
+        emitContext := new ColumnarEmitContext(enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, freeFunctionScope, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, null, modifiedMemberReferences, program.ReferenceMetadata, new ColumnarAnonymousTypeRegistry(module, displayClasses), program.SemanticModelsByFileId)
         for f := 0; f < funcs.Count; f++ {
             fn := funcs[f]
             typeResolution := typeResolutionsByFunc[f]
@@ -7127,9 +7168,11 @@ sealed class ColumnarIlEmitter {
                         freeFunctionScope.ViewFor(fn.SourceFileId),
                         typeResolution.Structs.Resolver.ExactSourceTypes,
                         null,
-                        typeResolution.StructuralTypeReferences
+                        typeResolution.StructuralTypeReferences,
+                        freeFunctionScope.OverloadsFor(fn.SourceFileId)
                     )
                     generatorFacts.ModifiedMemberReferences = modifiedMemberReferences
+                    generatorFacts.SemanticModel = program.SemanticModelForFileId(fn.SourceFileId)
                     if (fn.IsAsync ? !TryEmitAsyncIteratorStateMachine(
                         module,
                         fn,
@@ -7217,9 +7260,11 @@ sealed class ColumnarIlEmitter {
                     freeFunctionScope.ViewFor(fn.SourceFileId),
                     typeResolution.Structs.Resolver.ExactSourceTypes,
                     null,
-                    typeResolution.StructuralTypeReferences
+                    typeResolution.StructuralTypeReferences,
+                    freeFunctionScope.OverloadsFor(fn.SourceFileId)
                 )
                 asyncBodyFacts.ModifiedMemberReferences = modifiedMemberReferences
+                asyncBodyFacts.SemanticModel = program.SemanticModelForFileId(fn.SourceFileId)
                 if !TryEmitAsyncTaskStateMachine(
                     module,
                     fn,
@@ -7372,9 +7417,11 @@ sealed class ColumnarIlEmitter {
                         freeFunctionScope.ViewFor(job.Item2.SourceFileId),
                         bodyTypeResolution2.Structs.Resolver.ExactSourceTypes,
                         job.Item1,
-                        bodyTypeResolution2.StructuralTypeReferences
+                        bodyTypeResolution2.StructuralTypeReferences,
+                        freeFunctionScope.OverloadsFor(job.Item2.SourceFileId)
                     )
                     memberGeneratorFacts.ModifiedMemberReferences = modifiedMemberReferences
+                    memberGeneratorFacts.SemanticModel = program.SemanticModelForFileId(job.Item2.SourceFileId)
                     if (!TryEmitMemberIterator(
                         module,
                         job.Item1,
@@ -7497,9 +7544,11 @@ sealed class ColumnarIlEmitter {
                     methodJobSiblings,
                     bodyTypeResolution.Structs.Resolver.ExactSourceTypes,
                     job.Item1,
-                    bodyTypeResolution.StructuralTypeReferences
+                    bodyTypeResolution.StructuralTypeReferences,
+                    freeFunctionScope.OverloadsFor(job.Item2.SourceFileId)
                 )
                 asyncMemberFacts.ModifiedMemberReferences = modifiedMemberReferences
+                asyncMemberFacts.SemanticModel = program.SemanticModelForFileId(job.Item2.SourceFileId)
                 asyncMemberOrdinal := lambdaCounter[0]
                 lambdaCounter[0] = asyncMemberOrdinal + 1
                 ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId, job.Item2.Name)
@@ -7949,9 +7998,11 @@ sealed class ColumnarIlEmitter {
                             freeFunctionScope.ViewFor(testBody.SourceFileId),
                             testTypeResolution.Structs.Resolver.ExactSourceTypes,
                             null,
-                            testTypeResolution.StructuralTypeReferences
+                            testTypeResolution.StructuralTypeReferences,
+                            freeFunctionScope.OverloadsFor(testBody.SourceFileId)
                         )
                         testBodyFacts.ModifiedMemberReferences = modifiedMemberReferences
+                        testBodyFacts.SemanticModel = program.SemanticModelForFileId(testBody.SourceFileId)
                         testOrdinal := funcs.Count + lambdaCounter[0]
                         lambdaCounter[0] = lambdaCounter[0] + 1
                         if !TryEmitAsyncTaskStateMachine(
@@ -8708,9 +8759,11 @@ sealed class ColumnarIlEmitter {
                         context.Siblings,
                         typeResolution.Structs.Resolver.ExactSourceTypes,
                         localOwnerDefinition,
-                        typeResolution.StructuralTypeReferences
+                        typeResolution.StructuralTypeReferences,
+                        context.SiblingOverloads
                     )
                     bodyFacts.ModifiedMemberReferences = context.ModifiedMemberReferences
+                    bodyFacts.SemanticModel = context.SemanticModelForCurrentFile()
                     module := context.Module()
                     synthesizedTypes := context.DisplayClasses
                     counter := context.LambdaCounter
