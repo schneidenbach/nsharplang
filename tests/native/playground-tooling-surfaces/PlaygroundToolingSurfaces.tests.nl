@@ -66,14 +66,14 @@ func SetPgInt(values: object?[], index: int, value: int) {
 }
 
 func PgMember(owner: object, memberName: string): object? {
-    property := owner.GetType().GetProperty(memberName)
-    if property != null {
-        return property.GetValue(owner)
-    }
-
     field := owner.GetType().GetField(memberName)
     if field != null {
         return field.GetValue(owner)
+    }
+
+    property := owner.GetType().GetProperty(memberName)
+    if property != null {
+        return property.GetValue(owner)
     }
 
     throw new InvalidOperationException("The production type exposed no member named " + memberName)
@@ -89,14 +89,14 @@ func PgText(owner: object, memberName: string): string {
 }
 
 func PgStaticMember(owner: Type, memberName: string): object? {
-    property := owner.GetProperty(memberName)
-    if property != null {
-        return property.GetValue(null)
-    }
-
     field := owner.GetField(memberName)
     if field != null {
         return field.GetValue(null)
+    }
+
+    property := owner.GetProperty(memberName)
+    if property != null {
+        return property.GetValue(null)
     }
 
     throw new InvalidOperationException("The production type exposed no static member named " + memberName)
@@ -642,8 +642,22 @@ func PgRunDuplicateEntryPoint(): object {
     if constructors.Length != 1 {
         throw new InvalidOperationException("The production playground runner constructor shape changed.")
     }
-    constructorArguments := new object?[](1)
+    semanticModelType := Type.GetType("NSharpLang.Compiler.SemanticModel, NSharpLang.Compiler.Core")
+    dictionaryDefinitionType := Type.GetType("System.Collections.Generic.Dictionary`2")
+    if semanticModelType == null || dictionaryDefinitionType == null {
+        throw new InvalidOperationException("The semantic model or generic dictionary type was not loadable.")
+    }
+    dictionaryTypeArguments := new Type[](2)
+    dictionaryTypeArguments[0] = typeof(object)
+    dictionaryTypeArguments[1] = semanticModelType
+    dictionaryType := dictionaryDefinitionType.MakeGenericType(dictionaryTypeArguments)
+    semanticModels := Activator.CreateInstance(dictionaryType)
+    if semanticModels == null {
+        throw new InvalidOperationException("An empty semantic-model map could not be created.")
+    }
+    constructorArguments := new object?[](2)
     SetPgObject(constructorArguments, 0, units)
+    SetPgObject(constructorArguments, 1, semanticModels)
     runner := constructors[0].Invoke(constructorArguments)
 
     runMethod := runnerType.GetMethod("RunAsync", new Type[](0))
