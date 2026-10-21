@@ -378,8 +378,8 @@ test "a project reference flows its package so the consumer can use the package'
     }
 }
 
-// THE ISSUE #247 PACKAGE, restored by this native project so the regression stays offline after the
-// gate has populated NUGET_PACKAGES. B alone declares HtmlAgilityPack; A imports its namespace,
+// THE ISSUE #247 PACKAGE, restored by this native project so the regression stays offline after its
+// dependencies are restored. B alone declares HtmlAgilityPack; A imports its namespace,
 // annotates a parameter with HtmlDocument, and reads Maker.Make().DocumentNode.InnerText.
 test "HtmlAgilityPack flows through a project reference for nlc test and build" {
     cli := ResolutionCliPath(ResolutionRepositoryRoot())
@@ -387,12 +387,13 @@ test "HtmlAgilityPack flows through a project reference for nlc test and build" 
     try {
         cache := Path.Combine(scratch, "packages")
         Directory.CreateDirectory(cache)
-        restoredPackages := Environment.GetEnvironmentVariable("NUGET_PACKAGES") ?? ""
-        restoredAssembly := Path.Combine(
-            Path.Combine(Path.Combine(Path.Combine(restoredPackages, "htmlagilitypack"), "1.12.4"), "lib/netstandard2.0"),
-            "HtmlAgilityPack.dll"
-        )
-        assert File.Exists(restoredAssembly), "HtmlAgilityPack 1.12.4 must be restored with the native test project's dependencies."
+        packageAssembly := typeof(HtmlAgilityPack.HtmlDocument).Assembly
+        restoredAssembly := packageAssembly.Location
+        restoredVersion := packageAssembly.GetName().Version
+        if restoredVersion == null {
+            throw new InvalidOperationException("HtmlAgilityPack's assembly does not declare a version.")
+        }
+        assert restoredVersion.Major == 1 && restoredVersion.Minor == 12 && restoredVersion.Build == 4, "Expected HtmlAgilityPack 1.12.4 from the native test project's dependencies, found " + restoredVersion.ToString() + "."
 
         packageDirectory := ResolutionPackageDirectory(cache, "HtmlAgilityPack", "1.12.4")
         ResolutionWriteNuspec(packageDirectory, "HtmlAgilityPack", "1.12.4", ResolutionNoDependencies())
