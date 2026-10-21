@@ -50,6 +50,22 @@ func ResolverQuote(value: string): string {
     return "\"" + value.Replace("\"", "\\\"") + "\""
 }
 
+// The reference-resolution contract concerns the runner's values, not whether the bootstrap compiler
+// emits a bare member as a field or the current compiler emits it as an auto-property.
+func ResolverResultMember(result: object, name: string): object? {
+    property := result.GetType().GetProperty(name)
+    if property != null {
+        return property.GetValue(result)
+    }
+
+    field := result.GetType().GetField(name)
+    if field != null {
+        return field.GetValue(result)
+    }
+
+    return null
+}
+
 func ResolverRunProcess(fileName: string, arguments: string, workingDirectory: string): ResolverRun {
     runnerType := Type.GetType("NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Driver")
     if runnerType == null {
@@ -78,15 +94,15 @@ func ResolverRunProcess(fileName: string, arguments: string, workingDirectory: s
         throw new InvalidOperationException("DotnetRunner.RunProcess returned null.")
     }
 
-    exitCodeProperty := result.GetType().GetProperty("ExitCode")
-    stdoutProperty := result.GetType().GetProperty("Stdout")
-    stderrProperty := result.GetType().GetProperty("Stderr")
-    if exitCodeProperty == null || stdoutProperty == null || stderrProperty == null {
-        throw new InvalidOperationException("DotnetRunner.RunProcess result properties were not found.")
+    exitCodeValue := ResolverResultMember(result, "ExitCode")
+    stdoutValue := ResolverResultMember(result, "Stdout")
+    stderrValue := ResolverResultMember(result, "Stderr")
+    if exitCodeValue == null || stdoutValue == null || stderrValue == null {
+        throw new InvalidOperationException("DotnetRunner.RunProcess result members were not found.")
     }
-    exitCode := Convert.ToInt32(exitCodeProperty.GetValue(result))
-    stdout := Convert.ToString(stdoutProperty.GetValue(result)) ?? ""
-    stderr := Convert.ToString(stderrProperty.GetValue(result)) ?? ""
+    exitCode := Convert.ToInt32(exitCodeValue)
+    stdout := Convert.ToString(stdoutValue) ?? ""
+    stderr := Convert.ToString(stderrValue) ?? ""
     return new ResolverRun(exitCode, stdout, stderr)
 }
 
