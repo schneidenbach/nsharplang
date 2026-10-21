@@ -2153,7 +2153,7 @@ class ColumnarDirectCallPlanner {
         }
 
         selection := ColumnarExtensionMethodSelection.None()
-        if !scope.TryResolveExplicitExtensionMethod(receiverType, memberName, typeArguments, argumentTypes, argumentFacts, argumentTypes.Length, out selection) || selection == null || !selection.IsSelected {
+        if !scope.TryResolveExplicitExtensionMethod(receiverType, memberName, typeArguments, argumentTypes, argumentFacts, argumentTypes.Length, out selection, null) || selection == null || !selection.IsSelected {
             return false
         }
 

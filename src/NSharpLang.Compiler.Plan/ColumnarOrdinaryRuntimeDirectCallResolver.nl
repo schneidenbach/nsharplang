@@ -194,7 +194,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         genericDefinition := typeof(object)
         closedArguments := new Type[](0)
         if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
-            return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, false)
+            return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, false, false)
         }
 
         try {
