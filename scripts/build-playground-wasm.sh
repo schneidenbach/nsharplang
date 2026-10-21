@@ -53,6 +53,8 @@ fi
 rm -rf "$STATIC_DIR"
 mkdir -p "$(dirname "$STATIC_DIR")"
 cp -R "$BUNDLE_ROOT" "$STATIC_DIR"
-zip -q -9 -j "$STATIC_DIR/references.zip" "$REFERENCE_PACK"/*.dll
+# The ownership snapshot covers this generated archive. Omit host-specific extended attributes
+# (including access times and UID/GID) so identical reference assemblies produce identical bytes.
+zip -q -9 -j -X "$STATIC_DIR/references.zip" "$REFERENCE_PACK"/*.dll
 
 echo "Playground WASM assets copied to website/static/playground/wasm"
