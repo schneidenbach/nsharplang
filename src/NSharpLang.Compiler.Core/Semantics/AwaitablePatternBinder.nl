@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Diagnostics.CodeAnalysis
 import System.Reflection
 import System.Runtime.CompilerServices
 import NSharpLang.Compiler.Ast
@@ -112,11 +113,9 @@ class AwaitablePatternBinder {
             return false
         }
 
-        criticalContract := FindCompletionInterface(awaiterType, typeof(ICriticalNotifyCompletion))
-        notifyContract := FindCompletionInterface(awaiterType, typeof(INotifyCompletion))
-        critical := criticalContract != null
-        contract := critical ? criticalContract : notifyContract
-        if contract == null {
+        critical := FindCompletionInterface(awaiterType, typeof(ICriticalNotifyCompletion)) != null
+        contract := critical ? typeof(ICriticalNotifyCompletion) : typeof(INotifyCompletion)
+        if !critical && FindCompletionInterface(awaiterType, contract) == null {
             return false
         }
 
@@ -909,7 +908,11 @@ class AwaitablePatternBinder {
         return selected
     }
 
-    static func ResolveInterfaceSlot(awaiterType: Type, contract: Type, methodName: string): MethodInfo? {
+    static func ResolveInterfaceSlot(
+        awaiterType: Type,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] contract: Type,
+        methodName: string
+    ): MethodInfo? {
         if awaiterType == null || contract == null || methodName == null {
             return null
         }
