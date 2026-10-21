@@ -640,6 +640,43 @@ test "exceptions after an await fault the task with the original exception" {
     assert observed
 }
 
+test "an exception from an awaiting finally replaces the pending exception" {
+    finallyGate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+    original := new InvalidOperationException("try body")
+    replacement := new ApplicationException("finally body")
+    pending := ThrowFromAwaitingFinally(Task.CompletedTask, finallyGate.Task, original, replacement)
+    assert !pending.IsCompleted
+
+    finallyGate.SetResult()
+    observed := false
+    try {
+        pending.GetAwaiter().GetResult()
+    } catch error: ApplicationException {
+        observed = error == replacement
+    }
+    assert observed
+    assert pending.IsFaulted
+    assert (must pending.Exception).InnerException == replacement
+}
+
+test "a successful awaiting finally preserves the pending exception" {
+    finallyGate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+    original := new InvalidOperationException("try body")
+    pending := ThrowThroughAwaitingFinally(Task.CompletedTask, finallyGate.Task, original)
+    assert !pending.IsCompleted
+
+    finallyGate.SetResult()
+    observed := false
+    try {
+        pending.GetAwaiter().GetResult()
+    } catch error: InvalidOperationException {
+        observed = error == original
+    }
+    assert observed
+    assert pending.IsFaulted
+    assert (must pending.Exception).InnerException == original
+}
+
 test "cancellation while awaiting completes the returned task as canceled" {
     gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
     pending := PropagateCancellation(gate.Task)

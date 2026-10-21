@@ -129,6 +129,25 @@ async func ThrowAfterAwait(source: Task<int>, error: Exception): Task<int> {
     throw error
 }
 
+async func ThrowFromAwaitingFinally(source: Task, finallyGate: Task, original: Exception, replacement: Exception): Task<int> {
+    try {
+        await source
+        throw original
+    } finally {
+        await finallyGate
+        throw replacement
+    }
+}
+
+async func ThrowThroughAwaitingFinally(source: Task, finallyGate: Task, original: Exception): Task<int> {
+    try {
+        await source
+        throw original
+    } finally {
+        await finallyGate
+    }
+}
+
 async func PropagateCancellation(source: Task<int>): Task<int> {
     return await source
 }

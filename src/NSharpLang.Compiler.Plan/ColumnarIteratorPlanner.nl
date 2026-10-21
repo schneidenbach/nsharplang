@@ -1836,10 +1836,12 @@ class ColumnarIteratorPlanner {
         }
         state.CurrentRegion = enclosing
         if finallyNode >= 0 {
-            if !WalkStatement(nodes, source, finallyNode, state) {
-                // A `finally` that cannot complete would swallow every path through the statement;
-                // the analyzer already refuses control transfers out of one, so the remaining way to
-                // reach this is an unconditional `throw`, which no lowering can resume from.
+            finallyFalls := WalkStatement(nodes, source, finallyNode, state)
+            if !finallyFalls && !state.IsAsync {
+                // An unconditional throw is legal in C# and ends every path through the statement.
+                // Ordinary async bodies retain it in a CLR finally; an awaiting handler is emitted
+                // outside the protected region, where its throw reaches the outer async exception
+                // handler and replaces any exception parked for the pending exit.
                 state.Decline("emit.iterator.unsupported-shape", "a `finally` handler that cannot complete is not lowered in an iterator body")
                 return false
             }
@@ -6703,9 +6705,12 @@ class ColumnarIteratorBodyPlanner {
         }
         EndHoistedHandlerRegion(emit, false, pendingName)
         emit.HoistedHandlerDepth = emit.HoistedHandlerDepth + 1
-        EmitStatement(emit, finallyNode)
+        finallyFalls := EmitStatement(emit, finallyNode)
         emit.HoistedHandlerDepth = emit.HoistedHandlerDepth - 1
         if emit.Context.Declined {
+            return false
+        }
+        if !finallyFalls {
             return false
         }
 
@@ -6734,9 +6739,12 @@ class ColumnarIteratorBodyPlanner {
 
         EndHoistedHandlerRegion(emit, catchFalls, pendingName)
         emit.HoistedHandlerDepth += 1
-        EmitStatement(emit, finallyNode)
+        finallyFalls := EmitStatement(emit, finallyNode)
         emit.HoistedHandlerDepth -= 1
         if emit.Context.Declined {
+            return false
+        }
+        if !finallyFalls {
             return false
         }
 
