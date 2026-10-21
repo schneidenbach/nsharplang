@@ -596,7 +596,7 @@ test "external descriptors snapshot required and optional custom modifier order"
     assert StructuralImmutabilityAssertDeclaredFieldsInitOnly(typeof(ColumnarExternalMethodCustomModifierDescriptor))
 }
 
-test "external selection and completeness retain declared iteration and first Methods policy" {
+test "external selection keeps declared iteration and matches the exact source slot overload" {
     externalInterfaceUnsatisfied := ""
     voidType := ExecutorVoidType()
     noParameters := new Type[](0)
@@ -676,6 +676,9 @@ test "external selection and completeness retain declared iteration and first Me
         out externalInterfaceUnsatisfied
     )
 
+    // The compatibility `Methods` row points at the first same-name method, whose return type does
+    // not implement the interface slot. The complete overload table still contains the exact
+    // `void Run()` implementation, which is the source member selected for interface mapping.
     firstOnly := SourceCallDefinition("ExternalMemberFirstOnly", true)
     _wrongFirst := SourceCallDefineInstance(
         firstOnly,
@@ -693,7 +696,7 @@ test "external selection and completeness retain declared iteration and first Me
         voidType,
         (MethodAttributes)6
     )
-    assert !ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
+    assert ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
         firstOnly,
         ExternalMemberInterfaceList(left, null),
         out externalInterfaceUnsatisfied
