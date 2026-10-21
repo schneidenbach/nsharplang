@@ -446,6 +446,7 @@ test "the docs website grows freely while code placed under it stays audited" {
     assert OwnershipPolicy.Classify("website/src/Compiler.cs").Language == "csharp"
     assert OwnershipPolicy.Classify("website/static/playground/runtime.wasm").Language == "wasm-binary"
     assert OwnershipPolicy.Classify("website/static/playground/NSharpLang.Compiler.dll").Language == "managed-binary"
+    assert OwnershipPolicy.Classify("website/static/playground/wasm/references.zip").Language == "package-binary"
     assert OwnershipPolicy.Classify("website/scripts/publish.sh").Language == "shell"
     assert OwnershipPolicy.Classify("website/tools/emit.py").Language == "python"
     assert OwnershipPolicy.Classify("website/Site.csproj").Language == "msbuild"

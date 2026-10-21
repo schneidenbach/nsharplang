@@ -130,6 +130,7 @@ test "the delivery surfaces the user reviewed are ordinary rows of the live mani
     assert manifest.Contains("\"path\":\"src/NSharpLang.Sdk/NSharpLang.Sdk.csproj\"")
     assert manifest.Contains("\"path\":\"src/NSharpLang.Sdk/Sdk/Sdk.targets\"")
     assert manifest.Contains("\"path\":\"src/NSharpLang.Playground.Wasm/WasmAsyncLinker.xml\"")
+    assert manifest.Contains("\"path\":\"website/static/playground/wasm/references.zip\"")
     assert manifest.Contains("\"path\":\"NuGet.config\"")
     assert manifest.Contains("\"path\":\".github/workflows/cleanup-unofficial.yml\"")
     assert manifest.Contains("\"path\":\"tests/NSharpLang.IntegrationTests/ToolchainFixture.cs\"")
