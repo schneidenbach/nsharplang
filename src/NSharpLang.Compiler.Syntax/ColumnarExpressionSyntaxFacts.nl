@@ -6,6 +6,7 @@ namespace NSharpLang.Compiler.Columnar
 // span names only `member` while its full span begins at the `this` token. Trivia is absent from
 // the token stream, so the source between those two offsets may contain whitespace or comments.
 class ColumnarExpressionSyntaxFacts {
+
     // C# permits a void-returning expression lambda when its expression is a statement expression;
     // any value produced by that statement is evaluated and discarded. Keep the parser-node check in
     // the shared syntax layer so delegate binding and the lambda body emitter use the same grammar.
