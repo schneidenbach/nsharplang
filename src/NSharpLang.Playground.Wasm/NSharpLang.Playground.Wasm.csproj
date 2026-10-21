@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NSharpLang.Playground\NSharpLang.Playground.csproj" />
+    <TrimmerRootDescriptor Include="WasmAsyncLinker.xml" />
   </ItemGroup>
 
 </Project>

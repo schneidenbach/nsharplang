@@ -2,6 +2,9 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.IO
+import System.Reflection
+import System.Runtime.CompilerServices
 import System.Text.Json
 import NSharpLang.Compiler.Ast
 
@@ -688,4 +691,29 @@ test "type info identity compares recursive CLR identities" {
         leftBaked,
         rightBaked
     )
+}
+
+test "framework reference-pack interfaces match their runtime contract identity" {
+    runtimeDirectory := Path.GetDirectoryName(typeof(object).Assembly.Location) ?? ""
+    frameworkList := FrameworkNamespaceIndex.FindReferencePackFrameworkList(runtimeDirectory)
+    assert frameworkList != null, "the installed net10.0 SDK must provide its framework reference pack"
+    runtimeVersion := Path.GetFileName(Path.TrimEndingDirectorySeparator(runtimeDirectory)) ?? ""
+    referenceDirectory := FrameworkNamespaceIndex.ReferencePackAssemblyDirectory(frameworkList ?? "", runtimeVersion)
+    assert referenceDirectory != null, "the reference pack must contain its target-framework assembly directory"
+
+    referencePaths := Directory.GetFiles(referenceDirectory ?? "", "*.dll")
+    resolver := new PathAssemblyResolver(referencePaths)
+    context := new MetadataLoadContext(resolver, "System.Runtime")
+    try {
+        systemRuntime := context.LoadFromAssemblyPath(Path.Combine(referenceDirectory ?? "", "System.Runtime.dll"))
+        referenceNotify := systemRuntime.GetType("System.Runtime.CompilerServices.INotifyCompletion")
+        referenceCritical := systemRuntime.GetType("System.Runtime.CompilerServices.ICriticalNotifyCompletion")
+        assert referenceNotify != null, "the reference pack should expose INotifyCompletion in System.Runtime"
+        assert referenceCritical != null, "the reference pack should expose ICriticalNotifyCompletion in System.Runtime"
+        assert TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(referenceNotify ?? typeof(object), typeof(INotifyCompletion)), "INotifyCompletion reference/runtime identities should agree: " + (referenceNotify?.Assembly.FullName ?? "null") + " vs " + typeof(INotifyCompletion).Assembly.FullName
+        assert TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(referenceCritical ?? typeof(object), typeof(ICriticalNotifyCompletion)), "ICriticalNotifyCompletion reference/runtime identities should agree: " + (referenceCritical?.Assembly.FullName ?? "null") + " vs " + typeof(ICriticalNotifyCompletion).Assembly.FullName
+        assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(typeof(string), typeof(INotifyCompletion))
+    } finally {
+        context.Dispose()
+    }
 }

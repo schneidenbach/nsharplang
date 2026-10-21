@@ -237,6 +237,7 @@ sealed class CompilationReferenceResolver {
             )
             compiler := new MultiFileCompiler(projectRoot, config)
             compiler.AotMode = options.AotMode
+            compiler.EmitReferenceAssembly = options.EmitReferenceAssembly
             if context.CompilesConcurrently {
                 compiler.Workers = 1
             }

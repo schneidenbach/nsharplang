@@ -6,6 +6,7 @@ import System.Collections.Generic
 import System.Diagnostics
 import System.IO
 import System.Linq
+import System.Runtime.InteropServices
 import System.Text.Json
 import System.Threading
 import NSharpLang.Compiler.Ast
@@ -219,9 +220,9 @@ class MultiFileCompiler {
     }
 
     // THE REFERENCE ASSEMBLY IS THE COMPILER'S OUTPUT, NOT THE BUILD TASK'S REWRITE. A caller that
-    // needs one — the MSBuild SDK, which is the only consumer MSBuild's `ProduceReferenceAssembly`
-    // serves — asks for it here and reads it back from `ReferenceAssemblyPathFor`. `nlc build` asks
-    // for nothing, so the CLI path pays nothing.
+    // needs one asks for it here and reads it back from `ReferenceAssemblyPathFor`. The default CLI
+    // build avoids the extra write; callers such as the SDK and `nlc build --emit-reference-assembly`
+    // opt in when another compiler needs the public surface.
     EmitReferenceAssembly: bool {
         get {
             return _emitReferenceAssembly
@@ -2366,7 +2367,7 @@ class MultiFileCompiler {
         if dependenciesConfig != null {
             dependencies = dependenciesConfig.Dependencies
         }
-        referenceAssemblyPaths := ExternalAssemblyScan.ResolveReferencePaths(_projectRoot, dependencies)
+        referenceAssemblyPaths := ResolveReferenceAssemblyPaths(dependencies)
         let assembly: byte[] = null
         codegenMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.codegen")
         if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths)) {
@@ -2670,7 +2671,7 @@ class MultiFileCompiler {
         if dependenciesConfig != null {
             dependencies = dependenciesConfig.Dependencies
         }
-        referenceAssemblyPaths := ExternalAssemblyScan.ResolveReferencePaths(_projectRoot, dependencies)
+        referenceAssemblyPaths := ResolveReferenceAssemblyPaths(dependencies)
         let assembly: byte[] = null
         codegenMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.codegen")
         if !ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths) {
@@ -2714,6 +2715,73 @@ class MultiFileCompiler {
         }
 
         return true
+    }
+
+    // CLI builds normally resolve framework types against the installed shared runtime. A
+    // reference assembly is consumed by another compiler, so its framework type owners must come
+    // from the target framework reference packs (the same surface MSBuild passes to the SDK task).
+    // Keep project/package references, drop shared-runtime copies, then add each matching pack.
+    private func ResolveReferenceAssemblyPaths(dependencies: IReadOnlyList<Reference>?): IReadOnlyList<string> {
+        paths := ExternalAssemblyScan.ResolveReferencePaths(_projectRoot, dependencies)
+        if !_emitReferenceAssembly {
+            return paths
+        }
+
+        frameworkRuntimeDirectories := new List<string>()
+        frameworkRuntimeDirectories.Add(Path.GetFullPath(RuntimeEnvironment.GetRuntimeDirectory()))
+        config := _config
+        if config != null {
+            configuredFrameworkDirectories := CompilationReferenceResolver.ResolveFrameworkReferenceDirectories(_projectRoot, config)
+            for configuredDirectory in configuredFrameworkDirectories {
+                normalized := Path.GetFullPath(configuredDirectory)
+                if !frameworkRuntimeDirectories.Contains(normalized) {
+                    frameworkRuntimeDirectories.Add(normalized)
+                }
+            }
+        }
+
+        referencePaths := new List<string>()
+        for path in paths {
+            directory := Path.GetDirectoryName(Path.GetFullPath(path))
+            isSharedRuntimePath := false
+            for frameworkRuntimeDirectory in frameworkRuntimeDirectories {
+                if string.Equals(directory ?? "", frameworkRuntimeDirectory, StringComparison.OrdinalIgnoreCase) {
+                    isSharedRuntimePath = true
+                    break
+                }
+            }
+            if !isSharedRuntimePath {
+                referencePaths.Add(path)
+            }
+        }
+
+        if config == null {
+            return referencePaths
+        }
+
+        for frameworkRuntimeDirectory in frameworkRuntimeDirectories {
+            frameworkList := FrameworkNamespaceIndex.FindReferencePackFrameworkList(frameworkRuntimeDirectory)
+            if frameworkList == null {
+                continue
+            }
+            dataDirectory := Path.GetDirectoryName(frameworkList)
+            packDirectory: string? = null
+            if dataDirectory != null {
+                packDirectory = Path.GetDirectoryName(dataDirectory)
+            }
+            if packDirectory == null {
+                continue
+            }
+            targetReferenceDirectory := Path.Combine(Path.Combine(packDirectory, "ref"), config.TargetFramework)
+            if !Directory.Exists(targetReferenceDirectory) {
+                continue
+            }
+            for referencePath in Directory.GetFiles(targetReferenceDirectory, "*.dll", SearchOption.TopDirectoryOnly) {
+                referencePaths.Add(referencePath)
+            }
+        }
+
+        return ExternalAssemblyScan.CanonicalizeReferencePaths(referencePaths)
     }
 
     // MSBuild task threads have ~256 KB stacks and the emitter's per-node recursion frames are large, so

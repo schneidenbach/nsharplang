@@ -4,6 +4,9 @@ import System
 import System.Collections.Generic
 import System.Globalization
 import System.Linq
+import System.Reflection
+import System.Runtime.CompilerServices
+import System.Runtime.ExceptionServices
 import System.Text
 import System.Threading.Tasks
 import NSharpLang.Compiler
@@ -128,6 +131,7 @@ internal sealed class PlaygroundRunner {
         returnStatement := statement as ReturnStatement
         ifStatement := statement as IfStatement
         foreachStatement := statement as ForeachStatement
+        tryStatement := statement as TryStatement
         throwStatement := statement as ThrowStatement
         if block != null {
             await ExecuteAsyncBlock(block, new RuntimeEnvironment(environment), depth + 1)
@@ -167,6 +171,8 @@ internal sealed class PlaygroundRunner {
                 loopEnvironment.Declare(foreachStatement.VariableName, foreachValue)
                 await ExecuteAsyncStatement(foreachStatement.Body, loopEnvironment, depth + 1)
             }
+        } else if tryStatement != null {
+            await ExecuteAsyncTry(tryStatement, environment, depth + 1)
         } else if throwStatement != null {
             thrown := throwStatement.Expression
             if thrown == null {
@@ -179,12 +185,91 @@ internal sealed class PlaygroundRunner {
         }
     }
 
+    private async func ExecuteAsyncTry(statement: TryStatement, environment: RuntimeEnvironment, depth: int): Task {
+        try {
+            try {
+                await ExecuteAsyncBlock(statement.TryBlock, new RuntimeEnvironment(environment), depth + 1)
+            } catch caught: Exception {
+                signal := caught as ReturnSignal
+                unsupported := caught as PlaygroundRunUnsupportedException
+                if signal != null || unsupported != null {
+                    throw caught
+                }
+
+                thrown := caught as PlaygroundThrownException
+                handled := false
+                for clause in statement.CatchClauses {
+                    if !CatchMatches(clause, caught, thrown) {
+                        continue
+                    }
+                    catchEnvironment := new RuntimeEnvironment(environment)
+                    if clause.VariableName != null {
+                        caughtValue: object? = caught
+                        if thrown != null {
+                            caughtValue = thrown.Value
+                        }
+                        catchEnvironment.Declare(clause.VariableName, caughtValue)
+                    }
+                    if clause.Filter != null {
+                        filterPassed := CatchFilterMatches(clause, catchEnvironment, depth + 1)
+                        if !filterPassed {
+                            continue
+                        }
+                    }
+                    await ExecuteAsyncBlock(clause.Block, catchEnvironment, depth + 1)
+                    handled = true
+                    break
+                }
+                if !handled {
+                    throw caught
+                }
+            }
+        } finally {
+            if statement.FinallyBlock != null {
+                await ExecuteAsyncBlock(statement.FinallyBlock, new RuntimeEnvironment(environment), depth + 1)
+            }
+        }
+    }
+
+    private static func CatchMatches(clause: CatchClause, caught: Exception, thrown: PlaygroundThrownException?): bool {
+        if clause.ExceptionType == null {
+            return true
+        }
+        catchName := GetTypeName(clause.ExceptionType) ?? ""
+        if catchName == "Exception" || catchName == "System.Exception" {
+            return true
+        }
+        if thrown != null {
+            runtimeError := thrown.Value as RuntimeError
+            if runtimeError != null {
+                return catchName == "RuntimeError"
+            }
+            runtimeObject := thrown.Value as RuntimeObject
+            return runtimeObject != null && runtimeObject.Declaration != null && PlaygroundRunFacts.DeclarationName(runtimeObject.Declaration) == catchName
+        }
+        return caught.GetType().Name == catchName || caught.GetType().FullName == catchName
+    }
+
+    private func CatchFilterMatches(clause: CatchClause, environment: RuntimeEnvironment, depth: int): bool {
+        if clause.Filter == null {
+            return true
+        }
+        return IsTruthy(Evaluate(clause.Filter, environment, depth))
+    }
+
     async func EvaluateAsync(expression: Expression, environment: RuntimeEnvironment, depth: int): Task<object?> {
         Step(expression)
 
         awaited := expression as AwaitExpression
         if awaited != null {
-            return await AwaitTaskValue(await EvaluateAsync(awaited.Expression, environment, depth))
+            try {
+                return await AwaitTaskValue(await EvaluateAsync(awaited.Expression, environment, depth))
+            } catch unsupported: PlaygroundRunUnsupportedException {
+                if unsupported.Line > 0 {
+                    throw unsupported
+                }
+                throw new PlaygroundRunUnsupportedException(unsupported.Code, unsupported.Message, awaited.Line, awaited.Column, 1)
+            }
         }
 
         parenthesized := expression as ParenthesizedExpression
@@ -246,12 +331,26 @@ internal sealed class PlaygroundRunner {
             if taskType != null && taskType.Name == "Task" && member.MemberName == "CompletedTask" {
                 return Task.CompletedTask
             }
+            valueTaskType := member.Object as IdentifierExpression
+            if valueTaskType != null && valueTaskType.Name == "ValueTask" && member.MemberName == "CompletedTask" {
+                return ValueTask.CompletedTask
+            }
             target := await EvaluateAsync(member.Object, environment, depth)
             runtimeObject := target as RuntimeObject
             if runtimeObject != null {
                 fieldValue: object? = null
                 if runtimeObject.Fields.TryGetValue(member.MemberName, out fieldValue) {
                     return fieldValue
+                }
+                property := FindProperty(runtimeObject.Declaration, member.MemberName)
+                if property != null {
+                    return ReadRuntimeProperty(runtimeObject, property, depth)
+                }
+            }
+            if target != null {
+                propertyResult: object?[] = ReadClrProperty(target, member.MemberName)
+                if Convert.ToBoolean(propertyResult[0]) {
+                    return propertyResult[1]
                 }
             }
             return EvaluateMemberAccess(member, environment, depth)
@@ -263,10 +362,26 @@ internal sealed class PlaygroundRunner {
             i := 0
             while i < array.Elements.Count {
                 arrayElement := await EvaluateAsync(array.Elements[i], environment, depth)
-                values[i] = arrayElement
+                SetArrayElement(values, i, arrayElement)
                 i = i + 1
             }
             return values
+        }
+
+        newExpression := expression as NewExpression
+        if newExpression != null {
+            arguments := new object?[](newExpression.ConstructorArguments.Count)
+            i := 0
+            while i < arguments.Length {
+                argumentValue := await EvaluateAsync(newExpression.ConstructorArguments[i].Value, environment, depth)
+                SetArrayElement(arguments, i, argumentValue)
+                i += 1
+            }
+            created := EvaluateNewWithArguments(newExpression, arguments)
+            if newExpression.Initializer != null {
+                await ApplyAsyncInitializer(created, newExpression.Initializer, environment, depth)
+            }
+            return created
         }
 
         return Evaluate(expression, environment, depth)
@@ -277,12 +392,26 @@ internal sealed class PlaygroundRunner {
         i := 0
         while i < call.Arguments.Count {
             callArgument := await EvaluateAsync(call.Arguments[i].Value, environment, depth)
-            arguments[i] = callArgument
+            SetArrayElement(arguments, i, callArgument)
             i = i + 1
         }
 
         identifier := call.Callee as IdentifierExpression
         if identifier != null {
+            boundValue := ReadBoundValue(environment, identifier.Name)
+            if boundValue != null {
+                callable := boundValue as Delegate
+                if callable != null {
+                    return callable.DynamicInvoke(ToInvocationArguments(arguments))
+                }
+                runtimeFunction := boundValue as RuntimeFunction
+                if runtimeFunction != null {
+                    if AnalyzerAmbientContext.HasModifier(runtimeFunction.Declaration, Modifiers.Async) {
+                        return InvokeFunctionAsync(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
+                    }
+                    return InvokeFunction(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
+                }
+            }
             function: FunctionDeclaration? = null
             if functions.TryGetValue(identifier.Name, out function) {
                 if AnalyzerAmbientContext.HasModifier(function, Modifiers.Async) {
@@ -300,6 +429,9 @@ internal sealed class PlaygroundRunner {
 
         taskType := member.Object as IdentifierExpression
         if taskType != null && taskType.Name == "Task" {
+            if member.MemberName == "Yield" && arguments.Length == 0 {
+                return Task.Yield()
+            }
             if member.MemberName == "Delay" && arguments.Length == 1 {
                 return Task.Delay(ToInt(arguments[0]))
             }
@@ -308,8 +440,38 @@ internal sealed class PlaygroundRunner {
             }
             throw Unsupported(PlaygroundRunFacts.UnsupportedReceiverMember(member.MemberName))
         }
+        valueTaskType := member.Object as IdentifierExpression
+        if valueTaskType != null && valueTaskType.Name == "ValueTask" {
+            if member.MemberName == "CompletedTask" && arguments.Length == 0 {
+                return ValueTask.CompletedTask
+            }
+            if member.MemberName == "FromResult" && arguments.Length == 1 {
+                return new ValueTask<object?>(arguments[0])
+            }
+            throw Unsupported(PlaygroundRunFacts.UnsupportedReceiverMember(member.MemberName))
+        }
 
         target := await EvaluateAsync(member.Object, environment, depth)
+        if member.MemberName == "ConfigureAwait" && arguments.Length == 1 {
+            if target as Task != null {
+                // There is no UI synchronization context in the hosted runner, so ConfigureAwait's
+                // capture flag cannot change where its continuation runs. Keep the original Task.
+                return target
+            }
+            if target != null {
+                configuredValueTaskType := target.GetType()
+                if configuredValueTaskType == typeof(ValueTask) || (configuredValueTaskType.IsGenericType && configuredValueTaskType.GetGenericTypeDefinition() == typeof(ValueTask<object?>).GetGenericTypeDefinition()) {
+                    asTask := configuredValueTaskType.GetMethod("AsTask", BindingFlags.Public | BindingFlags.Instance)
+                    if asTask != null {
+                        try {
+                            return asTask.Invoke(target, null)
+                        } catch invocationFailure: TargetInvocationException {
+                            RethrowInvocationFailure(invocationFailure)
+                        }
+                    }
+                }
+            }
+        }
         runtimeObject := target as RuntimeObject
         if runtimeObject != null {
             method := FindMethod(runtimeObject.Declaration, member.MemberName, arguments.Length, false)
@@ -338,22 +500,174 @@ internal sealed class PlaygroundRunner {
     }
 
     async func AwaitTaskValue(value: object?): Task<object?> {
-        genericValue := value as Task<object?>
-        if genericValue != null {
-            return await genericValue
-        }
-        task := value as Task
-        if task == null {
+        if value == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand without a task value"))
         }
-        await task
-        if task.GetType().IsGenericType {
-            resultProperty := task.GetType().GetProperty("Result")
-            if resultProperty != null {
-                return resultProperty.GetValue(task)
+
+        runtimeObject := value as RuntimeObject
+        if runtimeObject != null {
+            return await AwaitSourceAwaitable(runtimeObject)
+        }
+
+        task := value as Task
+        if task != null {
+            await task
+            taskType := task.GetType()
+            if taskType.IsGenericType {
+                resultProperty := taskType.GetProperty("Result", BindingFlags.Public | BindingFlags.Instance)
+                if resultProperty != null {
+                    try {
+                        return resultProperty.GetValue(task)
+                    } catch invocationFailure: TargetInvocationException {
+                        RethrowInvocationFailure(invocationFailure)
+                    }
+                }
+            }
+            return null
+        }
+
+        awaitableType := value.GetType()
+        if awaitableType == typeof(YieldAwaitable) {
+            // The browser linker does not preserve YieldAwaitable.GetAwaiter for reflection.
+            // Task.Yield always suspends once, so model its await contract directly here.
+            await Task.Yield()
+            return null
+        }
+        if awaitableType == typeof(ValueTask) || (awaitableType.IsGenericType && awaitableType.GetGenericTypeDefinition() == typeof(ValueTask<object?>).GetGenericTypeDefinition()) {
+            asTask := awaitableType.GetMethod("AsTask", BindingFlags.Public | BindingFlags.Instance)
+            if asTask == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("ValueTask has no AsTask method"))
+            }
+            try {
+                taskValue := asTask.Invoke(value, null)
+                return await AwaitTaskValue(taskValue)
+            } catch invocationFailure: TargetInvocationException {
+                RethrowInvocationFailure(invocationFailure)
             }
         }
+        getAwaiter := awaitableType.GetMethod("GetAwaiter", BindingFlags.Public | BindingFlags.Instance)
+        if getAwaiter == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand without a public GetAwaiter method"))
+        }
+        awaiter: object? = null
+        try {
+            awaiter = getAwaiter.Invoke(value, null)
+        } catch invocationFailure: TargetInvocationException {
+            RethrowInvocationFailure(invocationFailure)
+        }
+        if awaiter == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("GetAwaiter returned no awaiter"))
+        }
+
+        awaiterType := awaiter.GetType()
+        isCompletedProperty := awaiterType.GetProperty("IsCompleted", BindingFlags.Public | BindingFlags.Instance)
+        getResult := awaiterType.GetMethod("GetResult", BindingFlags.Public | BindingFlags.Instance)
+        if isCompletedProperty == null || getResult == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand has an incomplete awaiter pattern"))
+        }
+        isCompleted := Convert.ToBoolean(isCompletedProperty.GetValue(awaiter))
+        if !isCompleted {
+            completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
+            continuation := CreateAwaiterContinuation(completion)
+            callbackArguments := new object?[](1)
+            callbackArguments[0] = continuation
+            if typeof(ICriticalNotifyCompletion).IsAssignableFrom(awaiterType) {
+                unsafeOnCompleted := typeof(ICriticalNotifyCompletion).GetMethod("UnsafeOnCompleted")
+                if unsafeOnCompleted == null {
+                    throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("critical awaiter has no UnsafeOnCompleted method"))
+                }
+                try {
+                    unsafeOnCompleted.Invoke(awaiter, callbackArguments)
+                } catch invocationFailure: TargetInvocationException {
+                    RethrowInvocationFailure(invocationFailure)
+                }
+            } else if typeof(INotifyCompletion).IsAssignableFrom(awaiterType) {
+                onCompleted := typeof(INotifyCompletion).GetMethod("OnCompleted")
+                if onCompleted == null {
+                    throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("awaiter has no OnCompleted method"))
+                }
+                try {
+                    onCompleted.Invoke(awaiter, callbackArguments)
+                } catch invocationFailure: TargetInvocationException {
+                    RethrowInvocationFailure(invocationFailure)
+                }
+            } else {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("awaiter does not implement INotifyCompletion"))
+            }
+            await completion.Task
+        }
+        try {
+            return getResult.Invoke(awaiter, null)
+        } catch invocationFailure: TargetInvocationException {
+            RethrowInvocationFailure(invocationFailure)
+        }
         return null
+    }
+
+    private async func AwaitSourceAwaitable(value: RuntimeObject): Task<object?> {
+        getAwaiter := FindMethod(value.Declaration, "GetAwaiter", 0, false)
+        if getAwaiter == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand has no GetAwaiter method"))
+        }
+        awaiterValue := InvokeFunction(getAwaiter, new object?[](0), value, 0)
+        awaiter := awaiterValue as RuntimeObject
+        if awaiter == null {
+            return await AwaitTaskValue(awaiterValue)
+        }
+        isCompletedValue := ReadRuntimeProperty(awaiter, "IsCompleted", 0)
+        if !Convert.ToBoolean(isCompletedValue) {
+            completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
+            continuation := CreateAwaiterContinuation(completion)
+            completionArguments := new object?[](1)
+            completionArguments[0] = continuation
+            critical := RuntimeTypeImplements(awaiter.Declaration, "ICriticalNotifyCompletion")
+            callbackName := critical ? "UnsafeOnCompleted" : "OnCompleted"
+            continuationMethod := FindAwaitContinuationMethod(awaiter.Declaration, callbackName)
+            if continuationMethod == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter has no completion-interface implementation"))
+            }
+            InvokeFunction(continuationMethod, completionArguments, awaiter, 0)
+            await completion.Task
+        }
+        getResult := FindMethod(awaiter.Declaration, "GetResult", 0, false)
+        if getResult == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter has no GetResult method"))
+        }
+        return InvokeFunction(getResult, new object?[](0), awaiter, 0)
+    }
+
+    private static func RethrowInvocationFailure(failure: TargetInvocationException) {
+        if failure.InnerException != null {
+            ExceptionDispatchInfo.Capture(failure.InnerException).Throw()
+        }
+        throw failure
+    }
+
+    private static func CreateAwaiterContinuation(completion: TaskCompletionSource<object?>): Action {
+        return PlaygroundAwaiterCompletionSignal.CreateAction(completion)
+    }
+
+    private static func ReadClrProperty(target: object, name: string): object?[] {
+        result := new object?[](2)
+        result[0] = false
+        result[1] = null
+        property := target.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance)
+        if property == null || property.GetIndexParameters().Length != 0 {
+            return result
+        }
+        try {
+            result[0] = true
+            result[1] = property.GetValue(target)
+        } catch invocationFailure: TargetInvocationException {
+            RethrowInvocationFailure(invocationFailure)
+        }
+        return result
+    }
+
+    private static func ReadBoundValue(environment: RuntimeEnvironment, name: string): object? {
+        value: object? = null
+        environment.TryGet(name, out value)
+        return value
     }
 
     private func InvokeFunction(function: FunctionDeclaration, arguments: IReadOnlyList<object?>, receiver: RuntimeObject?, depth: int): object? {
@@ -784,6 +1098,17 @@ internal sealed class PlaygroundRunner {
         }
         identifier := call.Callee as IdentifierExpression
         if identifier != null {
+            boundValue: object? = null
+            if environment.TryGet(identifier.Name, out boundValue) {
+                callable := boundValue as Delegate
+                if callable != null {
+                    return callable.DynamicInvoke(ToInvocationArguments(arguments))
+                }
+                runtimeFunction := boundValue as RuntimeFunction
+                if runtimeFunction != null {
+                    return InvokeFunction(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
+                }
+            }
             return CallIdentifier(identifier.Name, arguments, depth)
         }
         member := call.Callee as MemberAccessExpression
@@ -823,6 +1148,31 @@ internal sealed class PlaygroundRunner {
     }
 
     private static func CallClrLikeMember(target: object?, memberName: string, arguments: IReadOnlyList<object?>): object? {
+        callable := target as Delegate
+        if callable != null {
+            return callable.DynamicInvoke(ToInvocationArguments(arguments))
+        }
+
+        criticalAwaiter := target as ICriticalNotifyCompletion
+        if criticalAwaiter != null && memberName == "UnsafeOnCompleted" && arguments.Count == 1 {
+            continuation := arguments[0] as Action
+            if continuation == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("awaiter continuation is not an Action"))
+            }
+            criticalAwaiter.UnsafeOnCompleted(continuation)
+            return null
+        }
+
+        notifyAwaiter := target as INotifyCompletion
+        if notifyAwaiter != null && memberName == "OnCompleted" && arguments.Count == 1 {
+            continuation := arguments[0] as Action
+            if continuation == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("awaiter continuation is not an Action"))
+            }
+            notifyAwaiter.OnCompleted(continuation)
+            return null
+        }
+
         text := target as string
         if text != null {
             if memberName == "ToUpper" && arguments.Count == 0 {
@@ -878,6 +1228,43 @@ internal sealed class PlaygroundRunner {
             }
             throw Unsupported(PlaygroundRunFacts.UnsupportedNumericMember(memberName))
         }
+
+        if target != null {
+            methods := target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            for method in methods {
+                if method.Name != memberName || method.IsGenericMethodDefinition {
+                    continue
+                }
+                parameters := method.GetParameters()
+                if parameters.Length != arguments.Count {
+                    continue
+                }
+                invocationArguments := ToInvocationArguments(arguments)
+                matches := true
+                parameterIndex := 0
+                while parameterIndex < parameters.Length {
+                    argument := invocationArguments[parameterIndex]
+                    parameterType := parameters[parameterIndex].ParameterType
+                    if argument == null {
+                        if parameterType.IsValueType && Nullable.GetUnderlyingType(parameterType) == null {
+                            matches = false
+                            break
+                        }
+                    } else if !parameterType.IsInstanceOfType(argument) {
+                        matches = false
+                        break
+                    }
+                    parameterIndex += 1
+                }
+                if matches {
+                    try {
+                        return method.Invoke(target, invocationArguments)
+                    } catch invocationFailure: TargetInvocationException {
+                        RethrowInvocationFailure(invocationFailure)
+                    }
+                }
+            }
+        }
         throw Unsupported(PlaygroundRunFacts.UnsupportedReceiverMember(memberName))
     }
 
@@ -888,6 +1275,10 @@ internal sealed class PlaygroundRunner {
             value: object? = null
             if runtimeObject.Fields.TryGetValue(member.MemberName, out value) {
                 return value
+            }
+            property := FindProperty(runtimeObject.Declaration, member.MemberName)
+            if property != null {
+                return ReadRuntimeProperty(runtimeObject, property, depth)
             }
             method := FindMethod(runtimeObject.Declaration, member.MemberName, null, false)
             if method != null {
@@ -918,7 +1309,131 @@ internal sealed class PlaygroundRunner {
                 return new RuntimeFunction(method, null)
             }
         }
+        if target != null {
+            property := target.GetType().GetProperty(member.MemberName, BindingFlags.Public | BindingFlags.Instance)
+            if property != null && property.GetIndexParameters().Length == 0 {
+                try {
+                    return property.GetValue(target)
+                } catch invocationFailure: TargetInvocationException {
+                    RethrowInvocationFailure(invocationFailure)
+                }
+            }
+        }
         throw Unsupported(PlaygroundRunFacts.UnresolvedMember(member.MemberName))
+    }
+
+    private func FindProperty(declaration: Declaration?, name: string): PropertyDeclaration? {
+        if declaration == null {
+            return null
+        }
+        members: List<Declaration>? = null
+        classDeclaration := declaration as ClassDeclaration
+        if classDeclaration != null {
+            members = classDeclaration.Members
+        } else {
+            structDeclaration := declaration as StructDeclaration
+            if structDeclaration != null {
+                members = structDeclaration.Members
+            } else {
+                recordDeclaration := declaration as RecordDeclaration
+                if recordDeclaration != null {
+                    members = recordDeclaration.Members
+                }
+            }
+        }
+        if members == null {
+            return null
+        }
+        for member in members {
+            property := member as PropertyDeclaration
+            if property != null && string.Equals(property.Name, name, StringComparison.Ordinal) {
+                return property
+            }
+        }
+        return null
+    }
+
+    private func ReadRuntimeProperty(runtimeObject: RuntimeObject, name: string, depth: int): object? {
+        value: object? = null
+        if runtimeObject.Fields.TryGetValue(name, out value) {
+            return value
+        }
+        property := FindProperty(runtimeObject.Declaration, name)
+        if property == null {
+            throw Unsupported(PlaygroundRunFacts.UnresolvedMember(name))
+        }
+        return ReadRuntimeProperty(runtimeObject, property, depth)
+    }
+
+    private func ReadRuntimeProperty(runtimeObject: RuntimeObject, property: PropertyDeclaration, depth: int): object? {
+        environment := new RuntimeEnvironment(runtimeObject.Environment)
+        environment.Declare(PlaygroundRunFacts.ReceiverBindingName(), runtimeObject)
+        try {
+            if property.ExpressionBody != null {
+                return Evaluate(property.ExpressionBody, environment, depth + 1)
+            }
+            if property.GetBody != null {
+                ExecuteBlock(property.GetBody, environment, depth + 1)
+            }
+        } catch returned: ReturnSignal {
+            return returned.Value
+        }
+        return null
+    }
+
+    private static func RuntimeTypeImplements(declaration: Declaration?, interfaceName: string): bool {
+        interfaces: List<TypeReference>? = null
+        classDeclaration := declaration as ClassDeclaration
+        if classDeclaration != null {
+            interfaces = classDeclaration.Interfaces
+        } else {
+            structDeclaration := declaration as StructDeclaration
+            if structDeclaration != null {
+                interfaces = structDeclaration.Interfaces
+            } else {
+                recordDeclaration := declaration as RecordDeclaration
+                if recordDeclaration != null {
+                    interfaces = recordDeclaration.Interfaces
+                }
+            }
+        }
+        if interfaces == null {
+            return false
+        }
+        for interfaceReference in interfaces {
+            name := GetTypeName(interfaceReference) ?? ""
+            if name == interfaceName || name.EndsWith("." + interfaceName, StringComparison.Ordinal) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func FindAwaitContinuationMethod(declaration: Declaration?, methodName: string): FunctionDeclaration? {
+        method := FindMethod(declaration, methodName, 1, false)
+        if method != null {
+            return method
+        }
+        members: List<Declaration>? = null
+        classDeclaration := declaration as ClassDeclaration
+        if classDeclaration != null {
+            members = classDeclaration.Members
+        } else {
+            structDeclaration := declaration as StructDeclaration
+            if structDeclaration != null {
+                members = structDeclaration.Members
+            }
+        }
+        if members == null {
+            return null
+        }
+        for member in members {
+            function := member as FunctionDeclaration
+            if function != null && function.Parameters.Count == 1 && function.Name.EndsWith("." + methodName, StringComparison.Ordinal) {
+                return function
+            }
+        }
+        return null
     }
 
     private func SetMember(member: MemberAccessExpression, environment: RuntimeEnvironment, depth: int, value: object?) {
@@ -932,18 +1447,30 @@ internal sealed class PlaygroundRunner {
     }
 
     private func EvaluateNew(newExpression: NewExpression, environment: RuntimeEnvironment, depth: int): object {
-        typeName := GetTypeName(newExpression.Type)
-        if typeName == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
-        }
         arguments := new object?[](newExpression.ConstructorArguments.Count)
         i := 0
         while i < newExpression.ConstructorArguments.Count {
             arguments[i] = Evaluate(newExpression.ConstructorArguments[i].Value, environment, depth)
             i = i + 1
         }
+        created := EvaluateNewWithArguments(newExpression, arguments)
+        if newExpression.Initializer != null {
+            runtimeObject := created as RuntimeObject
+            if runtimeObject == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
+            }
+            ApplyInitializer(runtimeObject, newExpression.Initializer, environment, depth)
+        }
+        return created
+    }
+
+    private func EvaluateNewWithArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>): object {
+        typeName := GetTypeName(newExpression.Type)
+        if typeName == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
+        }
         if PlaygroundRunFacts.IsExceptionTypeName(typeName) {
-            if arguments.Length == 0 {
+            if arguments.Count == 0 {
                 return new RuntimeError("")
             }
             return new RuntimeError(FormatValue(arguments[0]))
@@ -960,10 +1487,30 @@ internal sealed class PlaygroundRunner {
         typeNamespaces.TryGetValue(typeName, out namespaceName)
         runtimeObject := new RuntimeObject(declaration, new RuntimeEnvironment(null), namespaceName)
         ApplyPrimaryConstructorArguments(runtimeObject, arguments)
-        if newExpression.Initializer != null {
-            ApplyInitializer(runtimeObject, newExpression.Initializer, environment, depth)
-        }
         return runtimeObject
+    }
+
+    private async func ApplyAsyncInitializer(value: object, initializer: ObjectInitializerExpression, environment: RuntimeEnvironment, depth: int): Task {
+        runtimeObject := value as RuntimeObject
+        if runtimeObject == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
+        }
+        for property in initializer.Properties {
+            if property.Name == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedIndexerInitializer())
+            }
+            propertyValue := await EvaluateAsync(property.Value, environment, depth)
+            SetRuntimeObjectField(runtimeObject, property.Name, propertyValue)
+        }
+    }
+
+    private static func SetArrayElement(values: object?[], index: int, value: object?) {
+        values[index] = value
+    }
+
+    private static func SetRuntimeObjectField(runtimeObject: RuntimeObject, name: string, value: object?) {
+        runtimeObject.Fields[name] = value
+        runtimeObject.Environment.Declare(name, value)
     }
 
     private func EvaluateObjectInitializer(initializer: ObjectInitializerExpression, environment: RuntimeEnvironment, depth: int): object {
@@ -1010,7 +1557,9 @@ internal sealed class PlaygroundRunner {
             if property.Name == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedIndexerInitializer())
             }
-            runtimeObject.Fields[property.Name] = Evaluate(property.Value, environment, depth)
+            value := Evaluate(property.Value, environment, depth)
+            runtimeObject.Fields[property.Name] = value
+            runtimeObject.Environment.Declare(property.Name, value)
         }
     }
 
@@ -1364,6 +1913,16 @@ internal sealed class PlaygroundRunner {
         return new PlaygroundRunUnsupportedException(fault.Code, fault.Message)
     }
 
+    private static func ToInvocationArguments(arguments: IReadOnlyList<object?>): object?[] {
+        values := new object?[](arguments.Count)
+        i := 0
+        while i < values.Length {
+            values[i] = arguments[i]
+            i += 1
+        }
+        return values
+    }
+
     private sealed class RuntimeEnvironment {
         private parent: RuntimeEnvironment?
         private values: Dictionary<string, object?>
@@ -1491,13 +2050,45 @@ internal sealed class PlaygroundRunner {
     }
 }
 
+internal sealed class PlaygroundAwaiterCompletionSignal {
+    Completion: TaskCompletionSource<object?>
+
+    constructor(completion: TaskCompletionSource<object?>) {
+        Completion = completion
+    }
+
+    func Signal(): void {
+        Completion.TrySetResult(null)
+    }
+
+    static func CreateAction(completion: TaskCompletionSource<object?>): Action {
+        signal := new PlaygroundAwaiterCompletionSignal(completion)
+        method := typeof(PlaygroundAwaiterCompletionSignal).GetMethod("Signal", BindingFlags.Public | BindingFlags.Instance)
+        if method == null {
+            throw new InvalidOperationException("The playground await continuation signal method is missing.")
+        }
+        callback := Delegate.CreateDelegate(typeof(Action), signal, method)
+        action := callback as Action
+        if action == null {
+            throw new InvalidOperationException("The playground await continuation could not be bound to Action.")
+        }
+        return action
+    }
+}
+
 internal sealed class PlaygroundRunUnsupportedException: Exception {
     Code: string
+    Line: int
+    Column: int
+    Length: int
     private messageValue: string
     Message: string => messageValue
 
-    constructor(code: string, message: string) {
+    constructor(code: string, message: string, line: int = 0, column: int = 0, length: int = 0) {
         Code = code
+        Line = line
+        Column = column
+        Length = length
         messageValue = message
     }
 }

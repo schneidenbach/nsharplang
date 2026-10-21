@@ -739,7 +739,7 @@ test "020 s38 playground tooling surfaces: Catalog StatesBrowserCapabilitiesAndE
     assert PgLimitationCount(catalog) == 4
     assert PgLimitation(catalog, 0) == "The hosted playground runs compiler analysis, formatting, completions, hover, syntax highlighting, and a bounded execution subset entirely in the browser."
     assert PgLimitation(catalog, 1) == "The Run button supports tutorial-scale code: functions, print, simple control flow, records/classes, object initializers, string/numeric helpers, and selected match patterns."
-    assert PgLimitation(catalog, 2) == "Full build, test execution, NuGet restore, filesystem workflows, LINQ, and unrestricted .NET interop require the local nlc toolchain. The browser runner supports async functions using Task.Delay and Task.FromResult."
+    assert PgLimitation(catalog, 2) == "Full build, test execution, NuGet restore, filesystem workflows, LINQ, and unrestricted .NET interop require the local nlc toolchain. The browser runner supports Task and ValueTask awaits, custom awaiter patterns, ConfigureAwait, and awaits in async try/catch/finally blocks."
     assert PgLimitation(catalog, 3) == "External assembly resolution is intentionally bounded for browser reliability."
     assert PgLimitation(catalog, 4) == "<no-such-limitation>"
     assert PgListCount(catalog, "Examples") == 10

@@ -909,13 +909,13 @@ class AnalyzerPassThroughOperands {
         resolved := declarationContextValue.ResolveDeclaredAlias(typeInfo)
         reflected := resolved as ReflectionTypeInfo
         if reflected != null {
-            return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(reflected.Type, typeof(System.Runtime.CompilerServices.INotifyCompletion))
+            return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(reflected.Type, typeof(System.Runtime.CompilerServices.INotifyCompletion))
         }
         constructed := resolved as GenericTypeInfo
         if constructed != null {
             definition := constructed.GenericDefinition as ReflectionTypeInfo
             if definition != null {
-                return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(definition.Type, typeof(System.Runtime.CompilerServices.INotifyCompletion))
+                return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(definition.Type, typeof(System.Runtime.CompilerServices.INotifyCompletion))
             }
         }
         return SourceTypeImplementsNotifyCompletion(resolved, depth + 1)
@@ -925,11 +925,11 @@ class AnalyzerPassThroughOperands {
         if type == null {
             return false
         }
-        if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(type, typeof(System.Runtime.CompilerServices.INotifyCompletion)) {
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(type, typeof(System.Runtime.CompilerServices.INotifyCompletion)) {
             return true
         }
         for implemented in type.GetInterfaces() {
-            if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(implemented, typeof(System.Runtime.CompilerServices.INotifyCompletion)) || TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(implemented, typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)) {
+            if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(implemented, typeof(System.Runtime.CompilerServices.INotifyCompletion)) || TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(implemented, typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)) {
                 return true
             }
         }
@@ -1148,7 +1148,7 @@ class AnalyzerPassThroughOperands {
         if getResult == null {
             return false
         }
-        if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(getResult.ReturnType, AnalyzerReflectionArgumentBinder.LiveVoidType()) {
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(getResult.ReturnType, AnalyzerReflectionArgumentBinder.LiveVoidType()) {
             resultType = BuiltInTypes.Void
             return true
         }
@@ -1176,7 +1176,7 @@ class AnalyzerPassThroughOperands {
             overrides[parameters[index]] = typeArguments[index]
             index += 1
         }
-        if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(getResult.ReturnType, AnalyzerReflectionArgumentBinder.LiveVoidType()) {
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(getResult.ReturnType, AnalyzerReflectionArgumentBinder.LiveVoidType()) {
             resultType = BuiltInTypes.Void
             return true
         }
@@ -1187,7 +1187,7 @@ class AnalyzerPassThroughOperands {
     static func HasReflectionAwaiterPattern(awaiterType: Type): bool {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         isCompleted := awaiterType.GetProperty("IsCompleted", flags)
-        if isCompleted == null || isCompleted.GetMethod == null || !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(isCompleted.PropertyType, typeof(bool)) {
+        if isCompleted == null || isCompleted.GetMethod == null || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(isCompleted.PropertyType, typeof(bool)) {
             return false
         }
 

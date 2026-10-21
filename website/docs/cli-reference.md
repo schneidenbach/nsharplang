@@ -19,7 +19,7 @@ are maintained against the CLI command kernels.
 
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
-| `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--aot`, `--stats`, `--output`, `--define`, `--color` | `nlc build --timings` |
+| `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--aot`, `--emit-reference-assembly`, `--stats`, `--output`, `--define`, `--color` | `nlc build --timings` |
 | `nlc run [file]` | Build and run a project or single file; arguments after `--` go to the program | `--backend`, `--project`, `--define`, `--color` | `nlc run --project src/App -- --port 8080` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`, `systems-cli`, `systems-lib`), `--type` alias, `--systems` | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | `--name`, `--type`, `--force` | `nlc init --type library` |
@@ -199,6 +199,7 @@ nlc completion bash > /etc/bash_completion.d/nlc
 ## Build, Test, And Publish Truth
 
 - `nlc build --release` selects the Release configuration and `bin/Release/<targetFramework>` output layout unless `--output` is provided. The direct IL backend does not have a separate optimization mode yet.
+- `nlc build --emit-reference-assembly` writes the compiler-produced public API assembly under `nsharpref/` beside the implementation. Use it when a downstream compiler needs to bind against the library surface without loading the implementation assembly.
 - **Test files (`*.tests.nl`).** `nlc build` compiles the product only, the way `go build` ignores `_test.go`: test files are not emitted into the output assembly, and errors inside them do not fail the build. Run `nlc check` to type-check them (it reads sources and tests together) and `nlc test` to run them. `nlc fix`, `nlc lint` and `nlc format` treat test files like any other source file. A library that contains only test files has nothing to build, so `nlc build` reports [NL936](errors/NL936.md) instead of producing an empty assembly; `nlc test` still runs it. Because `nlc lint` and `nlc fix` read test files, `nlc lint` can fail on lint errors in them (for example an unused import).
 - **Conditional compilation.** `#if`/`#elif`/`#else`/`#endif` are evaluated by the compiler against the set of defined symbols; only the live branch is compiled (`#region`/`#endregion` remain organizational pass-through). `DEBUG` is defined for debug builds (`nlc run`, `nlc build`, `nlc test`) and omitted under `nlc build --release`. Project-wide symbols come from `defines:` in `project.yml`; ad-hoc symbols come from `--define <symbol>` / `-d <symbol>` (repeatable, and comma/semicolon lists are accepted). Conditions support symbols, `true`/`false`, `!`, `&&`, `||`, and parentheses, matching established preprocessor semantics. Symbol names are case-sensitive.
 - `nlc test --coverage` and `nlc test --coverage-report` are unavailable in the native test runner today. They exit 1 with a clear text error, or with the same message in the schemaVersion 1 JSON `error` field when `--json` is present.

@@ -1,0 +1,22 @@
+<linker>
+  <assembly fullname="NSharpLang.Compiler.Driver">
+    <type fullname="NSharpLang.Playground.PlaygroundCatalogResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundCapabilities" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundExample" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundTutorialStep" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundTutorialValidation" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundFile" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundCheckResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundFormatResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundCompletionResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundCompletionItem" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundHoverResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundHover" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundRunResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundRunResult" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundRunFault" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundSummary" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundDiagnostic" preserve="all" />
+    <type fullname="NSharpLang.Playground.Wasm.PlaygroundVersionResponse" preserve="all" />
+  </assembly>
+</linker>

@@ -25,7 +25,8 @@ class CliIlBackend {
         verbose: bool = false,
         aot: bool = false,
         cliDefines: IReadOnlyList<string>? = null,
-        incrementalBuild: bool = true
+        incrementalBuild: bool = true,
+        emitReferenceAssembly: bool = false
     ): BuildCommandResult {
         totalSw := Stopwatch.StartNew()
         resolveSw := new Stopwatch()
@@ -51,7 +52,8 @@ class CliIlBackend {
             referenceOptions := new ReferenceResolutionOptions {
                 Configuration: configuration,
                 Quiet: quiet,
-                AotMode: aot
+                AotMode: aot,
+                EmitReferenceAssembly: emitReferenceAssembly
             }
 
             resolveSw.Start()
@@ -60,7 +62,7 @@ class CliIlBackend {
 
             compileSw.Start()
             perfFacts: BuildPerfReportFacts = BuildPerfReportFacts.Empty
-            outputPath := CompileProjectReportingPerfFacts(projectRoot, config, resolvedOutputDir, references, out perfFacts, false, aot, incrementalBuild)
+            outputPath := CompileProjectReportingPerfFacts(projectRoot, config, resolvedOutputDir, references, out perfFacts, false, aot, incrementalBuild, emitReferenceAssembly)
             compileSw.Stop()
             if outputPath == null {
                 Console.WriteLine(BuildCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)))
@@ -94,7 +96,8 @@ class CliIlBackend {
         release: bool,
         outputDir: string?,
         aot: bool = false,
-        cliDefines: IReadOnlyList<string>? = null
+        cliDefines: IReadOnlyList<string>? = null,
+        emitReferenceAssembly: bool = false
     ): BuildCommandResult {
         try {
             Console.WriteLine(BuildCommandKernels.GetSingleFileStartMessage(sourceFile))
@@ -107,12 +110,13 @@ class CliIlBackend {
 
             referenceOptions := new ReferenceResolutionOptions {
                 Configuration: configuration,
-                BuildProjectReferences: false
+                BuildProjectReferences: false,
+                EmitReferenceAssembly: emitReferenceAssembly
             }
             references := CompilationReferenceResolver.AddResolvedDllReferences(sourceDir, config, referenceOptions)
             sourceFiles: string[] = [sourceFile]
             perfFacts: BuildPerfReportFacts = BuildPerfReportFacts.Empty
-            outputPath := CompileSourceFilesReportingPerfFacts(sourceFiles, sourceDir, config, resolvedOutputDir, references, out perfFacts, aot)
+            outputPath := CompileSourceFilesReportingPerfFacts(sourceFiles, sourceDir, config, resolvedOutputDir, references, out perfFacts, aot, emitReferenceAssembly)
             if outputPath == null {
                 return BuildCommandResult.Failure(1, perfFacts)
             }
@@ -244,7 +248,7 @@ class CliIlBackend {
         aotMode: bool
     ): string? {
         discardedPerfFacts: BuildPerfReportFacts = BuildPerfReportFacts.Empty
-        return CompileProjectReportingPerfFacts(projectRoot, config, outputDir, references, out discardedPerfFacts, includeTests, aotMode, true)
+        return CompileProjectReportingPerfFacts(projectRoot, config, outputDir, references, out discardedPerfFacts, includeTests, aotMode, true, false)
     }
 
     static func CompileProjectReportingPerfFacts(
@@ -255,7 +259,8 @@ class CliIlBackend {
         out perfFacts: BuildPerfReportFacts,
         includeTests: bool,
         aotMode: bool,
-        incrementalBuild: bool
+        incrementalBuild: bool,
+        emitReferenceAssembly: bool = false
     ): string? {
         perfFacts = BuildPerfReportFacts.Empty
         sourceFiles := config.GetSourceFiles(projectRoot, includeTests).ToArray()
@@ -264,6 +269,7 @@ class CliIlBackend {
         // is answered from its up-to-date stamp. A perf report needs the systems analysis the stamp
         // skips, so it asks for a full compilation.
         compiler.IncrementalBuild = incrementalBuild
+        compiler.EmitReferenceAssembly = emitReferenceAssembly
         assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config)
         // In the workspace server, the previous compilation of this project hands over its analyses
         // (`WarmIncrementalSessions`), so a body edit re-analyses only the files it can reach.
@@ -277,7 +283,8 @@ class CliIlBackend {
                 config,
                 references,
                 out perfFacts,
-                aotMode
+                aotMode,
+                emitReferenceAssembly
             )
         } catch compileFailure: Exception {
             WarmIncrementalSessions.Discard(warmKey)
@@ -297,7 +304,7 @@ class CliIlBackend {
         aotMode: bool
     ): string? {
         discardedPerfFacts: BuildPerfReportFacts = BuildPerfReportFacts.Empty
-        return CompileSourceFilesReportingPerfFacts(sourceFiles, projectRoot, config, outputDir, references, out discardedPerfFacts, aotMode)
+        return CompileSourceFilesReportingPerfFacts(sourceFiles, projectRoot, config, outputDir, references, out discardedPerfFacts, aotMode, false)
     }
 
     static func CompileSourceFilesReportingPerfFacts(
@@ -307,7 +314,8 @@ class CliIlBackend {
         outputDir: string,
         references: ReferenceResolutionResult?,
         out perfFacts: BuildPerfReportFacts,
-        aotMode: bool
+        aotMode: bool,
+        emitReferenceAssembly: bool = false
     ): string? {
         perfFacts = BuildPerfReportFacts.Empty
         compiler := new MultiFileCompiler(sourceFiles, projectRoot, config)
@@ -318,7 +326,8 @@ class CliIlBackend {
             config,
             references,
             out perfFacts,
-            aotMode
+            aotMode,
+            emitReferenceAssembly
         )
     }
 
@@ -329,12 +338,14 @@ class CliIlBackend {
         config: ProjectConfig,
         references: ReferenceResolutionResult?,
         out perfFacts: BuildPerfReportFacts,
-        aotMode: bool
+        aotMode: bool,
+        emitReferenceAssembly: bool = false
     ): string? {
         perfFacts = BuildPerfReportFacts.Empty
         Directory.CreateDirectory(outputDir)
 
         compiler.AotMode = aotMode
+        compiler.EmitReferenceAssembly = emitReferenceAssembly
         outputPath := CompilationReferenceResolverKernels.GetProjectOutputAssemblyPath(outputDir, assemblyName)
         result := compiler.CompileToIlAssembly(assemblyName, outputPath, true)
         perfFacts = BuildCommandKernels.ToPerfReportFacts(compiler.SystemsReport)

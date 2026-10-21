@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT="$REPO_ROOT/src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj"
+CLI_PROJECT="$REPO_ROOT/src/NSharpLang.Cli/Cli.csproj"
+CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
+PLAYGROUND_PROJECT="$REPO_ROOT/src/NSharpLang.Playground"
 ARTIFACT_ROOT="$REPO_ROOT/artifacts/playground-wasm"
 PUBLISH_DIR="$ARTIFACT_ROOT/publish"
 STATIC_DIR="$REPO_ROOT/website/static/playground/wasm"
@@ -16,7 +19,19 @@ else
 fi
 
 echo "Publishing N# playground WASM host..."
-dotnet publish "$PROJECT" -c Release -o "$PUBLISH_DIR" -v q
+dotnet build "$CLI_PROJECT" -c Debug -v q
+dotnet "$CLI_DLL" build --project "$PLAYGROUND_PROJECT" --release --emit-reference-assembly
+cp "$PLAYGROUND_PROJECT/bin/Release/net10.0/NSharpLang.Playground.dll" "$PLAYGROUND_PROJECT/obj/Release/net10.0/NSharpLang.Playground.dll"
+for reference_directory in "$REPO_ROOT"/src/*/bin/Release/net10.0/nsharpref; do
+    if [ ! -d "$reference_directory" ]; then
+        continue
+    fi
+    project_directory="${reference_directory%/bin/Release/net10.0/nsharpref}"
+    target_reference_directory="$project_directory/obj/Release/net10.0/ref"
+    mkdir -p "$target_reference_directory"
+    cp "$reference_directory"/*.dll "$target_reference_directory/"
+done
+dotnet publish "$PROJECT" -c Release -o "$PUBLISH_DIR" -p:BuildProjectReferences=false -v q
 
 DOTNET_JS_PATH="$(find "$PUBLISH_DIR" "$REPO_ROOT/src/NSharpLang.Playground.Wasm/bin/Release/net10.0" -path '*/_framework/dotnet.js' -type f 2>/dev/null | head -n 1 || true)"
 if [ -z "$DOTNET_JS_PATH" ]; then

@@ -47,7 +47,8 @@ static class ProgramCommands {
                     buildOptions.Verbose,
                     buildOptions.Aot,
                     cliDefines,
-                    !buildOptions.PerfReport
+                    !buildOptions.PerfReport,
+                    buildOptions.EmitReferenceAssembly
                 )
                 buildResult := RunBuildEmittingPerfReport(
                     buildOptions.PerfReport,
@@ -71,7 +72,8 @@ static class ProgramCommands {
                 buildOptions.Release,
                 buildOptions.OutputDir,
                 buildOptions.Aot,
-                cliDefines
+                cliDefines,
+                buildOptions.EmitReferenceAssembly
             )
             singleFileResult := RunBuildEmittingPerfReport(
                 buildOptions.PerfReport,
