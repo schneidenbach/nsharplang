@@ -301,6 +301,13 @@ test "A SUFFIXLESS LITERAL TAKES THE EXPECTED TYPE WHEN IT FITS" {
     assert LiteralTypeText(harness.Literals.IntLiteralType("200")) == "byte"
 }
 
+test "A SUFFIXLESS LITERAL TAKES A WIDER EXPECTED INTEGRAL TYPE WHEN IT FITS" {
+    harness := LiteralDefault()
+    harness.Ambient.EnterExpectedType(BuiltInTypes.Long)
+
+    assert LiteralTypeText(harness.Literals.IntLiteralType("4294967295")) == "long"
+}
+
 test "A SUFFIXLESS LITERAL THAT DOES NOT FIT THE EXPECTED TYPE IS int" {
     harness := LiteralDefault()
     harness.Ambient.EnterExpectedType(BuiltInTypes.Byte)
@@ -333,11 +340,17 @@ test "A NON-NUMERIC EXPECTED TYPE DOES NOT ANSWER, AND THE LITERAL IS int" {
     assert LiteralTypeText(harness.Literals.IntLiteralType("42")) == "int"
 }
 
-test "NO EXPECTED TYPE AT ALL IS int" {
+test "NO EXPECTED TYPE USES THE FIRST FITTING INTEGER TYPE" {
     harness := LiteralDefault()
 
     assert harness.Ambient.CurrentExpectedType == null
     assert LiteralTypeText(harness.Literals.IntLiteralType("42")) == "int"
+    assert LiteralTypeText(harness.Literals.IntLiteralType("2147483648")) == "uint"
+    assert LiteralTypeText(harness.Literals.IntLiteralType("4294967295")) == "uint"
+    assert LiteralTypeText(harness.Literals.IntLiteralType("4294967296")) == "long"
+    assert LiteralTypeText(harness.Literals.IntLiteralType("9223372036854775807")) == "long"
+    assert LiteralTypeText(harness.Literals.IntLiteralType("9223372036854775808")) == "ulong"
+    assert LiteralTypeText(harness.Literals.IntLiteralType("18446744073709551615")) == "ulong"
 }
 
 test "A REFLECTED EXPECTED TYPE ANSWERS, AND A REFLECTED NULLABLE ANSWERS AS ITS T" {

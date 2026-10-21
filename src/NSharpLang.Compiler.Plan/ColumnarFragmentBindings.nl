@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import NSharpLang.Compiler
 
 
 // Live raw facts for recursive N# fragment planning. The legacy emitter may pass these existing
@@ -85,6 +86,9 @@ class ColumnarFragmentBindings {
     // host routes these; direct-call planning consults them to own a bare sibling invocation.
     // declaredCallableNames still carries the same name set for the callable-root guards.
     SiblingCallables: Dictionary<string, ColumnarSiblingCallFacts>
+    // THE ANALYZER'S MODEL FOR THIS SOURCE FILE. Resumable call binding uses its already-resolved
+    // contextual-lambda parameter types so emission does not guess between delegate overloads.
+    SemanticModel: SemanticModel?
 
     constructor(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedNames: IEnumerable<string>, boxedNames: IEnumerable<string>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>) {
         if parameterOrdinals == null || parameterTypes == null || locals == null || enums == null || liftedNames == null || boxedNames == null || enclosingNames == null || declaredCallableNames == null || visibleLocalCallableNames == null {
@@ -120,6 +124,7 @@ class ColumnarFragmentBindings {
         this.declaredCallableNames = declaredCallableNames
         this.visibleLocalCallableNames = visibleLocalCallableNames
         SiblingCallables = new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal)
+        SemanticModel = null
     }
 
     // Metadata declaration passes need exact source/runtime type identity without value-flow

@@ -394,6 +394,15 @@ class AnalyzerSyntheticCallWalk {
             expectedType := comparison.ExpectedType
             argumentType := comparison.ArgumentType
             if expectedType != null && argumentType != null {
+                lambda := call.Arguments[currentArgument].Value as LambdaExpression
+                if lambda != null {
+                    if !LambdaParametersFitDelegate(lambda, expectedType, functionType.TypeParameters) {
+                        return -1
+                    }
+
+                    continue
+                }
+
                 if BuiltInTypes.IsUnknown(expectedType) || BuiltInTypes.IsUnknown(argumentType) {
                     continue
                 }
@@ -419,6 +428,97 @@ class AnalyzerSyntheticCallWalk {
         }
 
         return score
+    }
+
+    // A lambda is applicable only when its parameter count matches the candidate delegate. Every
+    // written parameter type must be identical to the delegate's input type; untyped positions
+    // remain contextual and are left for the selected candidate's normal lambda analysis.
+    func LambdaParametersFitDelegate(lambda: LambdaExpression, expectedType: TypeInfo, typeParameters: List<TypeParameter>?): bool {
+        lambdaParameterTypes := new TypeInfo[](lambda.Parameters.Count)
+        parameterIndex := 0
+        for parameter in lambda.Parameters {
+            if !AnalyzerLambdaAnalysis.HasExplicitParameterType(parameter) {
+                lambdaParameterTypes[parameterIndex] = BuiltInTypes.Unknown
+                parameterIndex = parameterIndex + 1
+                continue
+            }
+
+            lambdaParameterTypes[parameterIndex] = typeResolver.ResolveType(parameter.Type)
+            parameterIndex = parameterIndex + 1
+        }
+
+        signature := assignability.DelegateSignatureOfExpectedType(expectedType)
+        if signature == null {
+            // The caller cannot use a lambda to convert to a concrete non-delegate parameter.
+            // Keep unknown and still-open generic targets undecided so generic inference can
+            // finish before overload applicability is finalized.
+            return BuiltInTypes.IsUnknown(expectedType) || ContainsOpenLambdaTypeParameter(expectedType, typeParameters)
+        }
+
+        delegateParameterTypes := signature.ParameterTypes
+        if delegateParameterTypes == null || delegateParameterTypes.Count != lambdaParameterTypes.Length {
+            return false
+        }
+
+        index := 0
+        while index < lambdaParameterTypes.Length {
+            currentIndex := index
+            index = index + 1
+            lambdaParameterType := lambdaParameterTypes[currentIndex]
+            delegateParameterType := delegateParameterTypes[currentIndex]
+            if !BuiltInTypes.IsUnknown(lambdaParameterType) && !BuiltInTypes.IsUnknown(delegateParameterType) && !ContainsOpenLambdaTypeParameter(delegateParameterType, typeParameters) && !TypeInfoIdentityFacts.AreEqual(lambdaParameterType, delegateParameterType) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    static func ContainsOpenLambdaTypeParameter(candidate: TypeInfo, typeParameters: List<TypeParameter>?): bool {
+        simple := candidate as SimpleTypeInfo
+        if simple != null {
+            if typeParameters != null {
+                for typeParameter in typeParameters {
+                    if typeParameter.Name == simple.Name {
+                        return true
+                    }
+                }
+            }
+
+            return false
+        }
+
+        generic := candidate as GenericTypeInfo
+        if generic != null {
+            for argument in generic.TypeArguments {
+                if ContainsOpenLambdaTypeParameter(argument, typeParameters) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        array := candidate as ArrayTypeInfo
+        if array != null {
+            return ContainsOpenLambdaTypeParameter(array.ElementType, typeParameters)
+        }
+
+        nullable := candidate as NullableTypeInfo
+        if nullable != null {
+            return ContainsOpenLambdaTypeParameter(nullable.InnerType, typeParameters)
+        }
+
+        oblivious := candidate as ObliviousTypeInfo
+        if oblivious != null {
+            return ContainsOpenLambdaTypeParameter(oblivious.InnerType, typeParameters)
+        }
+
+        byRef := candidate as ByRefTypeInfo
+        if byRef != null {
+            return ContainsOpenLambdaTypeParameter(byRef.InnerType, typeParameters)
+        }
+
+        return false
     }
 
     // THE ARITY-AND-PLACEMENT GATE, stated once for the scorer and the receiver-type question.

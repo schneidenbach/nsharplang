@@ -64,6 +64,32 @@ func main() {
     }
 }
 
+// GitHub #236: the overloads an NL402 lists are every candidate the call considered, and an
+// extension method in scope is a candidate once the instance group binds nothing.
+test "MultiFileCompiler_ListsExtensionCandidatesInNoMatchingOverload" {
+    compilation := EmitterCanonicalCompileSingle(
+        "ExtensionCandidatesListed",
+        "exe",
+        """
+import System.Collections.Generic
+import System.Linq
+
+func main() {
+    values := new List<int>()
+    values.Contains("neither")
+}
+"""
+    )
+    try {
+        assert !compilation.Succeeded
+        assert EmitterCanonicalHasErrorValue(compilation, "Code", "NoMatchingOverload")
+        assert EmitterCanonicalHasErrorText(compilation, "ContextualHint", "Contains(int item)")
+        assert EmitterCanonicalHasErrorText(compilation, "ContextualHint", "Contains(TSource value, IEqualityComparer<TSource?>? comparer): bool")
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
 test "MultiFileCompiler_ReportsClosedGenericUnionArgumentMismatchAsTypeError" {
     compilation := EmitterCanonicalCompileSingle(
         "GenericUnionArgumentMismatch",

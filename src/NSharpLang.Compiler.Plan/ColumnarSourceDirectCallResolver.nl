@@ -77,6 +77,8 @@ class ColumnarDirectCallArgumentFacts {
     IsContextualLambda: bool[]
     ContextualLambdaParameterCounts: int[]
     ContextualLambdaReturnsVoid: bool[]
+    ContextualLambdaParameterTypes: Type[][]
+    ContextualLambdaInvocationArities: int[][]
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
 
     // THE EXPRESSION NODE THAT SUPPLIES EACH SLOT, with a `name:` wrapper already removed. Every other
@@ -120,6 +122,8 @@ class ColumnarDirectCallArgumentFacts {
         IsContextualLambda = new bool[](isUnsuffixedIntegerLiteral.Length)
         ContextualLambdaParameterCounts = new int[](isUnsuffixedIntegerLiteral.Length)
         ContextualLambdaReturnsVoid = new bool[](isUnsuffixedIntegerLiteral.Length)
+        ContextualLambdaParameterTypes = new Type[][](isUnsuffixedIntegerLiteral.Length)
+        ContextualLambdaInvocationArities = new int[][](isUnsuffixedIntegerLiteral.Length)
         Array.Fill(ContextualLambdaParameterCounts, -1)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
         ArgumentNodes = new int[](isUnsuffixedIntegerLiteral.Length)
@@ -130,6 +134,8 @@ class ColumnarDirectCallArgumentFacts {
         while slot < isUnsuffixedIntegerLiteral.Length {
             ArgumentNodes[slot] = -1
             WrittenOrderSlots[slot] = slot
+            ContextualLambdaParameterTypes[slot] = new Type[](0)
+            ContextualLambdaInvocationArities[slot] = new int[](0)
             slot = slot + 1
         }
     }
@@ -1113,7 +1119,7 @@ class ColumnarSourceDirectCallResolver {
         index := 0
         while index < expected.Length {
             if argumentFacts.IsContextualLambda[index] {
-                if argumentFacts.IsByRefArgument[index] || expected[index].IsByRef || !IsContextualLambdaTarget(expected[index], argumentFacts.ContextualLambdaParameterCounts[index], argumentFacts.ContextualLambdaReturnsVoid[index]) {
+                if argumentFacts.IsByRefArgument[index] || expected[index].IsByRef || !IsContextualLambdaTarget(expected[index], argumentFacts.ContextualLambdaParameterCounts[index], argumentFacts.ContextualLambdaReturnsVoid[index], argumentFacts.ContextualLambdaParameterTypes[index], argumentFacts.ContextualLambdaInvocationArities[index]) {
                     return -1
                 }
                 // The lambda is checked against this exact signature when it is appended. Equal
@@ -1284,7 +1290,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.IsContextualGenericUnionConstruction == null || argumentFacts.ContextualGenericUnionBases == null || argumentFacts.IsContextualLambda == null || argumentFacts.ContextualLambdaParameterCounts == null || argumentFacts.ContextualLambdaReturnsVoid == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length || argumentFacts.IsContextualGenericUnionConstruction.Length != argumentTypes.Length || argumentFacts.ContextualGenericUnionBases.Length != argumentTypes.Length || argumentFacts.IsContextualLambda.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != argumentTypes.Length || argumentFacts.ContextualLambdaReturnsVoid.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.IsContextualGenericUnionConstruction == null || argumentFacts.ContextualGenericUnionBases == null || argumentFacts.IsContextualLambda == null || argumentFacts.ContextualLambdaParameterCounts == null || argumentFacts.ContextualLambdaReturnsVoid == null || argumentFacts.ContextualLambdaParameterTypes == null || argumentFacts.ContextualLambdaInvocationArities == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length || argumentFacts.IsContextualGenericUnionConstruction.Length != argumentTypes.Length || argumentFacts.ContextualGenericUnionBases.Length != argumentTypes.Length || argumentFacts.IsContextualLambda.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != argumentTypes.Length || argumentFacts.ContextualLambdaReturnsVoid.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterTypes.Length != argumentTypes.Length || argumentFacts.ContextualLambdaInvocationArities.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 
@@ -1310,6 +1316,30 @@ class ColumnarSourceDirectCallResolver {
                 throw new InvalidOperationException("A contextual lambda argument must carry its declared parameter count.")
             }
 
+            contextualParameterTypes := argumentFacts.ContextualLambdaParameterTypes[index]
+            if contextualParameterTypes == null || (!argumentFacts.IsContextualLambda[index] && contextualParameterTypes.Length != 0) || (contextualParameterTypes.Length != 0 && contextualParameterTypes.Length != argumentFacts.ContextualLambdaParameterCounts[index]) {
+                throw new InvalidOperationException("Contextual lambda parameter types must match the declared lambda shape.")
+            }
+            contextualParameterIndex := 0
+            while contextualParameterIndex < contextualParameterTypes.Length {
+                if contextualParameterTypes[contextualParameterIndex] == null {
+                    throw new InvalidOperationException("A resolved contextual lambda parameter type cannot be null.")
+                }
+                contextualParameterIndex += 1
+            }
+
+            invocationArities := argumentFacts.ContextualLambdaInvocationArities[index]
+            if invocationArities == null || invocationArities.Length % 2 != 0 || (!argumentFacts.IsContextualLambda[index] && invocationArities.Length != 0) {
+                throw new InvalidOperationException("Contextual lambda invocation facts must be parameter-index/arity pairs.")
+            }
+            invocationIndex := 0
+            while invocationIndex < invocationArities.Length {
+                if invocationArities[invocationIndex] < 0 || invocationArities[invocationIndex] >= argumentFacts.ContextualLambdaParameterCounts[index] || invocationArities[invocationIndex + 1] < 0 {
+                    throw new InvalidOperationException("Contextual lambda invocation facts must name a valid parameter and argument count.")
+                }
+                invocationIndex += 2
+            }
+
             if argumentFacts.ContextualLambdaReturnsVoid[index] && !argumentFacts.IsContextualLambda[index] {
                 throw new InvalidOperationException("A contextual lambda return fact must describe a contextual lambda argument.")
             }
@@ -1332,7 +1362,7 @@ class ColumnarSourceDirectCallResolver {
         }
     }
 
-    static func IsContextualLambdaTarget(targetType: Type, parameterCount: int, returnsVoid: bool): bool {
+    static func IsContextualLambdaTarget(targetType: Type, parameterCount: int, returnsVoid: bool, writtenParameterTypes: Type[]? = null, invocationArities: int[]? = null): bool {
         if targetType == null || targetType.IsByRef || targetType.IsGenericParameter || targetType == typeof(Delegate) || targetType == typeof(MulticastDelegate) {
             return false
         }
@@ -1348,12 +1378,88 @@ class ColumnarSourceDirectCallResolver {
                 return false
             }
             invoke := candidate.GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance)
-            return invoke != null && invoke.GetParameters().Length == parameterCount && (!returnsVoid || invoke.ReturnType == ColumnarTypeOfPlanner.RequiredVoidType())
+            if invoke == null || invoke.GetParameters().Length != parameterCount || (returnsVoid && invoke.ReturnType != ColumnarTypeOfPlanner.RequiredVoidType()) {
+                return false
+            }
+            if invocationArities != null && !ContextualLambdaInvocationsMatch(invoke.GetParameters(), invocationArities) {
+                return false
+            }
+            if writtenParameterTypes != null && writtenParameterTypes.Length > 0 {
+                invokeParameters := invoke.GetParameters()
+                if invokeParameters.Length != writtenParameterTypes.Length {
+                    return false
+                }
+                index := 0
+                while index < invokeParameters.Length {
+                    if writtenParameterTypes[index] == null || !ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(writtenParameterTypes[index], invokeParameters[index].ParameterType) {
+                        return false
+                    }
+                    index += 1
+                }
+            }
+            return true
         } catch ex: NotSupportedException {
             return false
         } catch ex: NotImplementedException {
             return false
         }
+    }
+
+    // A delegate-valued lambda parameter must support each call shape the body writes against it.
+    // This lets overload resolution reject a `Func<Task>` candidate for `next(context)` even when an
+    // untyped lambda parameter's visible-variable fact reflects an earlier provisional candidate.
+    static func ContextualLambdaInvocationsMatch(lambdaParameters: ParameterInfo[], invocationArities: int[]): bool {
+        if lambdaParameters == null || invocationArities == null || invocationArities.Length % 2 != 0 {
+            return false
+        }
+        index := 0
+        while index < invocationArities.Length {
+            parameterIndex := invocationArities[index]
+            suppliedCount := invocationArities[index + 1]
+            if parameterIndex < 0 || parameterIndex >= lambdaParameters.Length || suppliedCount < 0 {
+                return false
+            }
+            delegateType := lambdaParameters[parameterIndex].ParameterType
+            if delegateType == null || delegateType.IsByRef {
+                return false
+            }
+            try {
+                candidate := delegateType
+                if candidate.IsGenericType && !candidate.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(candidate) {
+                    candidate = candidate.GetGenericTypeDefinition()
+                }
+                invoke := candidate.GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance)
+                if invoke == null || !ContextualDelegateCallArityMatches(invoke.GetParameters(), suppliedCount) {
+                    return false
+                }
+            } catch ex: NotSupportedException {
+                return false
+            } catch ex: NotImplementedException {
+                return false
+            }
+            index += 2
+        }
+        return true
+    }
+
+    static func ContextualDelegateCallArityMatches(parameters: ParameterInfo[], suppliedCount: int): bool {
+        if parameters == null || suppliedCount < 0 {
+            return false
+        }
+        if suppliedCount < parameters.Length {
+            index := suppliedCount
+            while index < parameters.Length {
+                if !parameters[index].IsOptional {
+                    return false
+                }
+                index += 1
+            }
+            return true
+        }
+        if suppliedCount == parameters.Length {
+            return true
+        }
+        return parameters.Length > 0 && ColumnarExtensionMethodResolver.IsParamsParameter(parameters[parameters.Length - 1]) && suppliedCount >= parameters.Length - 1
     }
 
     static func CanAdoptIntegerLiteral(targetType: Type, value: long): bool {

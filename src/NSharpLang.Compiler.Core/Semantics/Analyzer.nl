@@ -615,7 +615,8 @@ class Analyzer: IDisposable {
             DeclarationContext,
             NullabilityPostconditions,
             TerminatingCalls,
-            NullFlow
+            NullFlow,
+            ExtensionMethodResolution
         )
     }
 

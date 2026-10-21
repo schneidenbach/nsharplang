@@ -362,11 +362,16 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     // compiler analysing it again and without writing an assembly. `ReleaseReferenceMetadata` lets a
     // workspace check drop each project's metadata load context once that project's result is saved.
     assert declaredMethodCount == 6
+    releaseTypes := new Type[](1)
+    releaseTypes[0] = typeof(bool)
     release := MultiFileOwnerRequiredMethod(
-        owner.GetMethod("ReleaseReferenceMetadata", Type.EmptyTypes),
+        owner.GetMethod("ReleaseReferenceMetadata", releaseTypes),
         "ReleaseReferenceMetadata"
     )
     assert release.get_ReturnType().get_FullName() == "System.Void"
+    releaseParameters := release.GetParameters()
+    assert releaseParameters[0].get_IsOptional()
+    assert !Convert.ToBoolean(releaseParameters[0].get_DefaultValue())
     validateTypes := new Type[](1)
     validateTypes[0] = typeof(string)
     validateAnalyzed := MultiFileOwnerRequiredMethod(

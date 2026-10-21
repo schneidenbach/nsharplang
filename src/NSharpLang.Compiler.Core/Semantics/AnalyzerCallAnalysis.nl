@@ -97,6 +97,7 @@ class CallAnalysisState {
     GroupFunctions: List<FunctionTypeInfo>?
     BoundFunction: FunctionTypeInfo?
     ReceiverType: TypeInfo?
+    SourceInstanceExtensionFallbackTried: bool
     ParameterStartIndex: int
     ArgumentIndex: int
     EscapeIndex: int
@@ -155,6 +156,10 @@ class CallAnalysisState {
     // accepting every conversion, which is what the walk always did. The second run is the fallback,
     // so a call with no exact match behaves exactly as it did before the clause existed.
     ReflectionRequireExactLambdaMatch: bool
+
+    // WHETHER THE EXTENSION METHODS HAVE ALREADY BEEN OFFERED AS THE ANSWER TO AN INSTANCE GROUP THAT
+    // BOUND NOTHING. They are offered once: a second failure is the call's verdict.
+    ReflectionExtensionFallbackTried: bool
     ReflectionErrorsBefore: int
     ReflectionArgumentErrorsBefore: int
     ReflectionArgumentIsUntargeted: bool
@@ -186,6 +191,7 @@ class CallAnalysisState {
         GroupFunctions = null
         BoundFunction = null
         ReceiverType = null
+        SourceInstanceExtensionFallbackTried = false
         ParameterStartIndex = 0
         ArgumentIndex = 0
         EscapeIndex = 0
@@ -210,6 +216,7 @@ class CallAnalysisState {
         ReflectionCandidates = null
         ReflectionCandidateIndex = 0
         ReflectionRequireExactLambdaMatch = false
+        ReflectionExtensionFallbackTried = false
         ReflectionErrorsBefore = 0
         ReflectionArgumentErrorsBefore = 0
         ReflectionArgumentIsUntargeted = false
@@ -280,8 +287,9 @@ class AnalyzerCallAnalysis {
     postconditions: AnalyzerNullabilityPostconditions
     terminatingCalls: AnalyzerTerminatingCalls
     nullFlow: AnalyzerNullFlow
+    extensionMethodResolution: AnalyzerExtensionMethodResolution
 
-    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext, postconditionOwner: AnalyzerNullabilityPostconditions, terminatingCallOwner: AnalyzerTerminatingCalls, nullFlowOwner: AnalyzerNullFlow) {
+    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext, postconditionOwner: AnalyzerNullabilityPostconditions, terminatingCallOwner: AnalyzerTerminatingCalls, nullFlowOwner: AnalyzerNullFlow, extensionResolutionOwner: AnalyzerExtensionMethodResolution) {
         syntheticCallReporter = callReporter
         syntheticCallWalk = callWalk
         syntheticCallValidator = callValidator
@@ -300,6 +308,7 @@ class AnalyzerCallAnalysis {
         postconditions = postconditionOwner
         terminatingCalls = terminatingCallOwner
         nullFlow = nullFlowOwner
+        extensionMethodResolution = extensionResolutionOwner
     }
 
     func BeginCall(call: CallExpression): CallAnalysisState {
@@ -503,6 +512,14 @@ class AnalyzerCallAnalysis {
 
         if phase == 13 {
             return Dispatch(state)
+        }
+
+        if phase == 40 {
+            return ResolveSourceInstanceExtensionFallback(state)
+        }
+
+        if phase == 41 {
+            return ResolveSourceInstanceExtensionAfterTypedArguments(state)
         }
 
         if phase >= 30 && phase <= 36 {
@@ -752,6 +769,18 @@ class AnalyzerCallAnalysis {
         while state.ReflectionArgumentIndex < arguments.Count {
             argument := arguments[state.ReflectionArgumentIndex]
             if argument.Value as LambdaExpression != null {
+                state.ReflectionArgumentIndex = state.ReflectionArgumentIndex + 1
+                continue
+            }
+
+            // The reflection pre-bind normally analyzes every value before it knows which
+            // parameter will receive it. An undeclared `out _` is already a targeted language
+            // error, though, and walking `_` here would add the generic NL301 first. Keep the
+            // argument slot unknown for candidate scoring and let the ordinary argument pass
+            // deduplicate the same targeted report if it reaches this call too.
+            if RefOutModifier(argument) == "out" && IsUndeclaredDiscardName(argument.Value) {
+                ReportOutDiscardUnsupported(argument.Value)
+                state.AnalyzedNonLambdaArguments[state.ReflectionArgumentIndex] = BuiltInTypes.Unknown
                 state.ReflectionArgumentIndex = state.ReflectionArgumentIndex + 1
                 continue
             }
@@ -1450,9 +1479,9 @@ class AnalyzerCallAnalysis {
 
         request := reflectionArgumentBinder.NextReflectionAnalysis(finalizeState)
         if request != null {
-            state.Pending = 36
             lambda := request.Lambda
             if lambda != null {
+                state.Pending = 36
                 step := new CallAnalysisRequest(15)
                 step.Lambda = lambda
                 step.CarriedType = request.ExpectedType
@@ -1460,6 +1489,17 @@ class AnalyzerCallAnalysis {
                 return step
             }
 
+            // The reflection finalizer asks the driver to analyse selected arguments directly,
+            // after the ordinary `EmitArgument` path has already run. An undeclared `out _` was
+            // diagnosed during pre-bind; answer unknown here without walking `_` a second time and
+            // adding the generic NL301 beside the targeted message.
+            if IsUndeclaredOutDiscardExpression(state.Call, request.Expression) {
+                ReportOutDiscardUnsupported(request.Expression)
+                reflectionArgumentBinder.SupplyReflectionAnalysis(finalizeState, BuiltInTypes.Unknown)
+                return null
+            }
+
+            state.Pending = 36
             step := new CallAnalysisRequest(4)
             step.Node = request.Expression
             step.CarriedType = request.ExpectedType
@@ -1556,9 +1596,64 @@ class AnalyzerCallAnalysis {
             return null
         }
 
+        if TryBeginReflectionExtensionFallback(state) {
+            return null
+        }
+
         state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes, state.ReflectionReceiverClrType)
         state.Phase = 99
         return null
+    }
+
+    // AN INSTANCE METHOD GROUP THAT BINDS NOTHING HANDS THE CALL TO THE EXTENSION METHODS IN SCOPE
+    // (C# §12.8.10.2: when the set of instance candidates is empty after overload resolution, extension
+    // method invocation is attempted). Member lookup answers with the receiver's instance methods
+    // whenever it has one of that name, so `app.Use(async (ctx, next) => ...)` saw only the instance
+    // `Use(Func<RequestDelegate, RequestDelegate>)` and `UseExtensions.Use` was never a candidate
+    // (GitHub #236). The instance group still wins whenever any of its candidates is applicable,
+    // because this runs only after every one of them has been tried and withdrawn.
+    //
+    // THE EXTENSION SURFACE IS THE ONE `TryResolveExtensionMethod` ALREADY ANSWERS FOR A RECEIVER
+    // WITH NO INSTANCE MEMBER OF THE NAME — project `this` functions first, then referenced
+    // `[Extension]` methods — and its answer re-enters the walk exactly where the callee's own
+    // resolution would have, so a source extension binds through the source-call path and a
+    // referenced one through this reflected bind. The instance candidates stay on the call's candidate
+    // list, which is what makes the NL402 that follows a second failure list every overload the reader
+    // could have meant.
+    //
+    // A STATIC GROUP (a call through a type name) is not an instance group and gets no fallback.
+    // It is offered once: a second failure is the call's verdict.
+    func TryBeginReflectionExtensionFallback(state: CallAnalysisState): bool {
+        if state.ReflectionExtensionFallbackTried {
+            return false
+        }
+
+        state.ReflectionExtensionFallbackTried = true
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        receiverType := state.ReflectionReceiverTypeInfo
+        if memberAccess == null || receiverType == null || state.ReflectionReceiverClrType == null || state.CandidateMethods.Count == 0 {
+            return false
+        }
+
+        for candidate in state.CandidateMethods {
+            if candidate.IsStatic {
+                return false
+            }
+        }
+
+        fallback := extensionMethodResolution.TryResolveExtensionMethod(receiverType, memberAccess.MemberName, ambient.CurrentTypeName)
+        if BuiltInTypes.IsUnknown(fallback) {
+            return false
+        }
+
+        state.ReflectionSingleMethod = null
+        state.ReflectionMethodGroup = null
+        state.ReflectionCandidates = null
+        state.ReflectionCandidateIndex = 0
+        state.FinalizeState = null
+        state.CalleeType = fallback
+        state.Phase = 13
+        return true
     }
 
     // `Ok(x)` AND `Err(e)`, AND THEY ARE A PROBE RATHER THAN A RULE BECAUSE THREE SEPARATE THINGS
@@ -1988,7 +2083,13 @@ class AnalyzerCallAnalysis {
             state.ParameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
             functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
             placement: int[] = new int[0]
-            if syntheticCallReporter.TryBindAndReport(functionType, functionName, call, out placement, state.ParameterStartIndex, false) {
+            placementMatched := syntheticCallReporter.TryBindAndReport(functionType, functionName, call, out placement, state.ParameterStartIndex, false)
+            if IsSourceInstanceLambdaCall(functionType, call) && !state.SourceInstanceExtensionFallbackTried && SourceCallRejectsWrittenLambda(functionType, call, placementMatched, placement) {
+                state.SourceInstanceExtensionFallbackTried = true
+                return AcquireReceiver(state, true, 40)
+            }
+
+            if placementMatched {
                 state.SyntheticParameterIndexByArgument = placement
             }
 
@@ -2170,6 +2271,17 @@ class AnalyzerCallAnalysis {
             return null
         }
 
+        // `out _` IS C#'s DISCARD, AND N# HAS NONE. The `_` names no variable, so the walk would report it
+        // as an unknown name — true, and no help to someone who wrote what C# accepts. This ENDS the
+        // argument the way the null-conditional target above does, and says what to write instead.
+        if modifier == "out" && IsUndeclaredDiscardName(argument.Value) {
+            ReportOutDiscardUnsupported(argument.Value)
+            state.ReflectionArgumentIsUntargeted = false
+            state.ArgTypes.Add(BuiltInTypes.Unknown)
+            state.ArgumentIndex = state.ArgumentIndex + 1
+            return null
+        }
+
         targetExpectedType := expectedType
         expectedByRef := expectedType as ByRefTypeInfo
         if expectedByRef != null {
@@ -2195,6 +2307,48 @@ class AnalyzerCallAnalysis {
         request.Flag = allowUnbound
         request.IsWriteTarget = true
         return request
+    }
+
+    // A bare `_` THAT NAMES NOTHING IN SCOPE. A program that declared its own `_` (the write-only opt-out
+    // other rules point at) passes it like any other variable, so this asks the scope rather than the spelling.
+    func IsUndeclaredDiscardName(value: Expression): bool {
+        identifier := value as IdentifierExpression
+        if identifier == null || identifier.Name != "_" {
+            return false
+        }
+
+        if scopes.LookupSymbol("_") != null {
+            return false
+        }
+
+        return !scopes.IsCurrentTypeMemberReference("_")
+    }
+
+    // The reflection finalizer's request keeps the expression but not its Argument wrapper. Match
+    // it back to this call by source position so the finalizer can preserve the `out` spelling and
+    // skip only the undeclared discard, while a declared `_` is still analysed normally.
+    func IsUndeclaredOutDiscardExpression(call: CallExpression, value: Expression): bool {
+        if !IsUndeclaredDiscardName(value) {
+            return false
+        }
+
+        for argument in call.Arguments {
+            if argument.Modifier == ArgumentModifier.Out && argument.Value.Line == value.Line && argument.Value.Column == value.Column {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // One report per position: a call walked once per overload candidate reaches the same argument again.
+    func ReportOutDiscardUnsupported(value: Expression) {
+        message := "N# has no discard for 'out' arguments"
+        if diagnostics.HasReported(ErrorCode.UndefinedVariable, message, value.Line, value.Column) {
+            return
+        }
+
+        diagnostics.Report(ErrorCode.UndefinedVariable, message, value.Line, value.Column, "Declare a variable to receive the value — 'parsed: int' — and pass it as 'out parsed'.", 1)
     }
 
     // The answer to one argument analysis. The `ref`/`out` form closes its bracket FIRST, wraps, and
@@ -2478,6 +2632,61 @@ class AnalyzerCallAnalysis {
         return null
     }
 
+    // A source instance member with a lambda argument is an overload candidate until the lambda's
+    // written parameter types have been checked against its delegate. Keeping a single member in the
+    // group path leaves the lambda un-targeted during candidate scoring; if the instance signature
+    // rejects it, C# then offers the applicable extension methods for the same receiver.
+    static func IsSourceInstanceLambdaCall(functionType: FunctionTypeInfo, call: CallExpression): bool {
+        memberAccess := call.Callee as MemberAccessExpression
+        if memberAccess == null || string.IsNullOrEmpty(functionType.SourceContainingType) || functionType.SourceIsStatic || functionType.SourceHasReceiverParameter {
+            return false
+        }
+
+        for argument in call.Arguments {
+            if argument.Value as LambdaExpression != null {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    func SourceCallRejectsWrittenLambda(functionType: FunctionTypeInfo, call: CallExpression, placementMatched: bool, placement: int[]): bool {
+        if !placementMatched {
+            return true
+        }
+
+        genericBindings: Dictionary<string, TypeInfo>? = null
+        typeParameters := functionType.TypeParameters
+        if typeParameters != null && typeParameters.Count > 0 {
+            typeArguments := call.TypeArguments
+            if typeArguments != null && typeArguments.Count >= typeParameters.Count {
+                genericBindings = syntheticCallWalk.InferGenericBindings(functionType, call, new List<TypeInfo>(), null)
+            }
+        }
+
+        argumentIndex := 0
+        while argumentIndex < call.Arguments.Count {
+            currentIndex := argumentIndex
+            argumentIndex = argumentIndex + 1
+            lambda := call.Arguments[currentIndex].Value as LambdaExpression
+            if lambda == null {
+                continue
+            }
+
+            if currentIndex >= placement.Length {
+                return true
+            }
+
+            expectedType := syntheticCallValidator.GetExpectedArgumentType(functionType, call, currentIndex, placement[currentIndex], genericBindings)
+            if expectedType != null && !syntheticCallWalk.LambdaParametersFitDelegate(lambda, expectedType, functionType.TypeParameters) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     // A NEWTYPE CONSTRUCTION IS ONE ARGUMENT ASSIGNABLE TO THE UNDERLYING TYPE, and the arity check
     // comes first: an argument-type report against a construction the user did not even spell with
     // one argument would name the wrong problem.
@@ -2538,6 +2747,14 @@ class AnalyzerCallAnalysis {
         }
 
         if state.ArgumentIndex >= state.Call.Arguments.Count {
+            if ShouldRetrySourceInstanceExtensionAfterTypedArguments(functionType, state.Call) && syntheticCallWalk.GetCallMatchScore(functionType, state.Call, state.ArgTypes, state.ReceiverType) < 0 {
+                if state.ReceiverType != null {
+                    state.Phase = 41
+                    return null
+                }
+                return AcquireReceiver(state, true, 41)
+            }
+
             syntheticCallValidator.ValidateCall(functionType, state.Call, state.ArgTypes, state.ReceiverType)
             state.Phase = 16
             return null
@@ -2593,6 +2810,14 @@ class AnalyzerCallAnalysis {
         if phase == 19 {
             bound := syntheticCallWalk.BindNSharpCall(functions, state.Call, state.ArgTypes, state.ReceiverType)
             if bound == null {
+                if ShouldRetrySourceInstanceExtensionAfterGroup(functions, state.Call) {
+                    if state.ReceiverType != null {
+                        state.Phase = 42
+                        return null
+                    }
+                    return AcquireReceiver(state, true, 42)
+                }
+
                 syntheticCallValidator.ReportNoMatchingOverload(functions, state.Call, state.ArgTypes)
                 state.Result = BuiltInTypes.Unknown
                 state.Phase = 99
@@ -2607,6 +2832,10 @@ class AnalyzerCallAnalysis {
 
         if phase == 24 {
             return ReanalyzeContextualUnionCallArgument(state)
+        }
+
+        if phase == 42 {
+            return ResolveSourceInstanceExtensionAfterNoGroupMatch(state)
         }
 
         boundFunction := state.BoundFunction
@@ -2633,6 +2862,203 @@ class AnalyzerCallAnalysis {
         state.Result = syntheticCallValidator.ResolveReturnType(boundFunction, state.Call, state.ArgTypes, state.ReceiverType)
         state.Phase = 99
         return null
+    }
+
+    // C# offers extensions after an instance candidate is inapplicable. The source-function path can
+    // identify an explicitly typed lambda rejection before target-typing its body; read the receiver
+    // once, ask the same extension resolver as member lookup, and restart argument scheduling with
+    // the extension surface when one is available.
+    func ResolveSourceInstanceExtensionFallback(state: CallAnalysisState): CallAnalysisRequest? {
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        receiverType := state.ReceiverType
+        if memberAccess == null || receiverType == null {
+            state.Phase = 3
+            return null
+        }
+
+        fallback := extensionMethodResolution.TryResolveExtensionMethod(receiverType, memberAccess.MemberName, ambient.CurrentTypeName)
+        if !BuiltInTypes.IsUnknown(fallback) {
+            state.CalleeType = SelectOnlyApplicableSourceExtension(fallback, state.Call)
+        }
+
+        state.Phase = 3
+        return null
+    }
+
+    // A non-lambda source instance call has ordinary argument types available only after the
+    // argument walk. If the instance signature rejects those types, offer source extensions before
+    // reporting its mismatch. The instance signature remains first choice because this probe runs
+    // only after its full applicability score is negative.
+    func ResolveSourceInstanceExtensionAfterTypedArguments(state: CallAnalysisState): CallAnalysisRequest? {
+        functionType := state.SyntheticFunctionType
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        receiverType := state.ReceiverType
+        if functionType == null || memberAccess == null || receiverType == null {
+            if functionType != null {
+                syntheticCallValidator.ValidateCall(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+            }
+            state.Phase = 16
+            return null
+        }
+
+        fallback := extensionMethodResolution.TryResolveExtensionMethod(receiverType, memberAccess.MemberName, ambient.CurrentTypeName)
+        functions := new List<FunctionTypeInfo>()
+        single := fallback as FunctionTypeInfo
+        if single != null {
+            functions.Add(single)
+        } else {
+            group := fallback as NSharpMethodGroupInfo
+            if group != null {
+                functions = NSharpMethodGroupInfoFactory.GetFunctions(group)
+            }
+        }
+
+        if functions.Count > 0 {
+            selected := syntheticCallWalk.BindNSharpCall(functions, state.Call, state.ArgTypes, receiverType)
+            if selected != null {
+                syntheticCallValidator.ValidateCall(selected, state.Call, state.ArgTypes, receiverType)
+                state.Result = syntheticCallValidator.ResolveReturnType(selected, state.Call, state.ArgTypes, receiverType)
+                state.Phase = 99
+                return null
+            }
+
+            available := new List<FunctionTypeInfo>()
+            available.Add(functionType)
+            for extensionFunction in functions {
+                available.Add(extensionFunction)
+            }
+            syntheticCallValidator.ReportNoMatchingOverload(available, state.Call, state.ArgTypes)
+            state.Result = BuiltInTypes.Unknown
+            state.Phase = 99
+            return null
+        }
+
+        // No source extension candidates are in scope. Preserve the ordinary instance diagnostic.
+        syntheticCallValidator.ValidateCall(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+        state.Phase = 16
+        return null
+    }
+
+    // An overloaded source instance member takes the method-group route, unlike a single member.
+    // Once the group has no applicable candidate, ask the same extension owner with the receiver
+    // type; a final NL402 includes both groups when extensions were in scope but none applied.
+    func ResolveSourceInstanceExtensionAfterNoGroupMatch(state: CallAnalysisState): CallAnalysisRequest? {
+        functions := state.GroupFunctions
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        receiverType := state.ReceiverType
+        if functions == null || memberAccess == null || receiverType == null {
+            return ReportUnmatchedSourceInstanceGroup(state)
+        }
+
+        fallback := extensionMethodResolution.TryResolveExtensionMethod(receiverType, memberAccess.MemberName, ambient.CurrentTypeName)
+        extensionFunctions := new List<FunctionTypeInfo>()
+        single := fallback as FunctionTypeInfo
+        if single != null {
+            extensionFunctions.Add(single)
+        } else {
+            group := fallback as NSharpMethodGroupInfo
+            if group != null {
+                extensionFunctions = NSharpMethodGroupInfoFactory.GetFunctions(group)
+            }
+        }
+
+        if extensionFunctions.Count > 0 {
+            selected := syntheticCallWalk.BindNSharpCall(extensionFunctions, state.Call, state.ArgTypes, receiverType)
+            if selected != null {
+                state.BoundFunction = selected
+                state.ArgumentIndex = 0
+                state.Phase = 24
+                return null
+            }
+
+            return ReportUnmatchedSourceInstanceGroup(state, extensionFunctions)
+        }
+
+        return ReportUnmatchedSourceInstanceGroup(state)
+    }
+
+    func ReportUnmatchedSourceInstanceGroup(state: CallAnalysisState): CallAnalysisRequest? {
+        return ReportUnmatchedSourceInstanceGroup(state, new List<FunctionTypeInfo>())
+    }
+
+    func ReportUnmatchedSourceInstanceGroup(state: CallAnalysisState, extensionFunctions: IReadOnlyList<FunctionTypeInfo>): CallAnalysisRequest? {
+        functions := state.GroupFunctions
+        if functions != null {
+            available := new List<FunctionTypeInfo>()
+            for functionType in functions {
+                available.Add(functionType)
+            }
+            for extensionFunction in extensionFunctions {
+                available.Add(extensionFunction)
+            }
+            syntheticCallValidator.ReportNoMatchingOverload(available, state.Call, state.ArgTypes)
+        }
+        state.Result = BuiltInTypes.Unknown
+        state.Phase = 99
+        return null
+    }
+
+    static func ShouldRetrySourceInstanceExtensionAfterTypedArguments(functionType: FunctionTypeInfo, call: CallExpression): bool {
+        if string.IsNullOrEmpty(functionType.SourceContainingType) || functionType.SourceIsStatic || functionType.SourceHasReceiverParameter || call.Callee as MemberAccessExpression == null {
+            return false
+        }
+
+        for argument in call.Arguments {
+            if argument.Value as LambdaExpression != null {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    static func ShouldRetrySourceInstanceExtensionAfterGroup(functions: IReadOnlyList<FunctionTypeInfo>, call: CallExpression): bool {
+        if call.Callee as MemberAccessExpression == null || functions.Count == 0 {
+            return false
+        }
+
+        for argument in call.Arguments {
+            if argument.Value as LambdaExpression != null {
+                return false
+            }
+        }
+
+        for functionType in functions {
+            if string.IsNullOrEmpty(functionType.SourceContainingType) || functionType.SourceIsStatic || functionType.SourceHasReceiverParameter {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    // When written lambda parameters leave exactly one source extension candidate applicable, keep
+    // it as a single function so the normal argument walk target-types and analyzes the lambda body.
+    // A remaining overload set stays a group and retains every candidate for ordinary resolution and
+    // diagnostics.
+    func SelectOnlyApplicableSourceExtension(fallback: TypeInfo, call: CallExpression): TypeInfo {
+        group := fallback as NSharpMethodGroupInfo
+        if group == null {
+            return fallback
+        }
+
+        functions := NSharpMethodGroupInfoFactory.GetFunctions(group)
+        applicable := new List<FunctionTypeInfo>()
+        for candidate in functions {
+            parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(candidate, call)
+            functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(candidate, call)
+            placement: int[] = new int[0]
+            placementMatched := syntheticCallReporter.TryBindAndReport(candidate, functionName, call, out placement, parameterStartIndex, false)
+            if placementMatched && !SourceCallRejectsWrittenLambda(candidate, call, placementMatched, placement) {
+                applicable.Add(candidate)
+            }
+        }
+
+        if applicable.Count == 1 {
+            return applicable[0]
+        }
+
+        return fallback
     }
 
     // N# source overload groups are first scored from an untargeted argument pass. A generic-union

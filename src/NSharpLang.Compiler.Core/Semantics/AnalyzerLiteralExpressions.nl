@@ -330,6 +330,20 @@ class AnalyzerLiteralExpressions {
             }
         }
 
+        // NO TARGET TOOK IT: ECMA-334 §6.4.5.3 types an unsuffixed literal as the first of `int`,
+        // `uint`, `long`, `ulong` whose range holds the magnitude.
+        if magnitude > 4294967295UL {
+            if magnitude > 9223372036854775807UL {
+                return BuiltInTypes.ULong
+            }
+
+            return BuiltInTypes.Long
+        }
+
+        if magnitude > 2147483647UL {
+            return BuiltInTypes.UInt
+        }
+
         return BuiltInTypes.Int
     }
 

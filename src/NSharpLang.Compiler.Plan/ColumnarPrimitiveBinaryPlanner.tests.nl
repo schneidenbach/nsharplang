@@ -2523,9 +2523,20 @@ test "primitive binary planner declines non-adopting literal mixes atomically" {
         (uint)2
     ) == "42"
 
-    // An out-of-range magnitude declines for every target: the cap is Int32.MaxValue, so a literal
-    // above it neither adopts nor plans as its own Int32.
-    PrimitiveBinaryDeclines("left / 3000000000", uintBindings)
+    // This unsuffixed magnitude first fits `uint`, so it has its own uint type and forms a valid
+    // uint/uint operation with `left`.
+    uintLiteral := PrimitiveBinaryPlan("left / 3000000000", uintBindings)
+    assert uintLiteral.ResultType == typeof(uint)
+    assert PrimitiveBinaryOpcodeCount(
+        uintLiteral,
+        ColumnarCodePlanContract.DivUn()
+    ) == 1
+    assert PrimitiveBinaryExecuteOneParameter(
+        uintLiteral,
+        typeof(uint),
+        typeof(uint),
+        uint.MaxValue
+    ) == "1"
 
     // A suffixed literal keeps its own fixed type and never adopts: `2UL` against a uint left is a
     // uint/ulong mismatch that declines.

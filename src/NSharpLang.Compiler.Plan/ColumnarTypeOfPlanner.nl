@@ -1295,7 +1295,14 @@ class ColumnarTypeOfPlanner {
         if IsClosedSourceGeneric(valueType) {
             return true
         }
-        return !valueType.IsValueType && IsSupportedCatalogType(valueType)
+        // A small number of external structs have an explicit array-element contract. `Guid` is
+        // representable with the same element-handle opcodes as a source struct. The broader catalog
+        // value surface is not an array-element surface: DateTime and JSON value structs remain outside
+        // it, as do generic and by-ref-like structs.
+        if IsValueTypeSafely(valueType) {
+            return valueType == typeof(Guid) && IsSupportedCatalogType(valueType)
+        }
+        return IsSupportedCatalogType(valueType)
     }
 
     // A `Nullable<T>` NEEDS A NON-NULLABLE VALUE `T`, AND THAT IS THE WHOLE QUESTION.

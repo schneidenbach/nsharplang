@@ -250,6 +250,7 @@ class ColumnarIteratorBodyScope {
         // `ColumnarStructDef` for a synthesized type.
         instanceFacts := new ColumnarCurrentInstanceFacts(stateMachineType, !stateMachineIsValueType)
         bindings.CurrentInstance = instanceFacts
+        bindings.SemanticModel = facts.SemanticModel
         return new ColumnarIteratorBodyScope(stateMachineType, facts, bindings, instanceFacts)
     }
 

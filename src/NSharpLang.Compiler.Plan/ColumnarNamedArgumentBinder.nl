@@ -251,6 +251,8 @@ class ColumnarNamedArgumentBinder {
         movedContextualLambda := new bool[](count)
         movedContextualLambdaParameterCounts := new int[](count)
         movedContextualLambdaReturnsVoid := new bool[](count)
+        movedContextualLambdaParameterTypes := new Type[][](count)
+        movedContextualLambdaInvocationArities := new int[][](count)
         Array.Fill(movedContextualLambdaParameterCounts, -1)
 
         reorders := false
@@ -281,6 +283,8 @@ class ColumnarNamedArgumentBinder {
             movedContextualLambda[slot] = facts.IsContextualLambda[written]
             movedContextualLambdaParameterCounts[slot] = facts.ContextualLambdaParameterCounts[written]
             movedContextualLambdaReturnsVoid[slot] = facts.ContextualLambdaReturnsVoid[written]
+            movedContextualLambdaParameterTypes[slot] = facts.ContextualLambdaParameterTypes[written]
+            movedContextualLambdaInvocationArities[slot] = facts.ContextualLambdaInvocationArities[written]
             written = written + 1
         }
 
@@ -302,6 +306,8 @@ class ColumnarNamedArgumentBinder {
             facts.IsContextualLambda[copy] = movedContextualLambda[copy]
             facts.ContextualLambdaParameterCounts[copy] = movedContextualLambdaParameterCounts[copy]
             facts.ContextualLambdaReturnsVoid[copy] = movedContextualLambdaReturnsVoid[copy]
+            facts.ContextualLambdaParameterTypes[copy] = movedContextualLambdaParameterTypes[copy]
+            facts.ContextualLambdaInvocationArities[copy] = movedContextualLambdaInvocationArities[copy]
             facts.WrittenOrderSlots[copy] = slotForWrittenArgument[copy]
             copy = copy + 1
         }
@@ -531,6 +537,8 @@ class ColumnarNamedArgumentBinder {
         Array.Copy(sourceFacts.IsContextualLambda, copy.IsContextualLambda, count)
         Array.Copy(sourceFacts.ContextualLambdaParameterCounts, copy.ContextualLambdaParameterCounts, count)
         Array.Copy(sourceFacts.ContextualLambdaReturnsVoid, copy.ContextualLambdaReturnsVoid, count)
+        Array.Copy(sourceFacts.ContextualLambdaParameterTypes, copy.ContextualLambdaParameterTypes, count)
+        Array.Copy(sourceFacts.ContextualLambdaInvocationArities, copy.ContextualLambdaInvocationArities, count)
         return copy
     }
 

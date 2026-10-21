@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 import System.Threading.Tasks
+import NSharpLang.Compiler
 
 enum ColumnarDirectCallOwnership {
     NotOwned,
@@ -197,6 +198,12 @@ class ColumnarDirectCallPlanner {
 
             hasSibling := bindings.HasSiblingCallable(bareName)
 
+            // A declaration of this name that takes MORE parameters than the call wrote is not a
+            // different name: its trailing defaults may be what the call leaves out, and the fill tier
+            // below is what places it. Without this the gate declined `Show(a)` inside the class that
+            // declares `Show(a, b = "-")` before that tier was ever asked.
+            hasOptionalTail := HasBareDeclarationBeyondArity(currentDefinition, enclosingDefinition, bareName, argumentCount)
+
             // A bare name with no source/static/sibling tier may still bind to a method inherited
             // from an external runtime base (`Ok` -> ControllerBase.Ok). Keep those from bailing out
             // early so the inherited-external arm in TryAppendBareCall can select and plan them.
@@ -206,7 +213,7 @@ class ColumnarDirectCallPlanner {
             // method — a local, a parameter, a lifted capture or a FIELD of the current instance
             // alike. Let those bare calls flow to the delegate-invoke owner instead of declining
             // early.
-            if !explicitThis && !hasInstance && !hasStatic && !hasSibling && !hasInheritedExternal && !bindings.IsSiblingShadowedByValue(bareName) && !IsDelegateValueCallee(nodes, source, callee, bindings) {
+            if !explicitThis && !hasInstance && !hasStatic && !hasSibling && !hasOptionalTail && !hasInheritedExternal && !bindings.IsSiblingShadowedByValue(bareName) && !IsDelegateValueCallee(nodes, source, callee, bindings) {
                 return false
             }
         }
@@ -277,6 +284,11 @@ class ColumnarDirectCallPlanner {
             }
             plan.Rollback(sparseCheckpoint)
             sparseCheckpoint = plan.CreateCheckpoint()
+            if TryAppendSparseNamedBareMemberCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
+                return true
+            }
+            plan.Rollback(sparseCheckpoint)
+            sparseCheckpoint = plan.CreateCheckpoint()
             if TryAppendSparseNamedSourceMemberCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
                 return true
             }
@@ -288,6 +300,25 @@ class ColumnarDirectCallPlanner {
             plan.Rollback(sparseCheckpoint)
             legacyWholeSubtreePlanning = true
             return false
+        }
+
+        // BARE SOURCE MEMBER OVERLOADS WITH OPTIONAL PARAMETERS ARE ONE CANDIDATE SET. If the
+        // exact-arity owner runs first, it can emit `Pick(object)` before this tier ever compares
+        // `Pick(string, suffix = "")`; C# compares the conversions for the written arguments
+        // first, so the string overload wins. The sparse planner already knows how to place and
+        // emit both exact and default-filled declarations, and its tie-break prefers fewer omitted
+        // defaults when the argument conversions are otherwise equal.
+        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression {
+            bareName := nodes.Text(source, callee)
+            if HasBareDeclarationBeyondArity(bindings.ImplicitInstanceDefinition(), bindings.EnclosingTypeDefinition, bareName, argumentTypes.Length) {
+                sparseCheckpoint := plan.CreateCheckpoint()
+                if TryAppendSparseNamedBareMemberCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
+                    ownership = ColumnarDirectCallOwnership.Planned
+                    legacyWholeSubtreePlanning = false
+                    return true
+                }
+                plan.Rollback(sparseCheckpoint)
+            }
         }
 
         if namedPlacement.Length == argumentTypes.Length && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
@@ -323,6 +354,13 @@ class ColumnarDirectCallPlanner {
             declinedResult := resultType
             fillCheckpoint := plan.CreateCheckpoint()
             if TryAppendSparseNamedSiblingCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
+                ownership = ColumnarDirectCallOwnership.Planned
+                legacyWholeSubtreePlanning = false
+                return true
+            }
+            plan.Rollback(fillCheckpoint)
+            fillCheckpoint = plan.CreateCheckpoint()
+            if TryAppendSparseNamedBareMemberCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
                 ownership = ColumnarDirectCallOwnership.Planned
                 legacyWholeSubtreePlanning = false
                 return true
@@ -582,6 +620,8 @@ class ColumnarDirectCallPlanner {
         targetFacts.IsContextualLambda[targetIndex] = sourceFacts.IsContextualLambda[sourceIndex]
         targetFacts.ContextualLambdaParameterCounts[targetIndex] = sourceFacts.ContextualLambdaParameterCounts[sourceIndex]
         targetFacts.ContextualLambdaReturnsVoid[targetIndex] = sourceFacts.ContextualLambdaReturnsVoid[sourceIndex]
+        targetFacts.ContextualLambdaParameterTypes[targetIndex] = sourceFacts.ContextualLambdaParameterTypes[sourceIndex]
+        targetFacts.ContextualLambdaInvocationArities[targetIndex] = sourceFacts.ContextualLambdaInvocationArities[sourceIndex]
     }
 
     static func TryAppendSparseNamedSiblingCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
@@ -665,7 +705,238 @@ class ColumnarDirectCallPlanner {
         copy.IsContextualLambda[0] = sourceFacts.IsContextualLambda[index]
         copy.ContextualLambdaParameterCounts[0] = sourceFacts.ContextualLambdaParameterCounts[index]
         copy.ContextualLambdaReturnsVoid[0] = sourceFacts.ContextualLambdaReturnsVoid[index]
+        copy.ContextualLambdaParameterTypes[0] = sourceFacts.ContextualLambdaParameterTypes[index]
+        copy.ContextualLambdaInvocationArities[0] = sourceFacts.ContextualLambdaInvocationArities[index]
         return copy
+    }
+
+    // DOES A SOURCE METHOD OF THIS NAME, DECLARED ON THE CURRENT TYPE ITSELF, TAKE MORE PARAMETERS THAN
+    // THE CALL WROTE? The question the bare-call entry gate asks before the fill tier is reached: only
+    // such a declaration can be completed with trailing defaults.
+    static func HasBareDeclarationBeyondArity(currentDefinition: ColumnarStructDef?, enclosingDefinition: ColumnarStructDef?, memberName: string, argumentCount: int): bool {
+        if currentDefinition != null {
+            instances: List<ColumnarInstanceMethodDef>? = null
+            if currentDefinition.MethodOverloads.TryGetValue(memberName, out instances) && instances != null {
+                for instanceDefinition in instances {
+                    if instanceDefinition.ParamTypes.Length > argumentCount {
+                        return true
+                    }
+                }
+            }
+        }
+
+        if enclosingDefinition != null {
+            statics: List<ColumnarStaticMethodDef>? = null
+            if enclosingDefinition.StaticMethods.TryGetValue(memberName, out statics) && statics != null {
+                for staticMethod in statics {
+                    if staticMethod.ParamTypes.Length > argumentCount {
+                        return true
+                    }
+                }
+            }
+        }
+
+        return false
+    }
+
+    // AN OMITTED DEFAULT ON A BARE CALL. `Show(a)` written inside the type that declares
+    // `Show(a, b = "-")` fills `b` exactly as `Svc.Show(a)` and `svc.Show(a)` do: the same placement,
+    // the same written-order evaluation through locals, and the same constructor-default owner for each
+    // slot the call left out. The qualified spellings have their own tiers (`SourceMemberCall` for a
+    // receiver or an owner name) and a bare name reached none of them, so it declined as
+    // `emit.call.bare-unresolved` (GitHub #238).
+    //
+    // THE CANDIDATE SET IS THE CURRENT TYPE'S OWN. An instance method needs the implicit receiver, so it
+    // is offered only where a current instance exists, and `this.Show(a)` offers no static. A name
+    // declared on a BASE class only is left to the tiers that already own inherited members, as is a
+    // generic, `params` or by-ref candidate. A local, parameter or sibling of the same name keeps the
+    // call, since the bare name is not this member there.
+    static func TryAppendSparseNamedBareMemberCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
+        resultType = typeof(int)
+        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression || nodes.ChildCount(callee) != 0 {
+            return false
+        }
+
+        memberName := nodes.Text(source, callee)
+        explicitThis := ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, callee)
+        if memberName.Length == 0 || (!explicitThis && (bindings.IsValueBinding(memberName) || bindings.HasSiblingCallable(memberName))) {
+            return false
+        }
+
+        selections := new List<ColumnarSourceDirectCallSelection>()
+        parameterNames := new List<string[]>()
+        defaultKinds := new List<int[]>()
+        defaultTexts := new List<string[]>()
+
+        currentDefinition := bindings.ImplicitInstanceDefinition()
+        currentType := bindings.ImplicitInstanceType()
+        if currentDefinition != null && currentType != null && !currentDefinition.IsInterface {
+            instances: List<ColumnarInstanceMethodDef>? = null
+            if currentDefinition.MethodOverloads.TryGetValue(memberName, out instances) && instances != null {
+                closedInstance := ColumnarSourceDirectCallResolver.ExactSourceTypeMatch(currentDefinition, currentType)
+                for instanceDefinition in instances {
+                    if instanceDefinition.Generics != null || ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(instanceDefinition) || instanceDefinition.ParamTypes.Length < argumentTypes.Length || instanceDefinition.ParamNames.Length != instanceDefinition.ParamTypes.Length || instanceDefinition.ParamDefaultKinds.Length != instanceDefinition.ParamTypes.Length || instanceDefinition.ParamDefaultTexts.Length != instanceDefinition.ParamTypes.Length {
+                        continue
+                    }
+
+                    parameters := ColumnarSourceDirectCallResolver.ResolveParameterTypes(instanceDefinition.ParamTypes, currentType, closedInstance)
+                    selections.Add(ColumnarSourceDirectCallResolver.SelectedInstance(currentDefinition, currentDefinition, currentType, currentType, closedInstance, instanceDefinition, parameters))
+                    parameterNames.Add(instanceDefinition.ParamNames)
+                    defaultKinds.Add(instanceDefinition.ParamDefaultKinds)
+                    defaultTexts.Add(instanceDefinition.ParamDefaultTexts)
+                }
+            }
+        }
+
+        enclosing := bindings.EnclosingTypeDefinition
+        if !explicitThis && enclosing != null {
+            statics: List<ColumnarStaticMethodDef>? = null
+            if enclosing.StaticMethods.TryGetValue(memberName, out statics) && statics != null {
+                enclosingType: Type = enclosing.Builder
+                closedStatic := ColumnarSourceDirectCallResolver.ExactSourceTypeMatch(enclosing, enclosingType)
+                for staticMethod in statics {
+                    if staticMethod.Generics != null || ColumnarSourceDirectCallResolver.IsExcludedStaticDefinition(staticMethod) || staticMethod.ParamTypes.Length < argumentTypes.Length || staticMethod.ParamNames.Length != staticMethod.ParamTypes.Length || staticMethod.ParamDefaultKinds.Length != staticMethod.ParamTypes.Length || staticMethod.ParamDefaultTexts.Length != staticMethod.ParamTypes.Length {
+                        continue
+                    }
+
+                    parameters := ColumnarSourceDirectCallResolver.ResolveParameterTypes(staticMethod.ParamTypes, enclosingType, closedStatic)
+                    selections.Add(ColumnarSourceDirectCallResolver.SelectedStatic(enclosing, enclosing, enclosingType, closedStatic, staticMethod, parameters))
+                    parameterNames.Add(staticMethod.ParamNames)
+                    defaultKinds.Add(staticMethod.ParamDefaultKinds)
+                    defaultTexts.Add(staticMethod.ParamDefaultTexts)
+                }
+            }
+        }
+
+        applicableIndexes := new List<int>()
+        applicablePlacements := new List<int[]>()
+        applicableClaimed := new List<bool[]>()
+        candidateIndex := 0
+        while candidateIndex < selections.Count {
+            selection := selections[candidateIndex]
+            placement := new int[](0)
+            claimed := new bool[](0)
+            if !ColumnarNamedArgumentBinder.TryPlaceSparse(nodes, source, callNode, 1, argumentTypes.Length, parameterNames[candidateIndex], out placement, out claimed) {
+                candidateIndex += 1
+                continue
+            }
+
+            fillable := true
+            slot := 0
+            while slot < selection.ParameterTypes.Length {
+                if !claimed[slot] && !ColumnarConstructionPlanner.CanUseConstructorDefault(nodes, selection.ParameterTypes[slot], defaultKinds[candidateIndex][slot], defaultTexts[candidateIndex][slot], bindings) {
+                    fillable = false
+                }
+                slot += 1
+            }
+            written := 0
+            while fillable && written < argumentTypes.Length {
+                expected := new Type[](1)
+                expected[0] = selection.ParameterTypes[placement[written]]
+                actual := new Type[](1)
+                actual[0] = argumentTypes[written]
+                scorePart := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, CopyArgumentFact(argumentFacts, written))
+                if scorePart < 0 {
+                    fillable = false
+                }
+                written += 1
+            }
+            if fillable {
+                applicableIndexes.Add(candidateIndex)
+                applicablePlacements.Add(placement)
+                applicableClaimed.Add(claimed)
+            }
+            candidateIndex += 1
+        }
+
+        if applicableIndexes.Count == 0 {
+            return false
+        }
+
+        // BETTER FUNCTION MEMBER IS A PARTIAL ORDER: compare each written argument's conversion
+        // pairwise, then apply the fewer-defaults tie-break only when neither candidate wins on
+        // conversions. Summing conversion scores can incorrectly pick a candidate that wins one
+        // argument and loses another, and a running winner makes that answer depend on declaration
+        // order. Keep the complete applicable set and ask the shared maximal-set selector.
+        selectedSparseIndex := 0
+        if applicableIndexes.Count > 1 {
+            comparisons := new int[applicableIndexes.Count * applicableIndexes.Count]
+            comparisonRow := 0
+            while comparisonRow < applicableIndexes.Count {
+                comparisonColumn := 0
+                while comparisonColumn < applicableIndexes.Count {
+                    if comparisonRow != comparisonColumn {
+                        leftCandidate := applicableIndexes[comparisonRow]
+                        rightCandidate := applicableIndexes[comparisonColumn]
+                        comparisons[comparisonRow * applicableIndexes.Count + comparisonColumn] = CompareSparseBareCandidates(
+                            selections[leftCandidate].ParameterTypes,
+                            applicablePlacements[comparisonRow],
+                            applicableClaimed[comparisonRow],
+                            selections[rightCandidate].ParameterTypes,
+                            applicablePlacements[comparisonColumn],
+                            applicableClaimed[comparisonColumn],
+                            argumentTypes,
+                            argumentFacts
+                        )
+                    }
+                    comparisonColumn += 1
+                }
+                comparisonRow += 1
+            }
+
+            maximal := AnalyzerOverloadSpecificity.FindMaximalIndexes(comparisons, applicableIndexes.Count)
+            if maximal.Count != 1 {
+                return false
+            }
+            selectedSparseIndex = maximal[0]
+        }
+
+        selectedIndex := applicableIndexes[selectedSparseIndex]
+        selectedPlacement := applicablePlacements[selectedSparseIndex]
+        selectedClaimed := applicableClaimed[selectedSparseIndex]
+
+        selected := selections[selectedIndex]
+        method := selected.Method
+        if method == null {
+            return false
+        }
+
+        if !selected.IsStatic {
+            AppendImplicitReceiver(plan, bindings, selected)
+        }
+
+        locals := new int[](selected.ParameterTypes.Length)
+        Array.Fill(locals, -1)
+        written := 0
+        while written < argumentTypes.Length {
+            slot := selectedPlacement[written]
+            expected := new Type[](1)
+            expected[0] = selected.ParameterTypes[slot]
+            actual := new Type[](1)
+            actual[0] = argumentTypes[written]
+            oneFacts := CopyArgumentFact(argumentFacts, written)
+            if oneFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, true, actual, expected, oneFacts, 0, 0) {
+                return false
+            }
+            local := plan.DeclarePlanLocal(plan.AddType(expected[0]))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
+            locals[slot] = local
+            written += 1
+        }
+        slot := 0
+        while slot < selected.ParameterTypes.Length {
+            if selectedClaimed[slot] {
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), locals[slot])
+            } else if !ColumnarConstructionPlanner.TryAppendConstructorDefault(nodes, plan, selected.ParameterTypes[slot], defaultKinds[selectedIndex][slot], defaultTexts[selectedIndex][slot], bindings) {
+                return false
+            }
+            slot += 1
+        }
+
+        methodIndex := plan.AddMethodWithSignature(method, selected.DeclaringType, selected.ParameterTypes, selected.ReturnType, selected.IsStatic, selected.IsAbstract)
+        plan.AppendMethodInstruction((short)(selected.Dispatch == ColumnarSourceDirectCallDispatch.CallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
+        resultType = selected.ReturnType
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
     static func TryAppendSparseNamedSourceMemberCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
@@ -1239,6 +1510,53 @@ class ColumnarDirectCallPlanner {
             written += 1
         }
         return true
+    }
+
+    static func CompareSparseBareCandidates(leftTypes: Type[], leftPlacement: int[], leftClaimed: bool[], rightTypes: Type[], rightPlacement: int[], rightClaimed: bool[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        verdicts := new List<int>()
+        written := 0
+        while written < argumentTypes.Length {
+            leftTarget := leftTypes[leftPlacement[written]]
+            rightTarget := rightTypes[rightPlacement[written]]
+            actualType := argumentTypes[written]
+            verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
+                RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(leftTarget, actualType),
+                RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(rightTarget, actualType),
+                ColumnarSourceDirectCallResolver.ArgumentFlowScore(rightTarget, leftTarget, argumentFacts.SourceTypeDefinitions) >= 0,
+                ColumnarSourceDirectCallResolver.ArgumentFlowScore(leftTarget, rightTarget, argumentFacts.SourceTypeDefinitions) >= 0
+            ))
+            written += 1
+        }
+
+        conversionVerdict := AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
+        if conversionVerdict != AnalyzerOverloadSpecificity.NeitherIsBetter {
+            return conversionVerdict
+        }
+
+        leftDefaults := 0
+        rightDefaults := 0
+        slot := 0
+        while slot < leftClaimed.Length {
+            if !leftClaimed[slot] {
+                leftDefaults += 1
+            }
+            slot += 1
+        }
+        slot = 0
+        while slot < rightClaimed.Length {
+            if !rightClaimed[slot] {
+                rightDefaults += 1
+            }
+            slot += 1
+        }
+
+        if leftDefaults < rightDefaults {
+            return AnalyzerOverloadSpecificity.LeftIsBetter
+        }
+        if leftDefaults > rightDefaults {
+            return AnalyzerOverloadSpecificity.RightIsBetter
+        }
+        return AnalyzerOverloadSpecificity.NeitherIsBetter
     }
 
     static func HasExplicitGenericParamsTail(modifierKinds: int[]): bool {
@@ -2999,7 +3317,8 @@ class ColumnarDirectCallPlanner {
         resultType = typeof(int)
 
         delegateType := typeof(object)
-        if !ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, callee, bindings, out delegateType) || !IsDelegateValueType(delegateType) {
+        let hasBoundDelegateType: bool = ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, callee, bindings, out delegateType)
+        if !hasBoundDelegateType || !IsDelegateValueType(delegateType) {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
@@ -3014,11 +3333,15 @@ class ColumnarDirectCallPlanner {
 
         selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(delegateType, "Invoke", argumentTypes, argumentFacts, false)
 
-        if !selection.IsSelected || !AppendOrdinaryRuntimeSelection(nodes, source, callNode, calleeCandidate, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, selection, out resultType) {
+        ordinaryResultType := typeof(int)
+        appendSucceeded := selection.IsSelected && AppendOrdinaryRuntimeSelection(nodes, source, callNode, calleeCandidate, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, selection, out ordinaryResultType)
+
+        if !appendSucceeded {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
         }
+        resultType = ordinaryResultType
 
         ownership = ColumnarDirectCallOwnership.Planned
         return true
@@ -3043,7 +3366,16 @@ class ColumnarDirectCallPlanner {
         }
 
         try {
-            return typeof(Delegate).IsAssignableFrom(candidate)
+            if typeof(Delegate).IsAssignableFrom(candidate) {
+                return true
+            }
+            // External overload signatures come from the compilation MetadataLoadContext. Its
+            // MulticastDelegate is a distinct reflection Type from the runtime's, so CLR assignability
+            // returns false even though the delegate's declared base slot is the exact framework type.
+            // Compare that slot through the reference identity already used for metadata/runtime
+            // member binding.
+            baseType := candidate.BaseType
+            return baseType != null && ExternalAssemblyScan.HasExactTypeIdentity(baseType, typeof(MulticastDelegate).AssemblyQualifiedName ?? "")
         } catch ex: NotSupportedException {
             return false
         } catch ex: NotImplementedException {
@@ -3600,9 +3932,44 @@ class ColumnarDirectCallPlanner {
 
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             if !sourceInstance.IsSelected {
-                if HasExcludedInstanceOwnerAtArity(sourceDefinition, receiverType, memberName, argumentTypes.Length) {
+                // Source interface declarations merge with `object` by signature. If the source
+                // overloads of this name do not accept the call, the unmatched public object member
+                // remains an instance candidate and must run before extension methods.
+                if sourceDefinition.IsInterface {
+                    objectSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(typeof(object), memberName, argumentTypes, argumentFacts, false)
+                    if objectSelection.IsSelected && AppendSourceInterfaceObjectMethod(nodes, source, callNode, receiverNode, receiverType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, objectSelection, out resultType) {
+                        ownership = ColumnarDirectCallOwnership.Planned
+                        return true
+                    }
+                }
+
+                fallbackScope := ColumnarBindingScopeFacts.Of(nodes)
+                if fallbackScope != null {
+                    extension := ColumnarExtensionMethodSelection.None()
+                    if fallbackScope.TryResolveExtensionMethod(receiverType, memberName, argumentTypes, argumentFacts, out extension) && extension.IsSelected {
+                        if !AppendExtensionSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, extension, out resultType) {
+                            plan.Rollback(checkpoint)
+                            return false
+                        }
+
+                        ownership = ColumnarDirectCallOwnership.Planned
+                        return true
+                    }
+                }
+
+                if TryAppendReceiverStyleSiblingCall(nodes, source, callNode, receiverNode, memberName, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, receiverType, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+                    return true
+                }
+
+                // Preserve terminal ownership for ordinary mismatches. The emitter needs the whole
+                // call only when a contextual lambda can reject the instance signature and bind to
+                // an extension, or when the source declaration belongs to an excluded call shape.
+                if (HasContextualLambdaArgument(nodes, callNode) || HasExcludedInstanceOwnerAtArity(sourceDefinition, receiverType, memberName, argumentTypes.Length)) {
                     ownership = ColumnarDirectCallOwnership.NotOwned
                     legacyWholeSubtreePlanning = true
+                } else {
+                    ownership = ColumnarDirectCallOwnership.OwnedRejected
+                    legacyWholeSubtreePlanning = false
                 }
                 plan.Rollback(checkpoint)
                 return false
@@ -3662,19 +4029,9 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        // No instance member of this name bound at the supplied arity. Two fallbacks remain before
-        // the call is yielded, both terminal in N#: (1) a trailing-optional instance method on the
-        // receiver's own type (`app.Run()` -> WebApplication.Run(string url = null),
-        // `service.GetSymbols(snapshot, file)` -> `GetSymbols(snapshot, file, kind = null)`); (2) an
-        // external extension method exported by a referenced assembly
-        // (`builder.Services.AddControllers()`).
-        //
-        // THE TWO FALLBACKS DIFFER ON OWNED-REJECTED, AND THE DIFFERENCE IS PRECEDENCE. The optional
-        // fill selects an instance member of the receiver's OWN type, so it runs whatever the
-        // exact-arity tier said — and "a method of this name exists but no overload binds at this
-        // arity" is exactly the state an omitted defaulted argument produces, which is why gating it
-        // on a NOT-owned-rejected result made every such call decline. Extension lookup keeps the
-        // gate: an extension may only be reached when the receiver has no matching instance method.
+        // No applicable instance member has bound in normal form. A trailing-optional instance
+        // method is tried next, followed by params expansion; both are still instance candidates and
+        // therefore precede extension lookup under C# overload resolution.
         optionalInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(receiverType, memberName, argumentTypes, argumentFacts, false)
 
         if optionalInstance.IsSelected {
@@ -3688,26 +4045,9 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        if !ordinaryInstance.IsOwnedRejected {
-            if scope != null {
-                extension := ColumnarExtensionMethodSelection.None()
-                if scope.TryResolveExtensionMethod(receiverType, memberName, argumentTypes, argumentFacts, out extension) && extension.IsSelected {
-                    ownership = ColumnarDirectCallOwnership.OwnedRejected
-                    if !AppendExtensionSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, extension, out resultType) {
-                        plan.Rollback(checkpoint)
-                        return false
-                    }
-
-                    ownership = ColumnarDirectCallOwnership.Planned
-                    return true
-                }
-            }
-        }
-
-        // THE LAST TIER, for an instance receiver: the call site packs a `params` tail. It runs after
-        // the extension lookup as well, because an extension is a NORMAL-form binding on a method the
-        // receiver's own type does not declare, and preferring a packed instance call to it would
-        // change which member a written call reaches.
+        // THE LAST INSTANCE TIER: the call site packs a `params` tail. It runs before extension
+        // lookup, since an applicable expanded instance method still belongs to the receiver's
+        // member group and wins over extensions.
         expandedInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
 
         if expandedInstance.IsSelected {
@@ -3721,12 +4061,39 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        if !ordinaryInstance.IsOwnedRejected && TryAppendReceiverStyleSiblingCall(nodes, source, callNode, receiverNode, memberName, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, receiverType, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+        // No applicable instance member remains. A group that exists but rejected its arguments
+        // must not suppress this lookup: that is precisely when C# considers extension methods.
+        // Contextual lambdas may not have a standalone argument type yet; if ordinary extension
+        // resolution cannot close them here, mark the call for the emitter's contextual pass below.
+        if scope != null {
+            extension := ColumnarExtensionMethodSelection.None()
+            if scope.TryResolveExtensionMethod(receiverType, memberName, argumentTypes, argumentFacts, out extension) && extension.IsSelected {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                if !AppendExtensionSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, extension, out resultType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+        }
+
+        // No instance member of this name bound at the supplied arity. The call is yielded to the
+        // remaining receiver-style sibling and emitter-owned contextual tiers.
+
+        if TryAppendReceiverStyleSiblingCall(nodes, source, callNode, receiverNode, memberName, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, receiverType, out ownership, out legacyWholeSubtreePlanning, out resultType) {
             return true
         }
 
         if ordinaryInstance.IsOwnedRejected {
-            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if HasContextualLambdaArgument(nodes, callNode) {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+            } else {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                legacyWholeSubtreePlanning = false
+            }
         } else {
             legacyWholeSubtreePlanning = true
         }
@@ -3829,6 +4196,17 @@ class ColumnarDirectCallPlanner {
             plan.Rollback(checkpoint)
             throw ex
         }
+    }
+
+    static func HasContextualLambdaArgument(nodes: ColumnarNodeTable, callNode: int): bool {
+        argumentNode := 1
+        while argumentNode < nodes.ChildCount(callNode) {
+            if ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(nodes.Child(callNode, argumentNode))) {
+                return true
+            }
+            argumentNode += 1
+        }
+        return false
     }
 
     // Emit an external extension call as an ordinary static `call` row: load the receiver as the
@@ -4129,6 +4507,29 @@ class ColumnarDirectCallPlanner {
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
+    // A source interface's unbaked TypeBuilder is a valid receiver for an inherited object method,
+    // but the schema-v3 call validator cannot infer that interface references are object references.
+    // Emit the receiver at its exact source type, then state the reference widening explicitly.
+    static func AppendSourceInterfaceObjectMethod(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, receiverType: Type, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, selection: ColumnarOrdinaryRuntimeDirectCallSelection, out resultType: Type): bool {
+        resultType = typeof(int)
+        method := selection.Method
+        if !selection.IsSelected || method == null || selection.IsStatic || !selection.ReceiverIsReference || !AppendExplicitReceiver(nodes, source, receiverNode, bindings, handles, plan, callFragment, depth + 1, receiverType, true) {
+            return false
+        }
+
+        objectTypeIndex := plan.AddType(typeof(object))
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Castclass(), objectTypeIndex)
+
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters()), typeof(object), true, true) {
+            return false
+        }
+
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, method.IsAbstract)
+        plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
+        resultType = selection.ReturnType
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
+    }
+
     // A SLOT A **BASE** INTERFACE DECLARED, REACHED THROUGH THE DERIVED ONE.
     //
     // `interface ITestCase: INamed` makes every `ITestCase` an `INamed`, and the selection walk
@@ -4265,7 +4666,7 @@ class ColumnarDirectCallPlanner {
     }
 
     static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, parameterModifierKinds: int[]?, receiverType: Type?, receiverIsOnStack: bool, receiverIsReference: bool): bool {
-        if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != parameterTypes.Length || argumentFacts.IsContextualLambda.Length != parameterTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != parameterTypes.Length || argumentFacts.ContextualLambdaReturnsVoid.Length != parameterTypes.Length || argumentFacts.ArgumentNodes.Length != parameterTypes.Length || argumentFacts.WrittenOrderSlots.Length != parameterTypes.Length {
+        if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != parameterTypes.Length || argumentFacts.IsContextualLambda.Length != parameterTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != parameterTypes.Length || argumentFacts.ContextualLambdaReturnsVoid.Length != parameterTypes.Length || argumentFacts.ContextualLambdaParameterTypes.Length != parameterTypes.Length || argumentFacts.ContextualLambdaInvocationArities.Length != parameterTypes.Length || argumentFacts.ArgumentNodes.Length != parameterTypes.Length || argumentFacts.WrittenOrderSlots.Length != parameterTypes.Length {
             return false
         }
         if parameterModifierKinds != null && parameterModifierKinds.Length != 0 && parameterModifierKinds.Length != parameterTypes.Length {
@@ -4830,12 +5231,269 @@ class ColumnarDirectCallPlanner {
     // delegate type without needing overload context: an async block with no value-producing return
     // is Func<Task>. Returned-value lambdas continue through the target-type-specific lambda path.
     static func IsAsyncUnitLambda(nodes: ColumnarNodeTable, node: int): bool {
-        if nodes == null || node < 0 || node >= nodes.Kinds.Length || !ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(node)) || nodes.ChildCount(node) < 1 {
+        if nodes == null || node < 0 || node >= nodes.Kinds.Length || !ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(node)) || nodes.ChildCount(node) != 1 {
             return false
         }
 
         bodyNode := nodes.Child(node, nodes.ChildCount(node) - 1)
         return nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement && !ContainsValueReturnOutsideNestedLambdas(nodes, bodyNode, 0)
+    }
+
+    // Contextual lambdas whose parameter types were resolved by analysis must keep those types while
+    // the planner ranks external overloads. Their delegate arity and return shape alone cannot
+    // distinguish overloads such as `Func<HttpContext, Func<Task>, Task>` and
+    // `Func<HttpContext, RequestDelegate, Task>`.
+    static func ResolveContextualLambdaParameterTypes(nodes: ColumnarNodeTable, source: string, lambdaNode: int, bindings: ColumnarFragmentBindings): Type[] {
+        empty := new Type[](0)
+        if nodes == null || source == null || bindings == null || bindings.SemanticModel == null || lambdaNode < 0 || lambdaNode >= nodes.Kinds.Length {
+            return empty
+        }
+
+        parameterCount := nodes.ChildCount(lambdaNode) - 1
+        if parameterCount <= 0 {
+            return empty
+        }
+        if !LambdaHasExplicitParameterTypes(nodes, source, lambdaNode, parameterCount) {
+            return empty
+        }
+        bodyNode := nodes.Child(lambdaNode, parameterCount)
+        position := nodes.SpanStart(bodyNode)
+        if position < 0 || position > source.Length {
+            return empty
+        }
+
+        line := 1
+        column := 1
+        offset := 0
+        while offset < position {
+            if source[offset] == '\n' {
+                line += 1
+                column = 1
+            } else {
+                column += 1
+            }
+            offset += 1
+        }
+
+        visible := bindings.SemanticModel.GetVisibleVariablesAtPosition(line, column)
+        result := new Type[](parameterCount)
+        index := 0
+        while index < parameterCount {
+            name := nodes.Text(source, nodes.Child(lambdaNode, index))
+            parameterInfo: TypeInfo = null
+            parameterType: Type = null
+            if !visible.TryGetValue(name, out parameterInfo) || parameterInfo == null || !TryResolveContextualParameterType(bindings, parameterInfo, out parameterType) || parameterType == null {
+                return empty
+            }
+            // An inferred lambda parameter's visible type is candidate-dependent. Keeping it here
+            // would force the planner to accept the earlier candidate's view (for example
+            // `Func<Task>`) even when the body invokes that parameter with an argument, which only
+            // the `RequestDelegate` overload can accept. The lambda's own call-shape facts below
+            // resolve that candidate without treating inferred types as written annotations.
+            if parameterInfo is FunctionTypeInfo {
+                return empty
+            }
+            result[index] = parameterType
+            index += 1
+        }
+        return result
+    }
+
+    // A visible variable can already carry a candidate-inferred type for an implicit lambda
+    // parameter. Only a type annotation written immediately after a parameter name is a fixed input
+    // to overload resolution; inferred parameter types must be resolved independently for each
+    // candidate.
+    static func LambdaHasExplicitParameterTypes(nodes: ColumnarNodeTable, source: string, lambdaNode: int, parameterCount: int): bool {
+        if nodes == null || source == null || parameterCount <= 0 || nodes.ChildCount(lambdaNode) < parameterCount + 1 {
+            return false
+        }
+        index := 0
+        while index < parameterCount {
+            parameterNode := nodes.Child(lambdaNode, index)
+            parameterStart := nodes.SpanStart(parameterNode)
+            parameterLength := nodes.SpanLength(parameterNode)
+            cursor := parameterStart + parameterLength
+            if parameterStart < 0 || parameterLength < 0 || cursor > source.Length {
+                return false
+            }
+            while cursor < source.Length && (source[cursor] == ' ' || source[cursor] == '\t' || source[cursor] == '\r' || source[cursor] == '\n') {
+                cursor += 1
+            }
+            if cursor >= source.Length || source[cursor] != ':' {
+                return false
+            }
+            index += 1
+        }
+        return true
+    }
+
+    // Encode each direct call of a lambda parameter as `(parameter index, supplied argument count)`
+    // pairs. Candidate scoring uses these facts only to rule out delegate signatures the body could
+    // not call. Calls within nested lambdas remain visible because captured parameters keep the
+    // same contextual type; a nested declaration that shadows an outer parameter is not legal N#
+    // lambda syntax and therefore needs no separate shadow table.
+    static func ResolveContextualLambdaInvocationArities(nodes: ColumnarNodeTable, source: string, lambdaNode: int): int[] {
+        if nodes == null || source == null || lambdaNode < 0 || lambdaNode >= nodes.Kinds.Length || !ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(lambdaNode)) {
+            return new int[](0)
+        }
+        parameterCount := nodes.ChildCount(lambdaNode) - 1
+        if parameterCount <= 0 {
+            return new int[](0)
+        }
+        parameterNames := new string[](parameterCount)
+        index := 0
+        while index < parameterCount {
+            parameterNames[index] = nodes.Text(source, nodes.Child(lambdaNode, index))
+            index += 1
+        }
+        facts := new List<int>()
+        CollectContextualLambdaInvocationArities(nodes, source, nodes.Child(lambdaNode, parameterCount), parameterNames, facts)
+        return facts.ToArray()
+    }
+
+    static func CollectContextualLambdaInvocationArities(nodes: ColumnarNodeTable, source: string, node: int, parameterNames: string[], facts: List<int>) {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.CallExpression && nodes.ChildCount(node) > 0 {
+            callee := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(node, 0))
+            if callee >= 0 && nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ChildCount(callee) == 0 {
+                calleeName := nodes.Text(source, callee)
+                parameterIndex := 0
+                while parameterIndex < parameterNames.Length {
+                    if parameterNames[parameterIndex] == calleeName {
+                        facts.Add(parameterIndex)
+                        facts.Add(nodes.ChildCount(node) - 1)
+                        break
+                    }
+                    parameterIndex += 1
+                }
+            }
+        }
+        child := 0
+        while child < nodes.ChildCount(node) {
+            CollectContextualLambdaInvocationArities(nodes, source, nodes.Child(node, child), parameterNames, facts)
+            child += 1
+        }
+    }
+
+    static func TryResolveContextualParameterType(bindings: ColumnarFragmentBindings, typeInfo: TypeInfo, out runtimeType: Type): bool {
+        runtimeType = null
+        if bindings == null || typeInfo == null {
+            return false
+        }
+        function := typeInfo as FunctionTypeInfo
+        if function != null {
+            functionParameters := function.ParameterTypes
+            functionReturn := function.ReturnType
+            if functionParameters == null || functionReturn == null {
+                return false
+            }
+            runtimeParameters := new Type[](functionParameters.Count)
+            parameterIndex := 0
+            while parameterIndex < runtimeParameters.Length {
+                parameterType: Type = null
+                if !TryResolveContextualParameterType(bindings, functionParameters[parameterIndex], out parameterType) || parameterType == null {
+                    return false
+                }
+                runtimeParameters[parameterIndex] = parameterType
+                parameterIndex += 1
+            }
+            returnType: Type = null
+            if !TryResolveContextualParameterType(bindings, functionReturn, out returnType) || returnType == null {
+                return false
+            }
+            voidType := ColumnarTypeOfPlanner.RequiredVoidType()
+            delegateName := returnType == voidType ? "System.Action`" + runtimeParameters.Length.ToString() : "System.Func`" + (runtimeParameters.Length + 1).ToString()
+            if returnType == voidType && runtimeParameters.Length == 0 {
+                runtimeType = typeof(Action)
+                return true
+            }
+            delegateDefinition := typeof(Action<int>).Assembly.GetType(delegateName)
+            if delegateDefinition == null || !delegateDefinition.IsGenericTypeDefinition {
+                return false
+            }
+            if returnType == voidType {
+                runtimeType = delegateDefinition.MakeGenericType(runtimeParameters)
+                return runtimeType != null
+            }
+            delegateArguments := new Type[](runtimeParameters.Length + 1)
+            Array.Copy(runtimeParameters, delegateArguments, runtimeParameters.Length)
+            delegateArguments[runtimeParameters.Length] = returnType
+            try {
+                runtimeType = delegateDefinition.MakeGenericType(delegateArguments)
+                return runtimeType != null
+            } catch failure: ArgumentException {
+                runtimeType = null
+                return false
+            }
+        }
+        reflected := typeInfo as ReflectionTypeInfo
+        if reflected != null {
+            runtimeType = reflected.Type
+            return runtimeType != null
+        }
+        builtIn := AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(typeInfo)
+        if builtIn != null {
+            runtimeType = builtIn
+            return true
+        }
+        simple := typeInfo as SimpleTypeInfo
+        if simple != null && bindings.TryGetTypeParameter(simple.Name, out runtimeType) {
+            return runtimeType != null
+        }
+        generic := typeInfo as GenericTypeInfo
+        if generic != null {
+            genericDefinition: Type = null
+            definitionInfo := generic.GenericDefinition
+            if definitionInfo != null {
+                if !TryResolveContextualParameterType(bindings, definitionInfo, out genericDefinition) {
+                    return false
+                }
+            } else if !bindings.ExactSourceTypes.TryGetValue(generic.Name, out genericDefinition) {
+                return false
+            }
+            if genericDefinition.IsGenericType && !genericDefinition.IsGenericTypeDefinition {
+                genericDefinition = genericDefinition.GetGenericTypeDefinition()
+            }
+            if !genericDefinition.IsGenericTypeDefinition {
+                return false
+            }
+            arguments := new Type[](generic.TypeArguments.Count)
+            index := 0
+            while index < arguments.Length {
+                argumentType: Type = null
+                if !TryResolveContextualParameterType(bindings, generic.TypeArguments[index], out argumentType) || argumentType == null {
+                    return false
+                }
+                arguments[index] = argumentType
+                index += 1
+            }
+            try {
+                runtimeType = genericDefinition.MakeGenericType(arguments)
+                return runtimeType != null
+            } catch failure: ArgumentException {
+                runtimeType = null
+                return false
+            }
+        }
+        array := typeInfo as ArrayTypeInfo
+        if array != null {
+            elementType: Type = null
+            if !TryResolveContextualParameterType(bindings, array.ElementType, out elementType) || elementType == null {
+                return false
+            }
+            runtimeType = elementType.MakeArrayType()
+            return runtimeType != null
+        }
+        name := typeInfo.ToString()
+        if bindings.ExactSourceTypes.TryGetValue(name, out runtimeType) && runtimeType != null {
+            return true
+        }
+        for definition in bindings.SourceTypeDefinitions {
+            if definition != null && definition.DeclaredTypeName == name {
+                runtimeType = definition.Builder
+                return runtimeType != null
+            }
+        }
+        return false
     }
 
     static func ContainsValueReturnOutsideNestedLambdas(nodes: ColumnarNodeTable, node: int, depth: int): bool {
@@ -4894,6 +5552,8 @@ class ColumnarDirectCallPlanner {
                 argumentTypes[index] = typeof(Delegate)
                 argumentFacts.IsContextualLambda[index] = true
                 argumentFacts.ContextualLambdaParameterCounts[index] = nodes.ChildCount(argumentCandidate) - 1
+                argumentFacts.ContextualLambdaParameterTypes[index] = ResolveContextualLambdaParameterTypes(nodes, source, argumentCandidate, bindings)
+                argumentFacts.ContextualLambdaInvocationArities[index] = ResolveContextualLambdaInvocationArities(nodes, source, argumentCandidate)
                 if !ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(argumentCandidate)) {
                     lambdaBody := nodes.Child(argumentCandidate, nodes.ChildCount(argumentCandidate) - 1)
                     if nodes.Kind(lambdaBody) == ColumnarStatementNodeKind.BlockStatement {

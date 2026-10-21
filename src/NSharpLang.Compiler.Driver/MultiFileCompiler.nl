@@ -344,9 +344,10 @@ class MultiFileCompiler {
     // limit .NET runs under on macOS -- and every assembly a project's imports load on demand
     // (`FrameworkNamespaceIndex`) moves it closer. After `SaveCheckResult` has captured the
     // compilation's metadata inputs they are kept as entries, so a later save (the workspace's text
-    // rendering) needs no analyzer, and the analyzer is disposed. An analyzer a caller's incremental
-    // session retains is that session's, and is left alone.
-    func ReleaseReferenceMetadata() {
+    // rendering) needs no analyzer. A caller-owned incremental state keeps the analyzer only when
+    // the invocation completed successfully; every other path releases the state's owner slot before
+    // closing the metadata context.
+    func ReleaseReferenceMetadata(preserveRetainedAnalyzer: bool = false): void {
         capture := _checkInputCapture
         if capture != null {
             _checkStampEntries = new List<IncrementalInputEntry>(capture.Entries)
@@ -354,20 +355,33 @@ class MultiFileCompiler {
         }
 
         analyzer := _sharedAnalyzerValue
-        if analyzer == null || _incrementalStateFromCaller {
+        if analyzer == null {
             return
         }
 
         state := _incrementalState
-        if state != null && Object.ReferenceEquals(state.RetainedAnalyzer, analyzer) {
-            state.RetainedAnalyzer = null
+        if preserveRetainedAnalyzer && _incrementalStateFromCaller && state != null && Object.ReferenceEquals(state.RetainedAnalyzer, analyzer) {
+            _sharedAnalyzerValue = null
+            return
         }
-        analyzer.Dispose()
+
         _sharedAnalyzerValue = null
+        if state != null && Object.ReferenceEquals(state.RetainedAnalyzer, analyzer) {
+            state.ReleaseRetainedAnalyzer()
+        } else {
+            analyzer.Dispose()
+        }
     }
 
     func SaveCheckResult(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int): bool {
-        return SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
+        saved := false
+        try {
+            result := SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
+            saved = true
+            return result
+        } finally {
+            ReleaseReferenceMetadata(saved && exitCode == 0)
+        }
     }
 
     private func SaveCheckResultCore(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int, hasDiagnostics: bool): bool {
@@ -380,12 +394,22 @@ class MultiFileCompiler {
 
         entries := new List<IncrementalInputEntry>()
         if capture != null {
-            capture.CaptureFileImports(_projectRoot, _compilationUnits)
             analyzer := _sharedAnalyzerValue
             if analyzer != null {
+                capture.CaptureFileImports(_projectRoot, _compilationUnits)
                 capture.CaptureMetadataInputs(analyzer.MetadataInputAssemblyPaths(), analyzer.MetadataSearchDirectories())
+                entries = capture.Entries
+                _checkStampEntries = entries
+            } else if storedEntries != null {
+                // Text-mode workspace checks first persist each member's result, then replace the
+                // owning member's cache output with the aggregate. Its analyzer has already been
+                // released, so preserve the complete inputs captured on the first save.
+                entries = storedEntries
+            } else {
+                capture.CaptureFileImports(_projectRoot, _compilationUnits)
+                entries = capture.Entries
+                _checkStampEntries = entries
             }
-            entries = capture.Entries
         } else {
             entries = storedEntries ?? new List<IncrementalInputEntry>()
         }
@@ -768,9 +792,6 @@ class MultiFileCompiler {
         analyzer := CreateAnalyzer(null)
         CompilerPhaseTimings.End(loadMark)
         _sharedAnalyzerValue = analyzer
-        if state != null {
-            state.RetainedAnalyzer = analyzer
-        }
         return analyzer
     }
 
@@ -2141,6 +2162,12 @@ class MultiFileCompiler {
             capture := new IncrementalBuildInputCapture()
             capture.CaptureMetadataInputs(analyzer.MetadataInputAssemblyPaths(), analyzer.MetadataSearchDirectories())
             state.MetadataEntries.AddRange(capture.Entries)
+        }
+        if analyzer != null {
+            // The invocation owns a new analyzer until every file analysis has completed. The state
+            // retains it from this point; command-level cleanup still releases it if emission
+            // validation or result rendering subsequently fails.
+            state.RetainedAnalyzer = analyzer
         }
     }
 

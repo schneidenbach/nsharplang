@@ -1202,6 +1202,13 @@ longEnough: Predicate<string> = value => value.Length > 2
 first := words.Find(longEnough)
 ```
 
+A method group with exactly one signature also converts to a parameter typed `Delegate` or
+`MulticastDelegate`, which name no signature of their own. It takes its **natural function type**, the
+`Func`/`Action` its method spells (as in C# 10): `Register(Handlers.Twice)` passes a
+`Func<int, int>`. An overloaded name has no natural type, and a call that has a concrete delegate
+overload (such as `RequestDelegate`) still prefers it. `x as Delegate` is an ordinary reference
+conversion.
+
 A method group converts at exactly the same positions, by the same rule. N# has no `delegate`
 declaration of its own: write `Func<...>` / `Action<...>` for a signature you name yourself, and use a
 referenced assembly's delegate types where they are part of an API you are calling.
@@ -2187,6 +2194,11 @@ func getFullName(first: string, last: string): string =>
 func isEven(n: int): bool => n % 2 == 0
 ```
 
+An expression continues across a line break after `=>` or an operator that takes a right-hand side,
+or before a leading `.` or `?.`. The rule applies uniformly to top-level and local functions,
+methods, expression-bodied properties, and statement expressions; the continued line must remain
+part of the expression.
+
 A `void` expression body **performs** its expression rather than returning it, so the expression
 must itself produce nothing:
 
@@ -2258,8 +2270,7 @@ func report(values: List<int>, label: string): string {
 }
 ```
 
-The body ends where the expression ends, so it may continue on the next line, and a `static` local
-function may use one too.
+A `static` local function may use an expression body too.
 
 ### Async Local Functions
 
@@ -2488,6 +2499,19 @@ for i := 0; i < 3; i++ {
 }
 ```
 
+**Loop variables.** A `for x in xs` variable is declared afresh on every iteration, so each closure
+sees its own value. A classic `for i := 0; i < n; i++` variable is ONE variable for the whole loop,
+exactly as in C#: closures created in the loop all see its current (finally, the last) value.
+
+```n#
+fs := new List<Func<int>>()
+for x in [1, 2, 3] { fs.Add(() => x) }        // 1, 2, 3
+for i := 0; i < 3; i++ { fs.Add(() => i) }    // 3, 3, 3 once the loop has finished
+```
+
+An object initializer inside a capturing lambda reads captures like any other expression:
+`f: Func<string, Opts> = key => new Opts { N: limit }`.
+
 ## Function Overloading
 
 ### Basic Overloading
@@ -2540,6 +2564,12 @@ Only when the conversions cannot separate two candidates do the remaining rules 
 **non-generic** signature beats a generic one whose parameters are the same types after
 substitution, a call in **normal form** beats one that had to expand a `params` tail, and a signature
 that fills **fewer defaults** beats one that fills more.
+
+That ordering applies when candidates differ in how many parameters they omit. For example, given
+`Pick(value: object)` and `Pick(value: string, suffix: string = "")`, `Pick("x")` selects the string
+overload: the identity conversion from `string` is better before the omitted-default tie-break runs.
+When the written argument conversions tie, an overload that needs no defaults beats one that needs
+them.
 
 ```n#
 import System.Collections.Generic
@@ -2608,6 +2638,21 @@ The element type may be a type your own project declares — `List<Query>` above
 
 A lambda argument is typed by the parameter it is passed to, so the compiler chooses the method
 first and types the lambda afterwards. A method group works wherever a lambda does.
+
+An instance method of the receiver wins over an extension of the same name **when it is applicable**.
+When none of the receiver's instance overloads accepts the call, the extension methods in scope are
+tried next, as in C#: `list.FindAll((value, index) => value > index)` binds an extension
+`FindAll(this List<int>, Func<int, int, bool>)` even though `List<int>` declares an instance
+`FindAll(Predicate<int>)`, and `app.Use(async (ctx, next) => { await next() })` on a `WebApplication`
+reaches `UseExtensions.Use` although `WebApplication` declares an instance
+`Use(Func<RequestDelegate, RequestDelegate>)`. The candidates are project `this` functions and
+`[Extension]` methods from imported namespaces of referenced assemblies. If nothing binds,
+[NL402](./errors/NL402.md) lists the instance and the extension overloads that were considered.
+For a **project-declared** class's own single instance method, a written lambda's parameter count and
+explicit parameter types are checked before the lambda body is target-typed; when that shape rejects
+the instance method, an applicable extension is tried. For a single method or an overload group,
+ordinary typed arguments also fall back to extension lookup when no instance overload applies; an
+applicable instance overload keeps precedence.
 
 ### Writing the type arguments out
 

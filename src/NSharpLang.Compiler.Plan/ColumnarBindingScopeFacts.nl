@@ -3406,7 +3406,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
 
     static func HasVisibleExternalMember(externalType: Type, name: string): bool {
         try {
-            if externalType.GetField(name) != null || externalType.GetProperty(name) != null {
+            if externalType.GetField(name) != null || ReflectedMemberLookup.FindProperty(externalType, name) != null {
                 return true
             }
             return externalType.GetMethod(name) != null

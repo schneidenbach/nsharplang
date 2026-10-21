@@ -47,6 +47,11 @@ func BareLiteral(): string {
     return $"bare {"literal"}"
 }
 
+// A string literal on the right of coalesce remains an expression inside the interpolation hole.
+func CoalescedFallback(code: string?): string {
+    return $"{code ?? "NOPNR"}-x"
+}
+
 // A chained call whose receiver holds a string literal. The no-argument-call arm of the simple
 // hole grammar cannot name it, and before this family that arm REFUSED the hole outright instead
 // of offering it to the arms that can.

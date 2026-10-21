@@ -462,6 +462,22 @@ test "a static member of a constructed generic owner is selected on the CLOSED t
     assert !create.UsesCallVirtual
 }
 
+test "ordinary runtime overloads reject a contextual lambda with the wrong parameter count" {
+    method := typeof(List<int>).GetMethod("ForEach")
+    assert method != null
+    parameters := method.GetParameters()
+    assert parameters.Length == 1
+
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.IsContextualLambda[0] = true
+    facts.ContextualLambdaParameterCounts[0] = 2
+    facts.ContextualLambdaReturnsVoid[0] = true
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ContextualLambdaShapesMatch(parameters, facts)
+
+    facts.ContextualLambdaParameterCounts[0] = 1
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.ContextualLambdaShapesMatch(parameters, facts)
+}
+
 // MORE THAN ONE CANDIDATE IS REFUSED RATHER THAN GUESSED, because the argument types are exactly what
 // would have chosen between them.
 test "a name with several declarations at the arity is refused" {

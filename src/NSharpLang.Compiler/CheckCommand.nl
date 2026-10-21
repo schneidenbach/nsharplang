@@ -52,6 +52,8 @@ class CheckCommand {
         projectYmlPath := CheckCommandKernels.GetProjectYmlPath(projectDir)
         sw := Stopwatch.StartNew()
         warmKey: string? = null
+        compiler: MultiFileCompiler? = null
+        retainWarmSession := false
 
         try {
             nestedProjectRoots := new ProjectConfig().DiscoverNestedProjectRoots(projectDir)
@@ -80,7 +82,7 @@ class CheckCommand {
             // emission below when the analysis is clean, instead of a second compiler parsing,
             // analysing and loading the reference closure all over again.
             service := new CodeIntelligenceService()
-            compiler := new MultiFileCompiler(projectDir, projectConfig, null, true) { AotMode: aot }
+            compiler = new MultiFileCompiler(projectDir, projectConfig, null, true) { AotMode: aot }
             // Ordinary diagnostics do not expose the full systems-function report. The diagnostic
             // pass preserves policy findings while avoiding summary work for unannotated cold code.
             compiler.SystemsDiagnosticsOnly = outputMode != 3
@@ -96,6 +98,7 @@ class CheckCommand {
                 )
                 if cached != null {
                     WriteCheckOutput(cached.Output, cached.OutputToStandardError)
+                    retainWarmSession = cached.ExitCode == 0
                     return cached.ExitCode
                 }
             }
@@ -154,16 +157,24 @@ class CheckCommand {
             exitCode := CheckCommandKernels.GetExitCode(summary.Errors)
             compiler.SaveCheckResult(output, diagnosticsJson, outputToStandardError, exitCode)
             WriteCheckOutput(output, outputToStandardError)
+            retainWarmSession = exitCode == 0
             return exitCode
         } catch ex: Exception {
-            WarmIncrementalSessions.Discard(warmKey)
             if useText {
                 Console.Error.WriteLine(CheckCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)))
             }
 
             return EmitError(useText, CheckCommandKernels.GetFailedMessage(ex.Message), projectDir)
         } finally {
-            WarmIncrementalSessions.Release(warmKey)
+            if retainWarmSession {
+                WarmIncrementalSessions.Release(warmKey)
+            } else {
+                currentCompiler := compiler
+                if currentCompiler != null {
+                    currentCompiler.ReleaseReferenceMetadata()
+                }
+                WarmIncrementalSessions.Discard(warmKey)
+            }
         }
     }
 
@@ -204,6 +215,7 @@ class CheckCommand {
         }
 
         maxConcurrency := CheckCommandKernels.GetWorkspaceMaxConcurrency(Environment.ProcessorCount)
+        textCompilerRetained := false
         batchStart := 0
         while batchStart < projectCount {
             batchCount := Math.Min(maxConcurrency, projectCount - batchStart)
@@ -221,7 +233,17 @@ class CheckCommand {
                 )
             }
             for offset := 0; offset < batchCount; offset++ {
-                results.Add(tasks[offset].GetAwaiter().GetResult())
+                result := tasks[offset].GetAwaiter().GetResult()
+                // JSON and systems-report results contain everything the caller needs; retaining
+                // their compiler would keep every member's metadata context alive until the whole
+                // workspace finishes. Text mode needs one compiler to persist the final aggregate
+                // cache entry, so keep only the first one.
+                if outputMode != 2 || textCompilerRetained || result.CheckCompiler == null {
+                    result.ReleaseCompiler()
+                } else {
+                    textCompilerRetained = true
+                }
+                results.Add(result)
             }
             batchStart += batchCount
         }
@@ -269,6 +291,10 @@ class CheckCommand {
             }
         } else {
             Console.Write(OutputFormatter.CheckWorkspaceToJson(projectDir, orderedResults, outputMode == 3))
+        }
+
+        for result in orderedResults {
+            result.ReleaseCompiler()
         }
 
         return exitCode
@@ -356,13 +382,14 @@ class CheckCommand {
             )
         }
 
+        compiler: MultiFileCompiler? = null
         try {
             config := project.Config
             service := new CodeIntelligenceService()
             if config != null && project.SourceFiles.Length > 0 && File.Exists(CheckCommandKernels.GetProjectYmlPath(project.ProjectRoot)) {
                 effectiveConfig := config ?? ProjectFileParser.CreateDefault(null)
                 assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(project.ProjectRoot, effectiveConfig)
-                compiler := new MultiFileCompiler(project.SourceFiles, project.ProjectRoot, effectiveConfig, null) { AotMode: aotMode, Workers: 1 }
+                compiler = new MultiFileCompiler(project.SourceFiles, project.ProjectRoot, effectiveConfig, null) { AotMode: aotMode, Workers: 1 }
                 compiler.SystemsDiagnosticsOnly = outputMode != 3
                 cached := compiler.TryReadCheckResult(assemblyName, outputMode, useBuiltReferences, backendOption)
                 if cached != null {
@@ -396,7 +423,6 @@ class CheckCommand {
                 }
                 exitCode := CheckCommandKernels.GetExitCode(summary.Errors)
                 compiler.SaveCheckResult(resultJson, resultJson, false, exitCode)
-                compiler.ReleaseReferenceMetadata()
                 result := new CheckWorkspaceProjectResult(
                     project.ProjectRoot,
                     snapshot.SourceFiles.Count,
@@ -435,6 +461,11 @@ class CheckCommand {
                 CheckCommandKernels.GetFailedMessage(ex.Message),
                 null
             )
+        } finally {
+            currentCompiler := compiler
+            if currentCompiler != null {
+                currentCompiler.ReleaseReferenceMetadata()
+            }
         }
     }
 

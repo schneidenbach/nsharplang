@@ -307,18 +307,14 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return declared
         }
 
-        baseInterfaces := lookupType.GetInterfaces()
-        if baseInterfaces == null || baseInterfaces.Length == 0 {
-            return declared
-        }
-
         combined := new List<MethodInfo>()
         for declaredItem in declared {
             combined.Add(declaredItem)
         }
 
+        baseInterfaces := lookupType.GetInterfaces()
         baseIndex := 0
-        while baseIndex < baseInterfaces.Length {
+        while baseInterfaces != null && baseIndex < baseInterfaces.Length {
             inherited := baseInterfaces[baseIndex].GetMethods(CandidateMethodFlags(allowInheritedProtected, baseInterfaces[baseIndex]))
             baseIndex = baseIndex + 1
             if inherited == null {
@@ -330,6 +326,16 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 AddOrKeepMostDerived(combined, inherited[inheritedIndex])
                 inheritedIndex = inheritedIndex + 1
             }
+        }
+
+        // AN INTERFACE'S MEMBER LOOKUP INCLUDES `object`'S (C# §12.5: "if T is an interface type, the
+        // base types of T are the base interfaces of T and the class type object"). `GetMethods` on an
+        // interface never reports them, so `list.ToString()` and `model.GetType()` found no candidate
+        // and declined. They join LAST and through the same hiding rule, so an interface that
+        // re-declares `ToString()` keeps its own declaration. Only the PUBLIC INSTANCE surface joins:
+        // an interface-typed value is not an inheriting class, so `MemberwiseClone` stays out of reach.
+        for objectMethod in typeof(object).GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+            AddOrKeepMostDerived(combined, objectMethod)
         }
 
         return combined.ToArray()
@@ -455,7 +461,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     throw new InvalidOperationException("Runtime method parameters cannot be null.")
                 }
 
-                if !ContextualLambdaReturnShapesMatch(parameters, argumentFacts) {
+                if !ContextualLambdaShapesMatch(parameters, argumentFacts) {
                     continue
                 }
 
@@ -1118,14 +1124,15 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // overload such as ContinueWith<TResult>(Func<Task,TResult>, ...) from the candidate set before
     // it is classified as an excluded generic shape; otherwise it incorrectly blocks the applicable
     // Action overload even though the lambda's body has no value to infer TResult from.
-    static func ContextualLambdaReturnShapesMatch(parameters: ParameterInfo[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
-        if parameters == null || argumentFacts == null || parameters.Length != argumentFacts.ContextualLambdaReturnsVoid.Length {
+    static func ContextualLambdaShapesMatch(parameters: ParameterInfo[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+        if parameters == null || argumentFacts == null || parameters.Length != argumentFacts.ContextualLambdaReturnsVoid.Length || parameters.Length != argumentFacts.ContextualLambdaParameterCounts.Length || parameters.Length != argumentFacts.ContextualLambdaParameterTypes.Length || parameters.Length != argumentFacts.ContextualLambdaInvocationArities.Length {
             return true
         }
 
         index := 0
         while index < parameters.Length {
-            if argumentFacts.ContextualLambdaReturnsVoid[index] {
+            lambdaParameterCount := argumentFacts.ContextualLambdaParameterCounts[index]
+            if lambdaParameterCount >= 0 || argumentFacts.ContextualLambdaReturnsVoid[index] {
                 parameterType := parameters[index].ParameterType
                 if parameterType == null || parameterType.IsByRef {
                     return false
@@ -1138,8 +1145,31 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 } catch ex: NotImplementedException {
                     return false
                 }
-                if invoke == null || invoke.ReturnType != ColumnarTypeOfPlanner.RequiredVoidType() {
+                if invoke == null {
                     return false
+                }
+                if lambdaParameterCount >= 0 && invoke.GetParameters().Length != lambdaParameterCount {
+                    return false
+                }
+                if !ColumnarSourceDirectCallResolver.ContextualLambdaInvocationsMatch(invoke.GetParameters(), argumentFacts.ContextualLambdaInvocationArities[index]) {
+                    return false
+                }
+                if argumentFacts.ContextualLambdaReturnsVoid[index] && invoke.ReturnType != ColumnarTypeOfPlanner.RequiredVoidType() {
+                    return false
+                }
+                writtenParameterTypes := argumentFacts.ContextualLambdaParameterTypes[index]
+                if writtenParameterTypes != null && writtenParameterTypes.Length > 0 {
+                    invokeParameters := invoke.GetParameters()
+                    if invokeParameters.Length != writtenParameterTypes.Length {
+                        return false
+                    }
+                    parameterIndex := 0
+                    while parameterIndex < invokeParameters.Length {
+                        if writtenParameterTypes[parameterIndex] == null || !ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(writtenParameterTypes[parameterIndex], invokeParameters[parameterIndex].ParameterType) {
+                            return false
+                        }
+                        parameterIndex += 1
+                    }
                 }
             }
             index += 1

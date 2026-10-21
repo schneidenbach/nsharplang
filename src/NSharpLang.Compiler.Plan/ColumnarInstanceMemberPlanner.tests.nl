@@ -1490,6 +1490,11 @@ test "instance member facade reports terminal ownership for every admitted recei
     InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "NotAMemberOfType"), typeof(Type), false, typeof(int))
 }
 
+test "TimeSpan exposes both supported aggregate total properties as doubles" {
+    InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "TotalMilliseconds"), typeof(TimeSpan), true, typeof(double))
+    InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "TotalDays"), typeof(TimeSpan), true, typeof(double))
+}
+
 test "range planner recursively owns instance member endpoints" {
     bindings := InstanceClassBindings("end", 0)
     plan := ColumnarRangePlannerPlan(InstanceMemberFromEndTree("end", "Field"), bindings)

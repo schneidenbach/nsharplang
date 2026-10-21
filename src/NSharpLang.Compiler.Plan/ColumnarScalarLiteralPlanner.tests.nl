@@ -194,6 +194,14 @@ test "scalar literal planner owns exact integer families and bit patterns" {
     ColumnarScalarPlannerAssertInt32("0x7fff_ffff", 2147483647)
     ColumnarScalarPlannerAssertInt32("0b1010_0101", 165)
 
+    // An UNSUFFIXED literal takes the first of int, uint, long, ulong that holds its magnitude.
+    ColumnarScalarPlannerAssertUInt32("2147483648", -2147483648)
+    ColumnarScalarPlannerAssertUInt32("4294967295", -1)
+    ColumnarScalarPlannerAssertInt64("4294967296", 4294967296L, typeof(long))
+    ColumnarScalarPlannerAssertInt64("9223372036854775807", long.MaxValue, typeof(long))
+    ColumnarScalarPlannerAssertInt64("9223372036854775808", long.MinValue, typeof(ulong))
+    ColumnarScalarPlannerAssertInt64("18446744073709551615", -1L, typeof(ulong))
+
     ColumnarScalarPlannerAssertInt64("7l", 7L, typeof(long))
     ColumnarScalarPlannerAssertInt64(
         "9223372036854775807L",
@@ -481,12 +489,11 @@ test "scalar literal planner facades report the sealed exact type" {
 }
 
 test "scalar literal planner rejects excluded and malformed literal families without mutation" {
-    // `1U` STOOD HERE AND WAS THE DEFECT PINNED AS A WALL. What is malformed about a `U` literal is
-    // only a magnitude past `ulong`, which `18446744073709551616u` now covers on the same row as its
-    // `UL` twin.
+    // Unsuffixed magnitudes through ulong.MaxValue are valid; this first unsuffixed overflow remains
+    // rejected, alongside the suffixed overflows and malformed spelling controls below.
     invalidIntegers := new string[](14)
     invalidIntegers[0] = ""
-    invalidIntegers[1] = "2147483648"
+    invalidIntegers[1] = "18446744073709551616"
     invalidIntegers[2] = "9223372036854775808L"
     invalidIntegers[3] = "18446744073709551616UL"
     invalidIntegers[4] = "18446744073709551616u"
