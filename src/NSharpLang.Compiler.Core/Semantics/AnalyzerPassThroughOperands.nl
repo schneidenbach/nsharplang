@@ -727,13 +727,11 @@ class AnalyzerPassThroughOperands {
         }
     }
 
-    // TASK-LIKE TYPES, REFLECTED CLR TYPES, AND DECLARED SOURCE TYPES EACH ANSWER THROUGH THEIR
-    // OWNER. Unresolved shapes answer "no" because there is nothing to ask; external types without
-    // a bound shape are rejected at the await site rather than being sent to an unpositioned emit
-    // decline. Reflected and source awaiters must provide the complete pattern emission invokes.
-    // Task-family aliases keep their language-owned result rules. Every other awaitable pattern is
-    // resolved once by AwaitablePatternBinder, including reflected members, source declarations and
-    // imported extension GetAwaiter methods.
+    // TASK-LIKE TYPES, REFLECTED CLR TYPES, AND DECLARED SOURCE TYPES ALL USE THE SAME BINDER.
+    // Unresolved shapes answer "no" because there is nothing to ask; external types without a bound
+    // shape are rejected at the await site rather than being sent to an unpositioned emit decline.
+    // Reflected and source awaiters provide the complete pattern emission invokes, and Task families
+    // do not bypass member or overload resolution just because their result type is familiar.
     func TryAwaitResultType(awaitableType: TypeInfo, out resultType: TypeInfo, out binding: AnalyzerAwaitablePatternBinding?): bool {
         resultType = BuiltInTypes.Unknown
         binding = null
@@ -743,18 +741,6 @@ class AnalyzerPassThroughOperands {
         resolved := loopSequenceValue.NormalizeShapeType(awaitableType)
         if BuiltInTypes.IsUnknown(resolved) {
             return false
-        }
-
-        taskResult: TypeInfo = BuiltInTypes.Unknown
-        if AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(resolved, out taskResult) {
-            resultType = taskResult
-            TryBindTaskLikeReflectionPattern(resolved, resultType, out binding)
-            return true
-        }
-        if AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(resolved) {
-            resultType = BuiltInTypes.Void
-            TryBindTaskLikeReflectionPattern(resolved, resultType, out binding)
-            return true
         }
 
         memberResolution := awaitMemberResolutionValue
@@ -768,81 +754,6 @@ class AnalyzerPassThroughOperands {
         }
         resultType = binding.ResultType
         return !BuiltInTypes.IsUnknown(resultType)
-    }
-
-    func TryBindTaskLikeReflectionPattern(awaitableType: TypeInfo, resultType: TypeInfo, out binding: AnalyzerAwaitablePatternBinding?): bool {
-        binding = null
-        conversion := awaitClrTypeConversionValue
-        if conversion == null {
-            return false
-        }
-        runtimeType: Type? = null
-        if !TryGetCoreTaskLikeRuntimeType(awaitableType, resultType, conversion, out runtimeType) || runtimeType == null {
-            return false
-        }
-        reflectedPattern: AwaitablePatternBinding? = null
-        if !AwaitablePatternBinder.TryBindReflection(runtimeType, out reflectedPattern) || reflectedPattern == null {
-            return false
-        }
-        binding = new AnalyzerAwaitablePatternBinding(awaitableType, new ReflectionTypeInfo(reflectedPattern.AwaiterType), resultType, null, null, null, reflectedPattern)
-        return true
-    }
-
-    static func TryGetCoreTaskLikeRuntimeType(awaitableType: TypeInfo, resultType: TypeInfo, conversion: AnalyzerClrTypeConversion, out runtimeType: Type?): bool {
-        runtimeType = null
-        reflected := awaitableType as ReflectionTypeInfo
-        generic := awaitableType as GenericTypeInfo
-        reflectedType: Type? = null
-        if reflected != null {
-            reflectedType = reflected.Type
-        } else if generic != null {
-            definition := generic.GenericDefinition as ReflectionTypeInfo
-            reflectedType = definition == null ? null : definition.Type
-        }
-        if reflectedType == null {
-            reflectedType = conversion.TryConvertTypeInfoToClrType(awaitableType)
-            if reflectedType == null {
-                return false
-            }
-        }
-
-        isTaskDefinition := AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType, "System.Threading.Tasks.Task`1")
-        isValueTaskDefinition := AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType, "System.Threading.Tasks.ValueTask`1")
-        if reflectedType.IsGenericType && !reflectedType.IsGenericTypeDefinition {
-            isTaskDefinition = AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType.GetGenericTypeDefinition(), "System.Threading.Tasks.Task`1")
-            isValueTaskDefinition = AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType.GetGenericTypeDefinition(), "System.Threading.Tasks.ValueTask`1")
-        }
-        if isTaskDefinition || isValueTaskDefinition {
-            if BuiltInTypes.Is(resultType, BuiltInTypes.Void) {
-                runtimeType = AnalyzerFunctionTypeFactory.RequiredCoreType(isTaskDefinition ? "System.Threading.Tasks.Task" : "System.Threading.Tasks.ValueTask")
-                return true
-            }
-            definitionName := isTaskDefinition ? "System.Threading.Tasks.Task`1" : "System.Threading.Tasks.ValueTask`1"
-            runtimeDefinition := AnalyzerFunctionTypeFactory.RequiredCoreType(definitionName)
-            resultTypeClr := conversion.TryConvertTypeInfoToClrType(resultType)
-            if resultTypeClr != null {
-                arguments := new Type[](1)
-                arguments[0] = resultTypeClr
-                genericName := isTaskDefinition ? "Task" : "ValueTask"
-                closedRuntimeType := conversion.CloseGenericDefinition(runtimeDefinition, genericName, arguments)
-                if closedRuntimeType != null {
-                    runtimeType = closedRuntimeType
-                    return true
-                }
-            }
-            runtimeType = runtimeDefinition
-            return true
-        }
-
-        if AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType, "System.Threading.Tasks.Task") {
-            runtimeType = AnalyzerFunctionTypeFactory.RequiredCoreType("System.Threading.Tasks.Task")
-            return true
-        }
-        if AnalyzerFunctionTypeFactory.IsCoreTaskFamilyType(reflectedType, "System.Threading.Tasks.ValueTask") {
-            runtimeType = AnalyzerFunctionTypeFactory.RequiredCoreType("System.Threading.Tasks.ValueTask")
-            return true
-        }
-        return false
     }
 
     // WHEN A NON-AWAITABLE VALUE IS ACCUSED. An unresolved shape stays quiet because an earlier

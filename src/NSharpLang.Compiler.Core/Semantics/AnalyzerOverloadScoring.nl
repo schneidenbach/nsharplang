@@ -321,7 +321,7 @@ class AnalyzerOverloadFacts {
                 return false
             }
 
-            if argumentType.GetGenericTypeDefinition() != effectiveParameterType.GetGenericTypeDefinition() {
+            if !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(argumentType.GetGenericTypeDefinition(), effectiveParameterType.GetGenericTypeDefinition()) {
                 return false
             }
         }

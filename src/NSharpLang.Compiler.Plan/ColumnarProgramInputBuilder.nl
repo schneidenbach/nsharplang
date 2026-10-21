@@ -1164,6 +1164,7 @@ sealed class ColumnarProgramInputBuilder {
                         structName
                     )
                 }
+                propInput.SourceDeclarationStart = cs[outPropIndices[pr]]
                 properties.Add(propInput)
                 pr = pr + 1
             }
@@ -1647,6 +1648,7 @@ sealed class ColumnarProgramInputBuilder {
         )
         parsedInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, funcIndex)
         parsedInput.ParameterSourceAttributes = ColumnarSourceAttributes.ReadParameters(source, ck, cs, cv, funcIndex, paramNames.Length)
+        parsedInput.IsExtensionMethod = HasExtensionReceiverParameter(source, ck, cs, cv, n, funcIndex)
         input = parsedInput
 
         localFunctionCount := result[8]
@@ -1695,6 +1697,22 @@ sealed class ColumnarProgramInputBuilder {
             lf = lf + 1
         }
         return true
+    }
+
+    // Signature projection carries parameter types and modifiers; the CLR emitter also needs to
+    // know whether parameter zero is the extension receiver. Read the marker from the same token
+    // stream after the declaration's opening parenthesis.
+    private static func HasExtensionReceiverParameter(source: string, kinds: int[], starts: int[], valueLengths: int[], count: int, funcIndex: int): bool {
+        index := funcIndex
+        while index < count && kinds[index] != ColumnarTokenKindFacts.LeftParenKind {
+            index = index + 1
+        }
+        if index + 1 >= count || source == null {
+            return false
+        }
+
+        receiverIndex := index + 1
+        return ParserDeclarationTokenTextEquals(source, starts[receiverIndex], valueLengths[receiverIndex], "this")
     }
 
     private static func TryParseColumnarConstructorAt(ck: int[], cs: int[], cv: int[], n: int, ctorIndex: int, source: string, out input: ColumnarConstructorInput): bool {

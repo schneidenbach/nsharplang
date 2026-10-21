@@ -689,6 +689,52 @@ class ColumnarExternalInterfaceMethodBinding {
 }
 
 class ColumnarExternalInterfaceMethodResolver {
+    // Source methods are stored in a compatibility `Methods` row plus the authoritative overload
+    // set. Interface realization must compare the complete slot signature against every overload;
+    // choosing the first name match lets a decoy such as OnCompleted(object) hide the actual
+    // OnCompleted(Action) implementation.
+    static func TryFindExactSourceImplementation(
+        implementer: ColumnarStructDef,
+        memberName: string,
+        returnType: Type,
+        parameterTypes: Type[],
+        out implementation: ColumnarInstanceMethodDef?
+    ): bool {
+        implementation = null
+        if implementer == null || memberName == null || returnType == null || parameterTypes == null {
+            return false
+        }
+        overloads: List<ColumnarInstanceMethodDef>? = null
+        if implementer.MethodOverloads.TryGetValue(memberName, out overloads) && overloads != null {
+            for candidate in overloads {
+                if candidate != null && ColumnarTypeEquivalenceFacts.TypesEquivalent(candidate.ReturnType, returnType) && SourceParameterTypesMatch(candidate.ParamTypes, parameterTypes) {
+                    implementation = candidate
+                    return true
+                }
+            }
+        }
+        candidate: ColumnarInstanceMethodDef? = null
+        if implementer.Methods.TryGetValue(memberName, out candidate) && candidate != null && ColumnarTypeEquivalenceFacts.TypesEquivalent(candidate.ReturnType, returnType) && SourceParameterTypesMatch(candidate.ParamTypes, parameterTypes) {
+            implementation = candidate
+            return true
+        }
+        return false
+    }
+
+    static func SourceParameterTypesMatch(sourceTypes: Type[], slotTypes: Type[]): bool {
+        if sourceTypes == null || slotTypes == null || sourceTypes.Length != slotTypes.Length {
+            return false
+        }
+        index := 0
+        while index < sourceTypes.Length {
+            if !ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceTypes[index], slotTypes[index]) {
+                return false
+            }
+            index += 1
+        }
+        return true
+    }
+
     static func AddMatchingTargets(
         declaration: ColumnarMethodOverrideDeclaration,
         externalInterfaces: List<Type>,
@@ -965,6 +1011,16 @@ class ColumnarExternalInterfaceMethodResolver {
                 lookupType := builderBound ? externalInterface.GetGenericTypeDefinition() : externalInterface
                 closedArguments := builderBound ? externalInterface.GetGenericArguments() : new Type[](0)
                 for externalMethod in lookupType.GetMethods() {
+                    exactImplementation: ColumnarInstanceMethodDef? = null
+                    if !builderBound && !externalMethod.IsGenericMethod && TryFindExactSourceImplementation(
+                        implementer,
+                        externalMethod.Name,
+                        externalMethod.ReturnType,
+                        ExternalParameterTypes(externalMethod),
+                        out exactImplementation
+                    ) {
+                        continue
+                    }
                     implementation: ColumnarInstanceMethodDef = null
                     externalName := externalMethod.Name
                     if !implementer.Methods.TryGetValue(externalName, out implementation) {
@@ -1026,6 +1082,17 @@ class ColumnarExternalInterfaceMethodResolver {
             }
         }
         return true
+    }
+
+    static func ExternalParameterTypes(method: MethodInfo): Type[] {
+        parameters := method.GetParameters()
+        types := new Type[parameters.Length]
+        index := 0
+        while index < parameters.Length {
+            types[index] = parameters[index].ParameterType
+            index += 1
+        }
+        return types
     }
 
     // WHETHER THIS TYPE FILLED THAT SLOT WITH AN EXPLICIT IMPLEMENTATION. The slot's identity is its

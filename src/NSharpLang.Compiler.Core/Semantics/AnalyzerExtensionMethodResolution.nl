@@ -308,6 +308,16 @@ class AnalyzerExtensionMethodResolution {
             return ScanExternalExtensionMethods(exactClrType, methodName)
         }
 
+        // A constructed reference type may have no execution CLR Type while its metadata definition
+        // is available in MetadataLoadContext. Scan candidates against that open definition; the
+        // normal invocation binder still receives the original closed TypeInfo and performs receiver
+        // inference before selecting an extension.
+        constructed := targetType as GenericTypeInfo
+        reflectedDefinition := constructed == null ? null : constructed.GenericDefinition as ReflectionTypeInfo
+        if reflectedDefinition != null && reflectedDefinition.Type.IsGenericTypeDefinition {
+            return ScanExternalExtensionMethods(reflectedDefinition.Type, methodName)
+        }
+
         bindingClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(targetType)
         if bindingClrType == null {
             return new List<MethodInfo>()

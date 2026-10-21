@@ -393,6 +393,9 @@ class ColumnarPropertyDef {
     Getter: MethodBuilder
     Setter: MethodBuilder?
     PropertyType: Type
+    SourceFilePath: string?
+    SourceLine: int
+    SourceColumn: int
     GetterParameterCount: int
     SetterParameterCount: int
     // WHETHER THE SETTER IS AN `init` ACCESSOR — that is, whether its return type carries
@@ -411,6 +414,9 @@ class ColumnarPropertyDef {
         Getter = getter
         Setter = setter
         PropertyType = propertyType
+        SourceFilePath = null
+        SourceLine = 0
+        SourceColumn = 0
         GetterParameterCount = 0
         SetterParameterCount = setter == null ? 0 : 1
         IsInitOnly = isInitOnly

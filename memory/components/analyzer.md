@@ -5193,35 +5193,38 @@ question.
 ### `await`, for any awaitable, in any BOUND position
 
 The `await Task.Delay(<int>)`-only admission is gone. `ColumnarIteratorPlanner.WalkAwait` counts the
-suspension and walks the operand as an ordinary expression;
-`ColumnarIteratorBodyPlanner.AppendAwait` then asks the operand's PLANNED type for `GetAwaiter()`, and
-that awaiter for `get_IsCompleted`, `GetResult()` and semantic implementation of `INotifyCompletion`.
-Continuation registration dispatches through the interface, so an explicit
-`INotifyCompletion.OnCompleted` implementation works while an unrelated same-named method does not.
-Critical awaiters use `ICriticalNotifyCompletion.UnsafeOnCompleted`; the async-iterator continuation
-path also calls the interface slot. A `Task`, a `Task<T>`, a `ValueTask<T>` and a user awaitable all
-answer; a struct awaitable is called through the address of a temporary, and a struct awaiter through
-the address of its own field (a copy would throw the continuation state away). The awaiter field is
-hoisted UNRESOLVED (role 5) and defined from that awaiter type when the lowering reaches the
-suspension, so a machine with two awaits of different awaitables carries two differently-typed slots.
-`AwaitablePatternBinder` in Compiler Core owns the shared await-pattern selection used by analysis,
-planning/emission and the browser runner. It resolves the selected `GetAwaiter`, readable boolean
-`IsCompleted`, non-generic zero-argument `GetResult`, and the `INotifyCompletion` or
-`ICriticalNotifyCompletion` contract; reflected interface slots come from the CLR interface map,
-and source explicit implementations are tied to their resolved interface reference. Source interface
-inheritance is walked through the resolved type graph, so an explicit base `INotifyCompletion` slot
-still wins over a public same-name method when the source class implements a derived interface.
-The browser runner uses the shared binding to choose the notification interface, then registers through
-the runtime `INotifyCompletion` / `ICriticalNotifyCompletion` interface call. It does not invoke the
-binding's `MethodInfo`, which may belong to a `MetadataLoadContext` and cannot dispatch on runtime
-objects.
-Candidates are
-filtered for zero-argument invocation, generic arity and accessibility at the await site. The binder
-does not lift through `Nullable<T>`. `AnalyzerPassThroughOperands.TryAwaitResultType` consumes that
-binding, including the selected `GetResult()` result type. An incomplete known pattern reports NL202
-at the awaited operand instead of reaching an unpositioned async-emitter decline. Synthetic nominal
-types without an attached source declaration remain unresolved here, as do types whose declaration
-belongs to an earlier diagnostic.
+suspension and walks the operand as an ordinary expression. The analyzer binds the await pattern once
+through `AwaitablePatternBinder`: `GetAwaiter()` uses ordinary instance member lookup, overload
+resolution and, only when no applicable instance call binds, the ordinary extension resolver; its
+result carries closed generic methods and inferred type arguments. `IsCompleted` and `GetResult()` use
+ordinary member-group and accessibility rules across the base chain. Completion uses the exact
+`INotifyCompletion.OnCompleted(Action)` or `ICriticalNotifyCompletion.UnsafeOnCompleted(Action)`
+interface slot and its implementation map, including explicit and inherited implementations.
+
+That selected `AnalyzerAwaitablePatternBinding` is stored at the await source position. The planner's
+`SelectedAwaitablePatternForNode` and the playground's `AwaitablePatternAt` both call the binder's
+shared lookup helper to retrieve that same record. Emission maps its selected source declaration or
+reflected method identity to a `MethodBuilder` or execution `MethodInfo`; it does not choose another
+overload by name. The browser runner consumes the same binding, maps metadata methods to the runtime
+type by owner and signature, and registers through the runtime interface slot. It never selects an
+`OnCompleted` implementation by a name suffix. The interpreter uses the source declarations retained
+in the binding for unbaked N# objects.
+
+A struct awaitable is called through the address of a temporary, and a struct awaiter through the
+address of its own field (a copy would throw the continuation state away). The awaiter field is hoisted
+UNRESOLVED (role 5) and defined from that awaiter type when lowering reaches the suspension, so a
+machine with two awaits of different awaitables carries two differently-typed slots. Generic methods
+with zero invocation arguments cannot infer their own method type parameters and are rejected, while
+receiver-inferred generic extensions keep their closed methods and type arguments in the binding.
+The binder does not lift through `Nullable<T>`. `AnalyzerPassThroughOperands.TryAwaitResultType` consumes
+the bound `GetResult()` type. An incomplete pattern reports NL202 at the awaited operand instead of
+reaching an unpositioned async-emitter decline. Synthetic nominal types without an attached source
+declaration remain unresolved here, as do types whose declaration belongs to an earlier diagnostic.
+
+Compiler-synthesized awaits for `await foreach` and `await using` have no written await node to index.
+Their produced `MoveNextAsync()` or `DisposeAsync()` return types go through the shared reflection
+pattern binder and the scope's normal extension resolver; they share the same selected members,
+interface-slot dispatch and state-machine suspension writer as a written await.
 
 An ASYNC machine may enumerate a sequence source too: the hoisted `<>__enum{k}` field is the same one
 the synchronous machine reserves, and only its RELEASE differs — a synchronous machine has a FAULT

@@ -4,6 +4,8 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import System.Threading.Tasks
+import NSharpLang.Compiler
 
 // An async-machine probe HOST: reflectively emits a real type whose public fields mirror an async
 // shape's exact layout (TaskAwaiter fields are not yet a modeled N# field surface, so the probe cannot
@@ -163,7 +165,8 @@ class ColumnarAsyncProbeMachine {
             null,
             null,
             null,
-            (MethodInfo)coreBox
+            (MethodInfo)coreBox,
+            AsyncProbeBodyFacts(probe, structuralTypeReferences)
         )
         PlanningContext = context
 
@@ -406,6 +409,39 @@ func AsyncProbeRuntimeType(name: string): Type {
         throw new InvalidOperationException(name + " was not found.")
     }
     return resolved
+}
+
+func AsyncProbeBodyFacts(probe: ColumnarIteratorShapeProbe, structuralTypeReferences: ColumnarStructuralTypeReferenceTable): ColumnarIteratorBodyFacts {
+    reflectedPattern: AwaitablePatternBinding? = null
+    if !AwaitablePatternBinder.TryBindReflection(typeof(Task), out reflectedPattern) || reflectedPattern == null {
+        throw new InvalidOperationException("The Task awaiter pattern was not available to the async planner probe.")
+    }
+    selected := new AnalyzerAwaitablePatternBinding(
+        new ReflectionTypeInfo(typeof(Task)),
+        new ReflectionTypeInfo(reflectedPattern.AwaiterType),
+        BuiltInTypes.Void,
+        null,
+        null,
+        null,
+        reflectedPattern,
+        null,
+        null,
+        reflectedPattern.GetAwaiter,
+        false
+    )
+    model := new SemanticModel()
+    sourceFile := new ColumnarSourceFile("", probe.Source, 0, ColumnarEmissionPlanner.BuildLineStarts(probe.Source))
+    node := 0
+    while node < probe.Nodes.Kinds.Length {
+        if probe.Nodes.Kind(node) == ColumnarExpressionNodeKind.AwaitExpression {
+            position := ColumnarEmissionPlanner.PositionAt(sourceFile, probe.Nodes.SpanStart(node))
+            model.RecordAwaitablePattern(position.Line, position.Column, selected)
+        }
+        node += 1
+    }
+    facts := ColumnarIteratorBodyFacts.Empty(structuralTypeReferences)
+    facts.SemanticModel = model
+    return facts
 }
 
 func AsyncProbeMethod(owner: Type, name: string, parameterTypes: Type[]): MethodInfo {
@@ -3936,4 +3972,28 @@ test "iterator structural companion validation precedes plan execution" {
         corrupt,
         "IteratorStructuralCorruptRuntimeCompanion"
     ) == "7"
+}
+
+test "source property emission retains the await binder's declaration origin" {
+    source := "namespace AwaitOrigin\n\nclass ProbeAwaiter {\n    IsCompleted: bool { get { return true } }\n}\n"
+    sources := new string[](1)
+    sources[0] = source
+    fileNames := new string[](1)
+    fileNames[0] = "/tmp/AwaitOrigin.nl"
+    program: ColumnarProgramInput? = null
+    assert ColumnarProgramInputBuilder.TryBuildMultiFile(sources, fileNames, "/tmp", out program, 1), "the probe source must parse"
+    assert program != null, "the probe program must be returned"
+
+    owner: ColumnarStructInput? = null
+    for candidate in program.Structs {
+        if candidate.Name == "ProbeAwaiter" {
+            owner = candidate
+            break
+        }
+    }
+    assert owner != null && owner.Properties.Count == 1, "the probe must carry its computed property"
+    property := owner.Properties[0]
+    assert property.SourceDeclarationStart >= 0, "the property input must retain its source offset"
+    position := ColumnarEmissionPlanner.PositionAt(program.SourceFileForFileId(owner.SourceFileId), property.SourceDeclarationStart)
+    assert position.Line == 4 && position.Column == 5, "the source offset must identify the property declaration"
 }

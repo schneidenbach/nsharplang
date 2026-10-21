@@ -1077,6 +1077,30 @@ class AnalyzerReflectionArgumentBinder {
             receiverSignatureType = declaringType.GetGenericTypeDefinition()
         }
 
+        // Reflection metadata and the analyzer's execution types can describe the same generic
+        // definition through different Type objects. If the receiver TypeInfo names that exact
+        // reflected definition, its arguments are the semantic receiver bindings even when the
+        // CLR receiver is an open generic definition (as inside `ValueTask<T>`). Bind by the
+        // ordinary constructed receiver shape first; this preserves source type parameters in
+        // method results while the CLR map below remains an emission-only surrogate.
+        receiverGeneric := receiverTypeInfo as GenericTypeInfo
+        receiverDefinition := receiverGeneric == null ? null : receiverGeneric.GenericDefinition as ReflectionTypeInfo
+        receiverDefinitionType := receiverDefinition == null ? null : receiverDefinition.Type
+        if receiverGeneric != null && receiverDefinitionType != null && receiverGeneric.TypeArguments.Count == receiverSignatureType.GetGenericArguments().Length && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(receiverSignatureType, receiverDefinitionType) {
+            receiverParameters := receiverSignatureType.GetGenericArguments()
+            argumentIndex := 0
+            while argumentIndex < receiverParameters.Length {
+                receiverArgument := receiverGeneric.TypeArguments[argumentIndex]
+                typeInfoBindings[receiverParameters[argumentIndex]] = receiverArgument
+                receiverArgumentClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverArgument)
+                if receiverArgumentClrType != null {
+                    bindings[receiverParameters[argumentIndex]] = receiverArgumentClrType
+                }
+                argumentIndex += 1
+            }
+            return true
+        }
+
         bindingReceiverClrType := receiverClrType
         bindingReceiverTypeInfo := receiverTypeInfo
         externalBase := clrTypeConversion.TryResolveDeclaredExternalBase(receiverTypeInfo)

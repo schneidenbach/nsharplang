@@ -71,6 +71,13 @@ class ColumnarTypeEquivalenceFacts {
             return aOwner != null && bOwner != null && TypesEquivalent(aOwner, bOwner)
         }
 
+        // Analysis can hold a metadata-context Type while emission holds its execution-context
+        // counterpart. Preserve nominal CLR identity across those reflection contexts, including
+        // closed generic arguments, while leaving unbaked source builders on the structural path.
+        if !TypeInfoIdentityFacts.IsBuilderBound(a) && !TypeInfoIdentityFacts.IsBuilderBound(b) && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(a, b) {
+            return true
+        }
+
         if RuntimeTypeShapeFacts.IsEnumType(a) || RuntimeTypeShapeFacts.IsEnumType(b) {
             return IsSameEnumType(a, b)
         }

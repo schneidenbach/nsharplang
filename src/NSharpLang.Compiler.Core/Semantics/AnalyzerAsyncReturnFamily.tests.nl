@@ -88,6 +88,53 @@ test "async locals inside generic async owners analyze without diagnostics" {
     }
 }
 
+test "a closed receiver-inferred await extension closes the source awaiter result" {
+    analyzer := AsyncFamilyAnalyzer()
+    source := "import System\nimport System.Runtime.CompilerServices\nimport System.Threading.Tasks\n\nclass ConcreteBox<T>(source: Task<T>) {\n    Source: Task<T> { get { return source } }\n}\n\nclass BoxAwaiter<T>(source: Task<T>): INotifyCompletion {\n    IsCompleted: bool { get { return source.IsCompleted } }\n    func GetResult(): T { return source.GetAwaiter().GetResult() }\n    func OnCompleted(continuation: Action) { source.GetAwaiter().OnCompleted(continuation) }\n}\n\nfunc GetAwaiter<T>(this value: ConcreteBox<T>): BoxAwaiter<T> {\n    return new BoxAwaiter<T>(value.Source)\n}\n\nasync func Read(value: ConcreteBox<int>): Task<int> {\n    return await value\n}\n"
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-closed-await-extension-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        messages := ""
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                messages += error.Message + "\n"
+            }
+        }
+        assert messages == "", messages
+        assert result.SemanticModel.AwaitablePatterns.Count == 1
+        selected: AnalyzerAwaitablePatternBinding? = null
+        for entry in result.SemanticModel.AwaitablePatterns {
+            selected = entry.Value
+        }
+        assert selected != null
+        assert BuiltInTypes.Is(selected.ResultType, BuiltInTypes.Int), "selected await result remained open: " + selected.ResultType.ToString()
+        assert selected.AwaiterType.ToString() == "BoxAwaiter<int>", "selected awaiter remained open: " + selected.AwaiterType.ToString()
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "an applicable instance GetAwaiter with an invalid result blocks extension lookup" {
+    analyzer := AsyncFamilyAnalyzer()
+    source := "import System\nimport System.Runtime.CompilerServices\nimport System.Threading.Tasks\n\nclass InvalidInstanceBox {\n    func GetAwaiter(): int { return 1 }\n}\n\nclass ExtensionAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(): int { return 2 }\n    func OnCompleted(continuation: Action) {}\n}\n\nfunc GetAwaiter(this value: InvalidInstanceBox): ExtensionAwaiter {\n    return new ExtensionAwaiter()\n}\n\nasync func Read(value: InvalidInstanceBox): Task<int> {\n    return await value\n}\n"
+    try {
+        errors := AsyncFamilyErrors(analyzer, source)
+        assert errors.Count == 1, AsyncFamilyText(errors)
+        assert errors[0].Code == ErrorCode.TypeMismatch, AsyncFamilyText(errors)
+        assert errors[0].Line == 20, AsyncFamilyText(errors)
+        assert errors[0].Column == 18, AsyncFamilyText(errors)
+    } finally {
+        analyzer.Dispose()
+    }
+}
+
 test "async lambdas in generic methods and types analyze without diagnostics" {
     analyzer := AsyncFamilyAnalyzer()
     source := "import System\nimport System.Threading.Tasks\n\nasync func Read<T>(source: Task<T>): Task<T> {\n    read: Func<Task<T>> = async () => {\n        return await source\n    }\n    return await read()\n}\n\nclass Box<T> {\n    async func Read(source: Task<T>): Task<T> {\n        read: Func<Task<T>> = async () => {\n            return await source\n        }\n        return await read()\n    }\n}\n"

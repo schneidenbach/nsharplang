@@ -6298,6 +6298,13 @@ sealed class ColumnarIlEmitter {
                         staticPropertySetterAttributes,
                         ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
                     )
+                    staticPropertySourceFile := program.SourceFileForFileId(structs[s].SourceFileId)
+                    if staticPropertySourceFile != null && prop.SourceDeclarationStart >= 0 {
+                        staticPropertyPosition := ColumnarEmissionPlanner.PositionAt(staticPropertySourceFile, prop.SourceDeclarationStart)
+                        staticAccessors.SourceFilePath = staticPropertySourceFile.FileName
+                        staticAccessors.SourceLine = staticPropertyPosition.Line
+                        staticAccessors.SourceColumn = staticPropertyPosition.Column
+                    }
                     staticGetter := staticAccessors.Getter
                     if (!ColumnarMethodImplAttributes.TryApplyToMethod(staticGetter, prop.Getter.SourceAttributes, typeResolution)) {
                         return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
@@ -6393,6 +6400,13 @@ sealed class ColumnarIlEmitter {
                     propertySetterAttributes,
                     ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
                 )
+                propertySourceFile := program.SourceFileForFileId(structs[s].SourceFileId)
+                if propertySourceFile != null && prop.SourceDeclarationStart >= 0 {
+                    propertyPosition := ColumnarEmissionPlanner.PositionAt(propertySourceFile, prop.SourceDeclarationStart)
+                    accessors.SourceFilePath = propertySourceFile.FileName
+                    accessors.SourceLine = propertyPosition.Line
+                    accessors.SourceColumn = propertyPosition.Column
+                }
                 getter := accessors.Getter
                 if (!ColumnarMethodImplAttributes.TryApplyToMethod(getter, prop.Getter.SourceAttributes, typeResolution)) {
                     return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
@@ -7186,6 +7200,13 @@ sealed class ColumnarIlEmitter {
                     nonGenericMethodReturnType,
                     nonGenericMethodParameterTypes
                 )
+            }
+            if fn.IsExtensionMethod {
+                extensionAttributeCtor := typeof(System.Runtime.CompilerServices.ExtensionAttribute).GetConstructor(Type.EmptyTypes)
+                if extensionAttributeCtor == null {
+                    return DeclineStatic("emit.extension.metadata", "the runtime ExtensionAttribute constructor is unavailable", fn.Name, -1, 0)
+                }
+                methods[f].SetCustomAttribute(extensionAttributeCtor, ColumnarAttributeBlobs.NoArgument())
             }
             sourceAttributeQueue.QueueMethod(methods[f], fn.SourceAttributes, typeResolution)
             if (!ColumnarMethodImplAttributes.TryApplyToMethod(methods[f], fn.SourceAttributes, typeResolution)) {

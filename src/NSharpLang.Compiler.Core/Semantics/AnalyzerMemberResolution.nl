@@ -202,6 +202,14 @@ class AnalyzerMemberResolution {
         return ResolveMemberCore(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, true)
     }
 
+    // The await-pattern binder first asks whether an instance invocation binds, then consults the
+    // ordinary extension resolver only when it does not. Keeping this entry on the same member
+    // lookup implementation prevents the first pass from accidentally folding an extension group
+    // into the instance method group before ordinary overload resolution has run.
+    func ResolveMemberWithoutExtensionFallback(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool): TypeInfo {
+        return ResolveMemberCore(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, false, false)
+    }
+
     private func ResolveMemberCore(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool, inheritedProtectedAccess: bool, allowExtensionFallback: bool): TypeInfo {
         current: TypeInfo = objectType
 

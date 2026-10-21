@@ -667,6 +667,35 @@ class AnalyzerSyntheticCallWalk {
         return bindings
     }
 
+    // The receiver-only half of generic inference for a selected extension invocation. This is
+    // used when the compiler needs the closed method identity itself (for example, a pattern-based
+    // GetAwaiter call): no positional arguments exist to contribute bounds, so reuse the same
+    // receiver matcher and bound collector that extension applicability uses.
+    func InferReceiverTypeBindings(functionType: FunctionTypeInfo, receiverType: TypeInfo): Dictionary<string, TypeInfo>? {
+        if functionType == null || receiverType == null || !functionType.SourceHasReceiverParameter {
+            return null
+        }
+        typeParameters := functionType.TypeParameters
+        sourceParameterTypes := functionType.SourceParameterTypes
+        if typeParameters == null || typeParameters.Count == 0 || sourceParameterTypes == null || sourceParameterTypes.Count == 0 {
+            return null
+        }
+
+        let matchedReceiverType: TypeInfo? = null
+        bindings := new Dictionary<string, TypeInfo>()
+        if !binder.TryInferReceiverParameterBindings(
+            sourceParameterTypes[0],
+            receiverType,
+            typeParameters,
+            typeResolver,
+            out matchedReceiverType,
+            out bindings
+        ) || matchedReceiverType == null {
+            return null
+        }
+        return bindings
+    }
+
     // WHERE A VIOLATED GENERIC CONSTRAINT POINTS.
     //
     // The best anchor is the ARGUMENT that bound the offending type parameter, because that is the

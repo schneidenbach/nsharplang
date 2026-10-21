@@ -217,6 +217,15 @@ static class RuntimeTypeShapeFacts {
             return left.IsGenericParameter && right.IsGenericParameter && SameTypeParameterIdentity(left, right)
         }
 
+        // A reflected method selected through the analyzer's metadata context can return a Type
+        // object from that context, while the same invocation's emitted handle exposes the runtime
+        // Type object. They are the same CLR signature when their nominal assembly identity and
+        // recursively constructed shape agree. Keep builder-bound types on the identity path below:
+        // source TypeBuilders still require exact declaration identity.
+        if !TypeInfoIdentityFacts.IsBuilderBound(left) && !TypeInfoIdentityFacts.IsBuilderBound(right) && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(left, right) {
+            return true
+        }
+
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
             if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
                 return false

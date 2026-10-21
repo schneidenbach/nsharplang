@@ -9,6 +9,7 @@ import System.Reflection.Emit
 import System.Runtime.CompilerServices
 import System.Threading
 import System.Threading.Tasks
+import NSharpLang.AsyncAwaitablePatternFixtures
 
 func AsyncMethodContainsGetResult(method: MethodInfo): bool {
     body := method.GetMethodBody()
@@ -400,6 +401,53 @@ test "an explicit base INotifyCompletion slot resolves through a source interfac
 test "a receiver-inferred generic GetAwaiter extension is emitted and returns its closed value" {
     pending := AwaitGenericExtension(new GenericExtensionBox<int>(47))
     assert pending.Result == 47
+}
+
+test "the pending awaiter matrix uses one bound pattern across source and referenced libraries" {
+    gates := new List<TaskCompletionSource<int>>()
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+    gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))
+
+    pending := new List<Task<int>>()
+    pending.Add(AwaitDecoyCompletion(new DecoyCompletionAwaitable(gates[0].Task)))
+    pending.Add(AwaitSourceInheritedCompletion(new SourceInheritedAwaitable(gates[1].Task)))
+    pending.Add(AwaitPendingGenericExtension<int>(gates[2].Task, 82))
+    pending.Add(AwaitCritical(new CriticalAwaitable(gates[3].Task, new List<string>())))
+    pending.Add(AwaitExplicitNotify(new ExplicitNotifyAwaitable(gates[4].Task)))
+    pending.Add(AwaitInheritedNotify(new InheritedNotifyAwaitable(gates[5].Task)))
+    pending.Add(AwaitInheritedExplicitNotify(new InheritedExplicitNotifyAwaitable(gates[6].Task)))
+    pending.Add(AwaitSourceImplicitDecoy(new SourceImplicitDecoyAwaitable(gates[7].Task)))
+    pending.Add(AwaitReflectedInheritedCompletion(new ReflectedInheritedAwaitable(gates[8].Task)))
+    pending.Add(AwaitReflectedGenericExtension(new ReflectedGenericExtensionBox<int>(gates[9].Task)))
+    pending.Add(AwaitReflectedDecoyCompletion(new ReflectedDecoyAwaitable(gates[10].Task)))
+    pending.Add(AwaitPendingConcreteGenericExtension(gates[11].Task, 92))
+
+    for task in pending {
+        assert !task.IsCompleted, "every matrix row must reach an incomplete await"
+    }
+    index := 0
+    while index < gates.Count {
+        gates[index].SetResult(80 + index)
+        index += 1
+    }
+    index = 0
+    while index < pending.Count {
+        task := pending[index]
+        assert task.Wait(TimeSpan.FromSeconds(5)), "pending await matrix row " + index.ToString() + " did not resume through its selected slot"
+        expected := index == 2 ? 82 : (index == 11 ? 92 : 80 + index)
+        assert task.Result == expected, "pending await matrix row " + index.ToString() + " returned the wrong result"
+        index += 1
+    }
 }
 
 test "GetAwaiter extension overload resolution selects the most specific receiver" {

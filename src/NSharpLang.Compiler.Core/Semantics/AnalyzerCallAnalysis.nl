@@ -2078,6 +2078,12 @@ class AnalyzerCallAnalysis {
         call := state.Call
         calleeType := state.CalleeType
         functionType := calleeType as FunctionTypeInfo
+        if functionType == null {
+            functionType = DelegateFunctionType(calleeType)
+            if functionType != null {
+                state.CalleeType = functionType
+            }
+        }
         if functionType != null && functionType.ParameterTypes != null {
             state.SyntheticFunctionType = functionType
             state.ParameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
@@ -2107,6 +2113,26 @@ class AnalyzerCallAnalysis {
         state.ArgumentIndex = 0
         state.Phase = 7
         return null
+    }
+
+    // A delegate-valued variable is invoked through its `Invoke` signature. The emitter already
+    // emits that ordinary CLR call, so the analyzer must carry the same parameter and return types
+    // into argument binding and the call result (including `await next(context)`).
+    func DelegateFunctionType(calleeType: TypeInfo?): FunctionTypeInfo? {
+        if calleeType == null {
+            return null
+        }
+        runtimeType := clrTypeConversion.TryConvertTypeInfoToClrType(calleeType)
+        if runtimeType == null {
+            reflected := calleeType as ReflectionTypeInfo
+            if reflected != null {
+                runtimeType = reflected.Type
+            }
+        }
+        if runtimeType == null || (!AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(runtimeType) && !AnalyzerCallableReferenceFacts.IsMetadataDelegateType(runtimeType)) {
+            return null
+        }
+        return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(runtimeType)
     }
 
     // The bindings the argument loop STARTS from: the call's written type arguments and the

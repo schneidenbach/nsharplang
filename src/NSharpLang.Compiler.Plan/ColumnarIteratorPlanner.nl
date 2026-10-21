@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Reflection
 import System.Reflection.Emit
 import System.Text
@@ -1677,11 +1678,17 @@ class ColumnarIteratorPlanner {
     // expression kernels and inherit the containing body's binding facts so holes resolve the same
     // locals, parameters and members as expressions written directly in the iterator body.
     static func TryParseInterpolatedExpression(nodes: ColumnarNodeTable, source: string, node: int, out literal: string, out parts: List<ColumnarInterpolationPart>, out holeNodes: ColumnarNodeTable[], out holeSources: string[], out holeRoots: int[]): bool {
+        holeSourceOffsets := new int[](0)
+        return TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots, out holeSourceOffsets)
+    }
+
+    static func TryParseInterpolatedExpression(nodes: ColumnarNodeTable, source: string, node: int, out literal: string, out parts: List<ColumnarInterpolationPart>, out holeNodes: ColumnarNodeTable[], out holeSources: string[], out holeRoots: int[], out holeSourceOffsets: int[]): bool {
         literal = ""
         parts = new List<ColumnarInterpolationPart>()
         holeNodes = new ColumnarNodeTable[](0)
         holeSources = new string[](0)
         holeRoots = new int[](0)
+        holeSourceOffsets = new int[](0)
         if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length {
             return false
         }
@@ -1709,6 +1716,8 @@ class ColumnarIteratorPlanner {
         holeNodes = new ColumnarNodeTable[](holeCount)
         holeSources = new string[](holeCount)
         holeRoots = new int[](holeCount)
+        holeSourceOffsets = new int[](holeCount)
+        parentSourceOffset := nodes.ValueStart(node)
         holeIndex := 0
         for part in parts {
             if !part.IsHole {
@@ -1722,6 +1731,7 @@ class ColumnarIteratorPlanner {
             holeNodes[holeIndex] = ColumnarNodeTable.InheritBindingContext(parsedNodes, nodes)
             holeSources[holeIndex] = part.Text
             holeRoots[holeIndex] = parsedRoot
+            holeSourceOffsets[holeIndex] = parentSourceOffset + part.SourceOffset
             holeIndex += 1
         }
         return true
@@ -1907,7 +1917,8 @@ class ColumnarIteratorPlanner {
             holeNodes := new ColumnarNodeTable[](0)
             holeSources := new string[](0)
             holeRoots := new int[](0)
-            if TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+            holeSourceOffsets := new int[](0)
+            if TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots, out holeSourceOffsets) {
                 hasAwaitedHole := false
                 hole := 0
                 while hole < holeRoots.Length {
@@ -2906,6 +2917,9 @@ class ColumnarMoveNextEmit {
     // suspension writer reads that table/source so an await's child index cannot alias the body AST.
     ExpressionNodes: ColumnarNodeTable?
     ExpressionSource: string?
+    // Offsets for reparsed interpolation holes are relative to the original method source. Semantic
+    // await bindings are keyed by those original positions, so retain the offset across nested holes.
+    ExpressionSourceOffset: int
     // A source catch moved outside its CLR handler keeps its parked EDI available for `throw;`.
     HoistedCatchPendingField: string
     NextAsyncEnumerator: int
@@ -2957,6 +2971,7 @@ class ColumnarMoveNextEmit {
         NextSpill = 0
         ExpressionNodes = null
         ExpressionSource = null
+        ExpressionSourceOffset = 0
         HoistedCatchPendingField = ""
         NextAsyncEnumerator = 0
         NextLambda = 0
@@ -3037,7 +3052,8 @@ class ColumnarIteratorBodyPlanner {
         holeNodes := new ColumnarNodeTable[](0)
         holeSources := new string[](0)
         holeRoots := new int[](0)
-        if !ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+        holeSourceOffsets := new int[](0)
+        if !ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots, out holeSourceOffsets) {
             return false
         }
         i := 0
@@ -4040,8 +4056,9 @@ class ColumnarIteratorBodyPlanner {
             holeNodes := new ColumnarNodeTable[](0)
             holeSources := new string[](0)
             holeRoots := new int[](0)
-            if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
-                return AppendIteratorInterpolatedString(emit, literal, parts, holeNodes, holeSources, holeRoots, out resultType)
+            holeSourceOffsets := new int[](0)
+            if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots, out holeSourceOffsets) {
+                return AppendIteratorInterpolatedString(emit, literal, parts, holeNodes, holeSources, holeRoots, holeSourceOffsets, out resultType)
             }
         }
         checkpoint := emit.Plan.CreateCheckpoint()
@@ -4059,9 +4076,9 @@ class ColumnarIteratorBodyPlanner {
         return false
     }
 
-    static func AppendIteratorInterpolatedString(emit: ColumnarMoveNextEmit, literal: string, parts: List<ColumnarInterpolationPart>, holeNodes: ColumnarNodeTable[], holeSources: string[], holeRoots: int[], out resultType: Type): bool {
+    static func AppendIteratorInterpolatedString(emit: ColumnarMoveNextEmit, literal: string, parts: List<ColumnarInterpolationPart>, holeNodes: ColumnarNodeTable[], holeSources: string[], holeRoots: int[], holeSourceOffsets: int[], out resultType: Type): bool {
         resultType = typeof(string)
-        if holeNodes.Length == 0 || holeNodes.Length != holeSources.Length || holeNodes.Length != holeRoots.Length {
+        if holeNodes.Length == 0 || holeNodes.Length != holeSources.Length || holeNodes.Length != holeRoots.Length || holeNodes.Length != holeSourceOffsets.Length {
             return false
         }
         hasAwait := false
@@ -4088,7 +4105,7 @@ class ColumnarIteratorBodyPlanner {
         i = 0
         while i < holeRoots.Length {
             holeType := typeof(int)
-            if !AppendIteratorInterpolationHole(emit, holeNodes[i], holeSources[i], holeRoots[i], out holeType) || ColumnarCodePlanExecutor.IsVoidType(holeType) {
+            if !AppendIteratorInterpolationHole(emit, holeNodes[i], holeSources[i], holeRoots[i], emit.ExpressionSourceOffset + holeSourceOffsets[i], out holeType) || ColumnarCodePlanExecutor.IsVoidType(holeType) {
                 emit.Context.Decline("emit.iterator.interpolation-await", "interpolation hole '" + holeSources[i] + "' could not be lowered in an async iterator")
                 return false
             }
@@ -4159,16 +4176,18 @@ class ColumnarIteratorBodyPlanner {
         return true
     }
 
-    static func AppendIteratorInterpolationHole(emit: ColumnarMoveNextEmit, nodes: ColumnarNodeTable, source: string, node: int, out resultType: Type): bool {
+    static func AppendIteratorInterpolationHole(emit: ColumnarMoveNextEmit, nodes: ColumnarNodeTable, source: string, node: int, sourceOffset: int, out resultType: Type): bool {
         resultType = typeof(void)
         scope := emit.Context.RequiredScope()
         bindings := scope.Bindings
         previous := bindings.IteratorMoveNextEmitter
         previousNodes := emit.ExpressionNodes
         previousSource := emit.ExpressionSource
+        previousSourceOffset := emit.ExpressionSourceOffset
         bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
         emit.ExpressionNodes = nodes
         emit.ExpressionSource = source
+        emit.ExpressionSourceOffset = sourceOffset
         try {
             parentFragment := -1
             if emit.Plan.OpenFragmentCount > 0 {
@@ -4179,6 +4198,7 @@ class ColumnarIteratorBodyPlanner {
             bindings.IteratorMoveNextEmitter = previous
             emit.ExpressionNodes = previousNodes
             emit.ExpressionSource = previousSource
+            emit.ExpressionSourceOffset = previousSourceOffset
         }
     }
 
@@ -4275,9 +4295,10 @@ class ColumnarIteratorBodyPlanner {
             holeNodes := new ColumnarNodeTable[](0)
             holeSources := new string[](0)
             holeRoots := new int[](0)
-            if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+            holeSourceOffsets := new int[](0)
+            if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots, out holeSourceOffsets) {
                 interpolationType := typeof(string)
-                if !AppendIteratorInterpolatedString(emit, literal, parts, holeNodes, holeSources, holeRoots, out interpolationType) {
+                if !AppendIteratorInterpolatedString(emit, literal, parts, holeNodes, holeSources, holeRoots, holeSourceOffsets, out interpolationType) {
                     return false
                 }
                 if interpolationType == storageType {
@@ -4373,6 +4394,9 @@ class ColumnarIteratorBodyPlanner {
         // expression's converted value is kept in a method local until the machine field write.
         if emit.IsAsync && CurrentExpressionNodes(emit).Kind(valueNode) != ColumnarExpressionNodeKind.AwaitExpression && ExpressionContainsAwait(emit, valueNode) {
             if !AppendStoredValue(emit, valueNode, storageType) {
+                if !emit.Context.Declined {
+                    emit.Context.Decline("emit.iterator.async-await-unsupported", "an expression containing `await` could not be lowered before storing local '" + fieldName + "'")
+                }
                 return false
             }
             valueLocal := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(storageType), emit.Context.StructuralTypeReferences))
@@ -4385,6 +4409,9 @@ class ColumnarIteratorBodyPlanner {
         if CurrentExpressionNodes(emit).Kind(valueNode) != ColumnarExpressionNodeKind.AwaitExpression {
             LoadThis(emit)
             if !AppendStoredValue(emit, valueNode, storageType) {
+                if !emit.Context.Declined {
+                    emit.Context.Decline("emit.iterator.local-initializer", "the initializer for local '" + fieldName + "' could not be lowered")
+                }
                 return false
             }
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
@@ -4393,6 +4420,9 @@ class ColumnarIteratorBodyPlanner {
 
         awaitedType := VoidReturnType()
         if !AppendAwait(emit, valueNode, out awaitedType) {
+            if !emit.Context.Declined {
+                emit.Context.Decline("emit.iterator.async-await-unsupported", "await in the initializer for local '" + fieldName + "' could not be lowered")
+            }
             return false
         }
         if ColumnarCodePlanExecutor.IsVoidType(awaitedType) {
@@ -4468,35 +4498,31 @@ class ColumnarIteratorBodyPlanner {
         if nodes.ChildCount(node) != 1 {
             return false
         }
-        operandType := typeof(int)
-        if !TryDiscoverScopedValueType(emit, nodes, emit.Context.Source, nodes.Child(node, 0), out operandType) {
-            operandNode := nodes.Child(node, 0)
-            operandStart := nodes.SpanStart(operandNode)
-            operandLength := nodes.SpanLength(operandNode)
-            operandText := ""
-            if operandStart >= 0 && operandLength >= 0 && operandStart + operandLength <= emit.Context.Source.Length {
-                operandText = emit.Context.Source.Substring(operandStart, operandLength)
-            }
-            emit.Context.Decline("emit.iterator.async-await-unsupported", "the awaited operand '" + operandText + "' could not be typed during state-machine planning")
+        selected := SelectedAwaitablePatternForNode(emit, node)
+        if selected == null || selected.ReflectedAwaiter == null && selected.SourceAwaiter == null {
             return false
         }
-        getAwaiter := AwaitPatternMethodOrNull(emit, operandType, "GetAwaiter")
-        if getAwaiter == null {
-            emit.Context.Decline("emit.iterator.async-await-unsupported", "the awaited operand type '" + operandType.Name + "' has no resolvable `GetAwaiter()`")
-            return false
-        }
-        awaiterType := AwaitPatternReturnType(operandType, getAwaiter)
-        getResult := AwaitPatternMethodOrNull(emit, awaiterType, "GetResult")
-        if getResult == null {
-            emit.Context.Decline("emit.iterator.async-await-unsupported", "the awaiter type '" + awaiterType.Name + "' has no resolvable `GetResult()`")
-            return false
-        }
-        resultType = AwaitPatternReturnType(awaiterType, getResult)
-        if ColumnarCodePlanExecutor.IsVoidType(resultType) {
-            emit.Context.Decline("emit.iterator.async-await-unsupported", "a value-producing await of '" + operandType.Name + "' uses awaiter '" + awaiterType.Name + "', whose `GetResult()` returns no value")
+        if !TryResolveAwaitPatternType(emit, selected.ResultType, out resultType) || resultType == null || ColumnarCodePlanExecutor.IsVoidType(resultType) {
             return false
         }
         return true
+    }
+
+    static func SelectedAwaitablePatternForNode(emit: ColumnarMoveNextEmit, awaitNode: int): AnalyzerAwaitablePatternBinding? {
+        if emit == null || awaitNode < 0 {
+            return null
+        }
+        semanticModel := emit.Context.RequiredScope().Facts.SemanticModel
+        if semanticModel == null {
+            return null
+        }
+        nodes := CurrentExpressionNodes(emit)
+        source := emit.Context.Source
+        sourceFile := new ColumnarSourceFile("", source, emit.Context.SourceFileId, ColumnarEmissionPlanner.BuildLineStarts(source))
+        absoluteStart := emit.ExpressionSourceOffset + nodes.SpanStart(awaitNode)
+        position := ColumnarEmissionPlanner.PositionAt(sourceFile, absoluteStart)
+        selected: AnalyzerAwaitablePatternBinding? = null
+        return AwaitablePatternBinder.TryGetAnalyzerBindingAt(semanticModel, position.Line, position.Column, out selected) ? selected : null
     }
 
     // Type discovery happens before a value is appended, but nested await arguments still belong to
@@ -5951,14 +5977,27 @@ class ColumnarIteratorBodyPlanner {
                 return false
             }
             if emit.Context.IsStackLocal(name) {
-                localIndex := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(initializerType), emit.Context.StructuralTypeReferences))
                 actualType := typeof(int)
-                if !AppendValue(emit, nodes.Child(node, 0), out actualType) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualType, initializerType) {
+                if !AppendValue(emit, nodes.Child(node, 0), out actualType) {
+                    detail := emit.Context.DeclineMessage
+                    message := "the initializer of stack local '" + name + "' could not be lowered in an iterator body"
+                    if detail.Length > 0 {
+                        message = message + ": " + detail
+                    }
+                    emit.Context.Decline("emit.iterator.unsupported-shape", message)
+                    return false
+                }
+                if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualType, initializerType) {
                     emit.Context.Decline("emit.iterator.unsupported-shape", "the initializer of stack local '" + name + "' changed type from '" + initializerType.ToString() + "' to '" + actualType.ToString() + "' while it was being lowered")
                     return false
                 }
+                // `initializerType` was discovered through semantic metadata; the emitted value can
+                // carry its execution-context Type handle for the same CLR identity. Use the actual
+                // emitted handle for the local and its subsequent member lookups so a value returned
+                // by a closed awaiter stays in one reflection context throughout the state machine.
+                localIndex := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(actualType), emit.Context.StructuralTypeReferences))
                 emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
-                scope.PublishPlanLocal(name, localIndex, initializerType)
+                scope.PublishPlanLocal(name, localIndex, actualType)
                 return true
             }
             hoisted: FieldInfo? = null
@@ -8468,17 +8507,21 @@ class ColumnarIteratorBodyPlanner {
         found = false
         binding = null
         facts := emit.Context.RequiredScope().Facts
-        semanticModel := facts.SemanticModel
-        if semanticModel == null {
-            return true
-        }
-        nodes := CurrentExpressionNodes(emit)
-        source := CurrentExpressionSource(emit)
-        sourceFile := new ColumnarSourceFile("", source, emit.Context.SourceFileId, ColumnarEmissionPlanner.BuildLineStarts(source))
-        position := ColumnarEmissionPlanner.PositionAt(sourceFile, nodes.SpanStart(awaitNode))
-        selected: AnalyzerAwaitablePatternBinding = null
-        if !semanticModel.AwaitablePatterns.TryGetValue((Line: position.Line, Column: position.Column), out selected) || selected == null {
-            return true
+        selected := SelectedAwaitablePatternForNode(emit, awaitNode)
+        if selected == null {
+            // A written await was already bound by analysis. If its semantic handoff is absent,
+            // stop here; falling back to reflection/name lookup would let lowering select a
+            // different overload from the one the analyzer accepted.
+            found = true
+            nodes := CurrentExpressionNodes(emit)
+            source := emit.Context.Source
+            sourceFile := new ColumnarSourceFile("", source, emit.Context.SourceFileId, ColumnarEmissionPlanner.BuildLineStarts(source))
+            absoluteStart := emit.ExpressionSourceOffset + nodes.SpanStart(awaitNode)
+            position := ColumnarEmissionPlanner.PositionAt(sourceFile, absoluteStart)
+            semanticModel := emit.Context.RequiredScope().Facts.SemanticModel
+            recordedCount := semanticModel == null ? 0 : semanticModel.AwaitablePatterns.Count
+            emit.Context.Decline("emit.iterator.async-await-binding", "the analyzer did not retain an awaitable-pattern binding for this `await` at " + position.Line.ToString() + ":" + position.Column.ToString() + " (recorded bindings: " + recordedCount.ToString() + ")")
+            return false
         }
         found = true
         if selected.ReflectedAwaiter != null {
@@ -8494,26 +8537,47 @@ class ColumnarIteratorBodyPlanner {
                     closedOwner = operandType
                 }
                 if !TryResolveSelectedRuntimeMethod(selectedGetAwaiter, closedOwner, out getAwaiter) {
+                    emit.Context.Decline("emit.iterator.async-await-pattern", "the selected GetAwaiter method could not be mapped from '" + selectedGetAwaiter.ToString() + "' onto emitted operand type '" + (closedOwner == null ? "static" : closedOwner.ToString()) + "' (analyzer bound '" + selected.AwaitableType.ToString() + "')")
                     return false
+                }
+                if selected.GetAwaiterIsExtension {
+                    closedGetAwaiter: MethodInfo? = null
+                    if !TryCloseSelectedAwaiterMethod(emit, selected, getAwaiter, out closedGetAwaiter) || closedGetAwaiter == null {
+                        emit.Context.Decline("emit.iterator.async-await-pattern", "the selected generic GetAwaiter method could not be closed with the analyzer's inferred type arguments")
+                        return false
+                    }
+                    getAwaiter = closedGetAwaiter
                 }
             }
             if getAwaiter == null {
                 if selected.GetAwaiterIsExtension {
                     if selected.GetAwaiterFunction != null && !TryResolveSelectedSourceExtension(emit, selected, out getAwaiter) {
+                        emit.Context.Decline("emit.iterator.async-await-pattern", "the selected source GetAwaiter extension could not be mapped to its declaration")
                         return false
                     }
                 } else if !TryResolveSelectedSourceInstanceMethod(emit, operandType, selected.GetAwaiterDeclaration, out getAwaiter) {
+                    emit.Context.Decline("emit.iterator.async-await-pattern", "the selected source GetAwaiter member could not be mapped to its declaration")
                     return false
                 }
             }
             if getAwaiter == null {
+                emit.Context.Decline("emit.iterator.async-await-pattern", "the selected awaitable pattern has no emitted GetAwaiter method")
                 return false
             }
             awaiterType := AwaitPatternReturnType(operandType, getAwaiter)
             isCompleted: MethodInfo? = null
             getResult: MethodInfo? = null
             completionSlot: MethodInfo? = null
-            if !TryResolveSelectedRuntimeMethod(reflected.IsCompletedGetter, awaiterType, out isCompleted) || !TryResolveSelectedRuntimeMethod(reflected.GetResult, awaiterType, out getResult) || !TryResolveSelectedRuntimeMethod(reflected.CompletionSlot, null, out completionSlot) || isCompleted == null || getResult == null || completionSlot == null {
+            if !TryResolveSelectedRuntimeMethod(reflected.IsCompletedGetter, awaiterType, out isCompleted) || isCompleted == null {
+                emit.Context.Decline("emit.iterator.async-await-pattern", "the selected awaiter IsCompleted getter could not be mapped from '" + (reflected.IsCompletedGetter == null ? "null" : reflected.IsCompletedGetter.ToString()) + "' onto '" + awaiterType.ToString() + "'")
+                return false
+            }
+            if !TryResolveSelectedRuntimeMethod(reflected.GetResult, awaiterType, out getResult) || getResult == null {
+                emit.Context.Decline("emit.iterator.async-await-pattern", "the selected awaiter GetResult method could not be mapped from '" + (reflected.GetResult == null ? "null" : reflected.GetResult.ToString()) + "' onto '" + awaiterType.ToString() + "'")
+                return false
+            }
+            if !TryResolveSelectedRuntimeMethod(reflected.CompletionSlot, null, out completionSlot) || completionSlot == null {
+                emit.Context.Decline("emit.iterator.async-await-pattern", "the selected completion interface slot could not be mapped from '" + (reflected.CompletionSlot == null ? "null" : reflected.CompletionSlot.ToString()) + "'")
                 return false
             }
             binding = new AwaitablePatternBinding(
@@ -8536,38 +8600,65 @@ class ColumnarIteratorBodyPlanner {
         getAwaiter: MethodInfo? = null
         if selected.GetAwaiterIsExtension {
             if !TryResolveSelectedSourceExtension(emit, selected, out getAwaiter) {
+                emit.Context.Decline("emit.iterator.async-await-pattern", "the selected source GetAwaiter extension could not be mapped to its declaration")
                 return false
             }
         } else if !TryResolveSelectedSourceInstanceMethod(emit, operandType, selected.GetAwaiterDeclaration, out getAwaiter) {
+            emit.Context.Decline("emit.iterator.async-await-pattern", "the selected source GetAwaiter member could not be mapped to its declaration")
             return false
         }
 
         let awaiterType: Type = null
         if !TryResolveSelectedSourceAwaiterType(emit, selected, out awaiterType) && !TryResolveAwaitPatternType(emit, selected.AwaiterType, out awaiterType) || awaiterType == null {
+            emit.Context.Decline("emit.iterator.async-await-pattern", "the selected source awaiter type could not be resolved for emission")
             return false
         }
         let awaiterDefinition: ColumnarStructDef? = null
         if !ColumnarSourceDefinitionResolver.TryResolveStruct(awaiterType, facts.StructDefinitions, out awaiterDefinition) || awaiterDefinition == null {
             return false
         }
-        isCompletedProperty: ColumnarPropertyDef? = null
-        if !awaiterDefinition.Properties.TryGetValue(sourceAwaiter.IsCompleted.Name, out isCompletedProperty) || isCompletedProperty == null || isCompletedProperty.PropertyType != typeof(bool) {
+        isCompleted: MethodInfo? = null
+        if selected.IsCompleted == null || !TryResolveSelectedSourcePropertyGetter(awaiterType, awaiterDefinition, selected.IsCompleted, out isCompleted) || isCompleted == null {
+            emit.Context.Decline("emit.iterator.async-await-pattern", "the selected source IsCompleted property could not be mapped to its emitted declaration")
             return false
         }
-        isCompleted := BindSourceMethodToConstructedOwner(awaiterType, awaiterDefinition.Builder, isCompletedProperty.Getter)
         getResult: MethodInfo? = null
         if !TryResolveSelectedSourceInstanceMethod(emit, awaiterType, sourceAwaiter.GetResult, out getResult) {
             return false
         }
-        completion: MethodInfo? = null
-        if !TryResolveSelectedSourceInstanceMethod(emit, awaiterType, sourceAwaiter.Completion, out completion) {
-            return false
-        }
+        completion := sourceAwaiter.CompletionSlot
         if getAwaiter == null || isCompleted == null || getResult == null || completion == null {
             return false
         }
         binding = new AwaitablePatternBinding(operandType, awaiterType, getAwaiter, isCompleted, getResult, completion, sourceAwaiter.IsCritical, selected.GetAwaiterIsExtension)
         return true
+    }
+
+    static func TryCloseSelectedAwaiterMethod(emit: ColumnarMoveNextEmit, selected: AnalyzerAwaitablePatternBinding, method: MethodInfo?, out closedMethod: MethodInfo?): bool {
+        closedMethod = method
+        if method == null || !method.IsGenericMethodDefinition {
+            return method != null
+        }
+        if selected.GetAwaiterTypeArguments == null || selected.GetAwaiterTypeArguments.Length != method.GetGenericArguments().Length {
+            return false
+        }
+        typeArguments := new Type[selected.GetAwaiterTypeArguments.Length]
+        index := 0
+        while index < typeArguments.Length {
+            resolvedArgument: Type = null
+            if !TryResolveAwaitPatternType(emit, selected.GetAwaiterTypeArguments[index], out resolvedArgument) || resolvedArgument == null {
+                return false
+            }
+            typeArguments[index] = resolvedArgument
+            index += 1
+        }
+        try {
+            closedMethod = method.MakeGenericMethod(typeArguments)
+            return closedMethod != null
+        } catch failure: ArgumentException {
+            closedMethod = null
+            return false
+        }
     }
 
     static func TryResolveSelectedSourceAwaiterType(emit: ColumnarMoveNextEmit, selected: AnalyzerAwaitablePatternBinding, out runtimeType: Type): bool {
@@ -8633,7 +8724,6 @@ class ColumnarIteratorBodyPlanner {
         }
         runtimeDefinition: Type? = null
         if !TryResolveAwaitPatternRuntimeType(metadataDefinition, out runtimeDefinition) || runtimeDefinition == null {
-            Console.WriteLine("await-map runtime-type failed " + metadataDefinition.ToString() + " aq=" + (metadataDefinition.AssemblyQualifiedName ?? "null"))
             return false
         }
         runtimeDefinitionOwner := runtimeDefinition
@@ -8643,7 +8733,6 @@ class ColumnarIteratorBodyPlanner {
         runtimeOpenMethod: MethodInfo? = null
         if !ColumnarExternalMethodDescriptor.TryRecoverOpenMethod(selectedDefinition, runtimeDefinitionOwner, out runtimeOpenMethod) || runtimeOpenMethod == null {
             if !TryFindSelectedRuntimeMethodBySignature(selectedDefinition, runtimeDefinitionOwner, out runtimeOpenMethod) || runtimeOpenMethod == null {
-                Console.WriteLine("await-map signature failed " + selectedDefinition.ToString() + " runtime=" + runtimeDefinitionOwner.ToString())
                 return false
             }
         }
@@ -8651,7 +8740,6 @@ class ColumnarIteratorBodyPlanner {
         resolvedOwner: Type? = null
         if receiverType != null {
             if !TryFindSelectedRuntimeMemberOwner(receiverType, runtimeDefinitionOwner, out resolvedOwner) || resolvedOwner == null {
-                Console.WriteLine("await-map owner failed receiver=" + receiverType.ToString() + " definition=" + runtimeDefinitionOwner.ToString())
                 return false
             }
         } else if runtimeOpenMethod.IsStatic {
@@ -8892,17 +8980,63 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         facts := emit.Context.RequiredScope().Facts
-        owner: ColumnarStructDef? = null
-        if !ColumnarSourceDefinitionResolver.TryResolveStruct(ownerType, facts.StructDefinitions, out owner) || owner == null {
+        current: ColumnarStructDef? = null
+        if !ColumnarSourceDefinitionResolver.TryResolveStruct(ownerType, facts.StructDefinitions, out current) || current == null {
             return false
         }
-        for overloads in owner.MethodOverloads.Values {
-            for candidate in overloads {
-                if candidate.SourceLine == declaration.Line && candidate.SourceColumn == declaration.Column {
-                    method = BindSourceMethodToConstructedOwner(ownerType, owner.Builder, candidate.Builder)
-                    return method != null
+        currentType := ownerType
+        while current != null {
+            for overloads in current.MethodOverloads.Values {
+                for candidate in overloads {
+                    if candidate.SourceLine == declaration.Line && candidate.SourceColumn == declaration.Column {
+                        method = BindSourceMethodToConstructedOwner(currentType, current.Builder, candidate.Builder)
+                        return method != null
+                    }
                 }
             }
+            next := current.BaseDef
+            if next == null {
+                break
+            }
+            if current.ExactBaseType != null {
+                currentType = current.ExactBaseType
+            } else {
+                currentType = next.Builder
+            }
+            current = next
+        }
+        return false
+    }
+
+    static func TryResolveSelectedSourcePropertyGetter(ownerType: Type, definition: ColumnarStructDef, selection: AnalyzerMemberSelection, out getter: MethodInfo?): bool {
+        getter = null
+        if ownerType == null || definition == null || selection == null || selection.Member == null || selection.FilePath == null {
+            return false
+        }
+        current := definition
+        currentType := ownerType
+        while current != null {
+            property: ColumnarPropertyDef? = null
+            for candidate in current.Properties.Values {
+                if candidate != null && candidate.SourceFilePath != null && string.Equals(Path.GetFullPath(candidate.SourceFilePath), Path.GetFullPath(selection.FilePath), StringComparison.OrdinalIgnoreCase) && candidate.SourceLine == selection.Line && candidate.SourceColumn == selection.Column && candidate.PropertyType == typeof(bool) {
+                    property = candidate
+                    break
+                }
+            }
+            if property != null {
+                getter = BindSourceMethodToConstructedOwner(currentType, current.Builder, property.Getter)
+                return getter != null
+            }
+            next := current.BaseDef
+            if next == null {
+                break
+            }
+            if current.ExactBaseType != null {
+                currentType = current.ExactBaseType
+            } else {
+                currentType = next.Builder
+            }
+            current = next
         }
         return false
     }
@@ -8979,23 +9113,6 @@ class ColumnarIteratorBodyPlanner {
         return false
     }
 
-    // A public parameterless instance method, by ordinary CLR lookup. `null` when the type does not
-    // have one, which is how "this is not awaitable" is discovered rather than asserted.
-    static func ParameterlessMethodOrNull(owner: Type, name: string): MethodInfo? {
-        if owner == null || owner.IsGenericParameter {
-            return null
-        }
-        if owner.IsGenericType && !owner.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(owner) {
-            definition := owner.GetGenericTypeDefinition()
-            definitionMethod := AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(definition, name)
-            if definitionMethod == null {
-                return null
-            }
-            return TypeBuilder.GetMethod(owner, definitionMethod)
-        }
-        return AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(owner, name)
-    }
-
     static func AwaitPatternReturnType(owner: Type, method: MethodInfo): Type {
         if owner.IsGenericType && !owner.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(owner) {
             definition := owner.GetGenericTypeDefinition()
@@ -9009,41 +9126,24 @@ class ColumnarIteratorBodyPlanner {
         return method.ReturnType
     }
 
-    // Source types are still TypeBuilders while their async body is planned. Resolve their awaiter
-    // pattern from declaration facts; reflection cannot answer member questions on an unbaked type.
+    // Compiler-synthesized awaits (MoveNextAsync / DisposeAsync) have no written await node for the
+    // analyzer handoff. Their return types are reflected Task-like shapes; bind them once through the
+    // same Core pattern binder used by written awaits. An instance invocation that binds but returns
+    // a non-awaiter must not fall through to an extension method.
     static func TryBindAwaitablePatternForEmit(emit: ColumnarMoveNextEmit, awaitableType: Type, out binding: AwaitablePatternBinding?): bool {
         binding = null
-        if awaitableType == null {
+        if awaitableType == null || awaitableType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundType(awaitableType) {
             return false
         }
 
-        let sourceAwaitable: ColumnarStructDef? = null
-        sourceAvailable := ColumnarSourceDefinitionResolver.TryResolveStruct(awaitableType, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceAwaitable)
-        if !sourceAvailable && !(awaitableType is TypeBuilder) && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(awaitableType) {
-            if AwaitablePatternBinder.TryBindReflection(awaitableType, out binding) {
-                return binding != null
-            }
-            if AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(awaitableType, "GetAwaiter") != null {
-                return false
-            }
-            return TryBindReflectionGetAwaiterExtension(emit, awaitableType, out binding)
+        hasApplicableInstanceGetAwaiter := false
+        if AwaitablePatternBinder.TryBindReflection(awaitableType, out binding, out hasApplicableInstanceGetAwaiter) {
+            return binding != null
         }
-
-        getAwaiter := AwaitPatternMethodOrNull(emit, awaitableType, "GetAwaiter")
-        if getAwaiter == null {
-            return TryBindReflectionGetAwaiterExtension(emit, awaitableType, out binding)
-        }
-        awaiterType := AwaitPatternReturnType(awaitableType, getAwaiter)
-        isCompleted := AwaitPatternIsCompletedGetterOrNull(emit, awaiterType)
-        getResult := AwaitPatternMethodOrNull(emit, awaiterType, "GetResult")
-        completion := AwaitPatternContinuationMethodOrNull(emit, awaiterType)
-        if isCompleted == null || getResult == null || completion == null {
+        if hasApplicableInstanceGetAwaiter {
             return false
         }
-
-        critical := IsCriticalNotifyCompletion(emit, awaiterType)
-        binding = new AwaitablePatternBinding(awaitableType, awaiterType, getAwaiter, isCompleted, getResult, completion, critical)
-        return true
+        return TryBindReflectionGetAwaiterExtension(emit, awaitableType, out binding)
     }
 
     static func TryBindReflectionGetAwaiterExtension(emit: ColumnarMoveNextEmit, awaitableType: Type, out binding: AwaitablePatternBinding?): bool {
@@ -9059,68 +9159,6 @@ class ColumnarIteratorBodyPlanner {
         return AwaitablePatternBinder.TryBindReflectionGetAwaiterExtension(awaitableType, selection.Method, out binding)
     }
 
-    static func AwaitPatternMethodOrNull(emit: ColumnarMoveNextEmit, owner: Type, name: string): MethodInfo? {
-        if owner == null || owner.IsGenericParameter {
-            return null
-        }
-        let sourceDefinition: ColumnarStructDef? = null
-        if ColumnarSourceDefinitionResolver.TryResolveStruct(owner, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
-            let sourceMethod: ColumnarInstanceMethodDef? = null
-            if ColumnarSourceMemberChainResolver.TryFindAwaitPatternMethodOnChain(sourceDefinition, name, out sourceMethod) && sourceMethod != null {
-                return sourceMethod.Builder
-            }
-            return null
-        }
-        if owner is TypeBuilder {
-            return null
-        }
-        return ParameterlessMethodOrNull(owner, name)
-    }
-
-    // Continuations are registered through their CLR contract, not by a method named OnCompleted.
-    // Interface dispatch preserves explicit implementations and keeps the builder's generic
-    // INotifyCompletion constraint aligned with semantic awaiter validation.
-    static func AwaitPatternContinuationMethodOrNull(emit: ColumnarMoveNextEmit, owner: Type): MethodInfo? {
-        if !IsNotifyCompletion(emit, owner) {
-            return null
-        }
-        let contract: Type = null
-        if IsCriticalNotifyCompletion(emit, owner) {
-            contract = typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)
-            return AwaitablePatternBinder.ResolveInterfaceSlot(owner, contract, "UnsafeOnCompleted")
-        }
-        contract = typeof(System.Runtime.CompilerServices.INotifyCompletion)
-        return AwaitablePatternBinder.ResolveInterfaceSlot(owner, contract, "OnCompleted")
-    }
-
-    static func AwaitPatternIsCompletedGetterOrNull(emit: ColumnarMoveNextEmit, awaiterType: Type): MethodInfo? {
-        let sourceDefinition: ColumnarStructDef? = null
-        if ColumnarSourceDefinitionResolver.TryResolveStruct(awaiterType, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
-            let sourceProperty: ColumnarPropertyDef? = null
-            if ColumnarSourceMemberChainResolver.TryFindPropertyOnChain(sourceDefinition, "IsCompleted", out sourceProperty) && sourceProperty != null && sourceProperty.PropertyType == typeof(bool) {
-                return sourceProperty.Getter
-            }
-            return null
-        }
-        if awaiterType is TypeBuilder {
-            return null
-        }
-        property: PropertyInfo? = null
-        if awaiterType.IsGenericType && !awaiterType.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(awaiterType) {
-            definition := awaiterType.GetGenericTypeDefinition()
-            property = AwaitablePatternBinder.SelectReadableBooleanProperty(definition, "IsCompleted")
-            if property != null && property.GetMethod != null {
-                return TypeBuilder.GetMethod(awaiterType, property.GetMethod)
-            }
-            return null
-        }
-        property = AwaitablePatternBinder.SelectReadableBooleanProperty(awaiterType, "IsCompleted")
-        if property == null || property.PropertyType != typeof(bool) {
-            return null
-        }
-        return property.GetMethod
-    }
-
     static func IsAwaitPatternValueType(emit: ColumnarMoveNextEmit, candidate: Type): bool {
         let sourceDefinition: ColumnarStructDef? = null
         if ColumnarSourceDefinitionResolver.TryResolveStruct(candidate, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
@@ -9130,106 +9168,6 @@ class ColumnarIteratorBodyPlanner {
             return RuntimeTypeShapeFacts.IsEnumType(candidate) || candidate.BaseType == typeof(ValueType)
         }
         return candidate.IsValueType
-    }
-
-    static func IsCriticalNotifyCompletion(emit: ColumnarMoveNextEmit, awaiterType: Type): bool {
-        let sourceDefinition: ColumnarStructDef? = null
-        if ColumnarSourceDefinitionResolver.TryResolveStruct(awaiterType, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
-            return SourceTypeImplementsCriticalNotifyCompletion(sourceDefinition, emit.Context.RequiredScope().Facts.StructDefinitions)
-        }
-        lookupType := AwaiterInterfaceLookupType(awaiterType)
-        if lookupType == null {
-            return false
-        }
-        for implemented in lookupType.GetInterfaces() {
-            if ColumnarTypeEquivalenceFacts.TypesEquivalent(implemented, typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)) {
-                return true
-            }
-        }
-        return false
-    }
-
-    static func IsNotifyCompletion(emit: ColumnarMoveNextEmit, awaiterType: Type): bool {
-        let sourceDefinition: ColumnarStructDef? = null
-        if ColumnarSourceDefinitionResolver.TryResolveStruct(awaiterType, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
-            return SourceTypeImplementsNotifyCompletion(sourceDefinition, emit.Context.RequiredScope().Facts.StructDefinitions)
-        }
-        lookupType := AwaiterInterfaceLookupType(awaiterType)
-        if lookupType == null {
-            return false
-        }
-        for implemented in lookupType.GetInterfaces() {
-            if ColumnarTypeEquivalenceFacts.TypesEquivalent(implemented, typeof(System.Runtime.CompilerServices.INotifyCompletion)) || ColumnarTypeEquivalenceFacts.TypesEquivalent(implemented, typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)) {
-                return true
-            }
-        }
-        return false
-    }
-
-    // Reflection.Emit's generic instantiations do not expose GetInterfaces until bake. The awaiter
-    // contracts are implemented by the generic definition, independent of its constructed arguments,
-    // so inspect that baked definition while preserving source definitions through the branch above.
-    static func AwaiterInterfaceLookupType(awaiterType: Type): Type? {
-        if awaiterType == null || awaiterType.IsGenericParameter || awaiterType is TypeBuilder {
-            return null
-        }
-        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(awaiterType) {
-            try {
-                if awaiterType.IsGenericType {
-                    return awaiterType.GetGenericTypeDefinition()
-                }
-            } catch ex: NotSupportedException {
-                return null
-            } catch ex: NotImplementedException {
-                return null
-            }
-        }
-        return awaiterType
-    }
-
-    static func SourceTypeImplementsNotifyCompletion(definition: ColumnarStructDef, definitions: IEnumerable<ColumnarStructDef>): bool {
-        notifyContract := typeof(System.Runtime.CompilerServices.INotifyCompletion)
-        criticalContract := typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)
-        for interfaceType in definition.ImplementedInterfaceTypes {
-            if ColumnarTypeEquivalenceFacts.TypesEquivalent(interfaceType, notifyContract) || ColumnarTypeEquivalenceFacts.TypesEquivalent(interfaceType, criticalContract) {
-                return true
-            }
-            let interfaceDefinition: ColumnarStructDef? = null
-            if ColumnarSourceDefinitionResolver.TryResolveStruct(interfaceType, definitions, out interfaceDefinition) && interfaceDefinition != null && SourceTypeImplementsNotifyCompletion(interfaceDefinition, definitions) {
-                return true
-            }
-        }
-        for externalInterface in definition.ExternalInterfaces {
-            if ColumnarTypeEquivalenceFacts.TypesEquivalent(externalInterface, notifyContract) || typeof(System.Runtime.CompilerServices.INotifyCompletion).IsAssignableFrom(externalInterface) {
-                return true
-            }
-        }
-        if definition.BaseDef != null {
-            return SourceTypeImplementsNotifyCompletion(definition.BaseDef, definitions)
-        }
-        return false
-    }
-
-    static func SourceTypeImplementsCriticalNotifyCompletion(definition: ColumnarStructDef, definitions: IEnumerable<ColumnarStructDef>): bool {
-        contract := typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)
-        for interfaceType in definition.ImplementedInterfaceTypes {
-            if interfaceType == contract {
-                return true
-            }
-            let interfaceDefinition: ColumnarStructDef? = null
-            if ColumnarSourceDefinitionResolver.TryResolveStruct(interfaceType, definitions, out interfaceDefinition) && interfaceDefinition != null && SourceTypeImplementsCriticalNotifyCompletion(interfaceDefinition, definitions) {
-                return true
-            }
-        }
-        for externalInterface in definition.ExternalInterfaces {
-            if externalInterface == contract {
-                return true
-            }
-        }
-        if definition.BaseDef != null {
-            return SourceTypeImplementsCriticalNotifyCompletion(definition.BaseDef, definitions)
-        }
-        return false
     }
 
     static func AsyncBuilderAwaitMethod(context: ColumnarIteratorEmitContext, builderType: Type, awaiterType: Type, stateMachineType: Type, useUnsafe: bool): MethodInfo {

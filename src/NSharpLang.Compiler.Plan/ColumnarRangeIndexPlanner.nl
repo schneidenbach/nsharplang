@@ -456,7 +456,8 @@ class ColumnarRangeIndexPlanner {
                 holeNodes := new ColumnarNodeTable[](0)
                 holeSources := new string[](0)
                 holeRoots := new int[](0)
-                if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+                holeSourceOffsets := new int[](0)
+                if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots, out holeSourceOffsets) {
                     if plan.IteratorTypeDiscovery {
                         // This plan is thrown away after call binding. Keep its stack shape and type
                         // without evaluating interpolation holes; the selected live call emits them.
@@ -464,7 +465,7 @@ class ColumnarRangeIndexPlanner {
                         plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), plan.AddString(""))
                         planned = true
                     } else {
-                        planned = ColumnarIteratorBodyPlanner.AppendIteratorInterpolatedString(iteratorEmitter, literal, parts, holeNodes, holeSources, holeRoots, out resultType)
+                        planned = ColumnarIteratorBodyPlanner.AppendIteratorInterpolatedString(iteratorEmitter, literal, parts, holeNodes, holeSources, holeRoots, holeSourceOffsets, out resultType)
                     }
                 } else {
                     planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, node, plan, out resultType)
@@ -515,7 +516,7 @@ class ColumnarRangeIndexPlanner {
                 awaitableType := typeof(object)
                 planned = TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out awaitableType, out nestedOwnership)
                 if planned {
-                    planned = AppendAwaitTypeDiscoveryResult(nodes, plan, awaitableType, out resultType)
+                    planned = AppendAwaitTypeDiscoveryResult(nodes, source, node, bindings, plan, awaitableType, out resultType)
                 }
             }
         } else if kind == ColumnarExpressionNodeKind.BinaryExpression {
@@ -588,28 +589,17 @@ class ColumnarRangeIndexPlanner {
     // Type-only await planning is used in speculative expression plans. The live MoveNext plan owns
     // suspension; its speculative siblings only need a correctly typed placeholder result so overload
     // selection and plan validation can proceed without emitting a second await.
-    static func AppendAwaitTypeDiscoveryResult(nodes: ColumnarNodeTable, plan: ColumnarCodePlan, awaitableType: Type, out resultType: Type): bool {
+    static func AppendAwaitTypeDiscoveryResult(nodes: ColumnarNodeTable, source: string, awaitNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, awaitableType: Type, out resultType: Type): bool {
         resultType = typeof(object)
-        if awaitableType == null || awaitableType.IsGenericParameter || awaitableType.IsByRef || awaitableType.IsPointer {
+        if nodes == null || source == null || bindings == null || bindings.SemanticModel == null || plan == null || awaitableType == null || awaitableType.IsGenericParameter || awaitableType.IsByRef || awaitableType.IsPointer {
             return false
         }
-        binding: AwaitablePatternBinding? = null
-        if !AwaitablePatternBinder.TryBindReflection(awaitableType, out binding) {
-            if AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(awaitableType, "GetAwaiter") != null {
-                return false
-            }
-            scope := ColumnarBindingScopeFacts.Of(nodes)
-            selection := ColumnarExtensionMethodSelection.None()
-            if scope == null || !scope.TryResolveExtensionMethod(awaitableType, "GetAwaiter", new Type[](0), ColumnarDirectCallArgumentFacts.Empty(0), out selection) || selection == null || !selection.IsSelected || selection.Method == null || !AwaitablePatternBinder.TryBindReflectionGetAwaiterExtension(awaitableType, selection.Method, out binding) {
-                return false
-            }
-        }
-        if binding == null {
+        emitter := bindings.IteratorMoveNextEmitter
+        if emitter == null {
             return false
         }
-        getResult := binding.GetResult
-        resultType = getResult.ReturnType
-        if resultType.IsByRef || resultType.IsPointer {
+        selected := ColumnarIteratorBodyPlanner.SelectedAwaitablePatternForNode(emitter, awaitNode)
+        if selected == null || !ColumnarIteratorBodyPlanner.TryResolveAwaitPatternType(emitter, selected.ResultType, out resultType) || resultType == null || resultType.IsByRef || resultType.IsPointer {
             return false
         }
         awaitableLocal := plan.DeclarePlanLocal(plan.AddType(awaitableType))

@@ -6,6 +6,7 @@ import System.IO
 import System.Runtime.CompilerServices
 import System.Threading
 import System.Threading.Tasks
+import NSharpLang.AsyncAwaitablePatternFixtures
 
 async func AwaitValue(source: Task<int>): Task<int> {
     return await source
@@ -819,6 +820,167 @@ func GetAwaiter<T>(this value: GenericExtensionBox<T>): GenericExtensionAwaiter<
 
 async func AwaitGenericExtension<T>(value: GenericExtensionBox<T>): Task<T> {
     return await value
+}
+
+class PendingGenericExtensionBox<T> {
+    Source: Task
+    Value: T
+
+    constructor(source: Task, value: T) {
+        Source = source
+        Value = value
+    }
+}
+
+class PendingGenericExtensionAwaiter<T>: ICriticalNotifyCompletion {
+    Source: Task
+    Value: T
+
+    constructor(source: Task, value: T) {
+        Source = source
+        Value = value
+    }
+
+    IsCompleted: bool {
+        get { return Source.IsCompleted }
+    }
+
+    func GetResult(): T {
+        Source.GetAwaiter().GetResult()
+        return Value
+    }
+
+    func OnCompleted(continuation: Action) {
+        Source.GetAwaiter().OnCompleted(continuation)
+    }
+
+    func UnsafeOnCompleted(continuation: Action) {
+        Source.GetAwaiter().UnsafeOnCompleted(continuation)
+    }
+}
+
+func GetAwaiter<T>(this value: PendingGenericExtensionBox<T>): PendingGenericExtensionAwaiter<T> {
+    return new PendingGenericExtensionAwaiter<T>(value.Source, value.Value)
+}
+
+async func AwaitPendingGenericExtension<T>(source: Task<T>, value: T): Task<T> {
+    return await new PendingGenericExtensionBox<T>(source, value)
+}
+
+async func AwaitPendingConcreteGenericExtension(source: Task<int>, value: int): Task<int> {
+    return await new PendingGenericExtensionBox<int>(source, value)
+}
+
+// The first declaration has the right spelling and arity, but it is not the interface slot. Both
+// the compiler and playground must select the Action-signature member that implements INotifyCompletion.
+class DecoyCompletionAwaitable {
+    Source: Task<int>
+
+    constructor(source: Task<int>) {
+        Source = source
+    }
+
+    func GetAwaiter(): DecoyCompletionAwaiter {
+        return new DecoyCompletionAwaiter(Source)
+    }
+}
+
+interface WrongCompletion {
+    func OnCompleted(continuation: object)
+}
+
+class GenericGetResultBase {
+    func GetResult<T>(): int {
+        return -1
+    }
+}
+
+class DecoyCompletionAwaiter: GenericGetResultBase, WrongCompletion, INotifyCompletion {
+    Source: Task<int>
+
+    constructor(source: Task<int>) {
+        Source = source
+    }
+
+    IsCompleted: bool {
+        get { return Source.IsCompleted }
+    }
+
+    func GetResult(): int {
+        return Source.GetAwaiter().GetResult()
+    }
+
+    func WrongCompletion.OnCompleted(_continuation: object) {
+    }
+
+    func INotifyCompletion.OnCompleted(continuation: Action) {
+        Source.GetAwaiter().OnCompleted(continuation)
+    }
+}
+
+async func AwaitDecoyCompletion(source: DecoyCompletionAwaitable): Task<int> {
+    return await source
+}
+
+class SourceImplicitDecoyAwaitable(source: Task<int>) {
+    func GetAwaiter(): SourceImplicitDecoyAwaiter { return new SourceImplicitDecoyAwaiter(source) }
+}
+
+class SourceImplicitDecoyAwaiter(source: Task<int>): GenericGetResultBase, INotifyCompletion {
+    IsCompleted: bool { get { return source.IsCompleted } }
+    func GetResult(): int { return source.GetAwaiter().GetResult() }
+    func OnCompleted(_continuation: object) {}
+    func OnCompleted(continuation: Action) { source.GetAwaiter().OnCompleted(continuation) }
+}
+
+async func AwaitSourceImplicitDecoy(source: SourceImplicitDecoyAwaitable): Task<int> {
+    return await source
+}
+
+class SourceCompletionBase: INotifyCompletion {
+    Source: Task<int>
+
+    constructor(source: Task<int>) {
+        Source = source
+    }
+
+    func OnCompleted(continuation: Action) {
+        Source.GetAwaiter().OnCompleted(continuation)
+    }
+}
+
+class SourceInheritedAwaiter: SourceCompletionBase {
+    constructor(source: Task<int>): base(source) {}
+
+    IsCompleted: bool {
+        get { return Source.IsCompleted }
+    }
+
+    func GetResult(): int {
+        return Source.GetAwaiter().GetResult()
+    }
+}
+
+class SourceInheritedAwaitable(source: Task<int>) {
+    func GetAwaiter(): SourceInheritedAwaiter {
+        return new SourceInheritedAwaiter(source)
+    }
+}
+
+async func AwaitSourceInheritedCompletion(source: SourceInheritedAwaitable): Task<int> {
+    return await source
+}
+
+async func AwaitReflectedInheritedCompletion(source: ReflectedInheritedAwaitable): Task<int> {
+    return await source
+}
+
+async func AwaitReflectedGenericExtension(source: ReflectedGenericExtensionBox<int>): Task<int> {
+    return await source
+}
+
+async func AwaitReflectedDecoyCompletion(source: ReflectedDecoyAwaitable): Task<int> {
+    return await source
 }
 
 class BaseExtensionAwaitable {}

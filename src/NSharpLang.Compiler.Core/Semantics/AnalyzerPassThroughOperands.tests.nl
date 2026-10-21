@@ -74,8 +74,14 @@ class OperandHarness {
     Model: SemanticModel
     Errors: List<CompilerError>
     Diagnostics: AnalyzerDiagnosticSink
+    MemberResolution: AnalyzerMemberResolution
+    ExtensionResolution: AnalyzerExtensionMethodResolution
+    SourceCalls: AnalyzerSyntheticCallWalk
+    SourceValidator: AnalyzerSyntheticCallValidator
+    ReflectionArguments: AnalyzerReflectionArgumentBinder
+    ClrConversion: AnalyzerClrTypeConversion
 
-    constructor(operands: AnalyzerPassThroughOperands, ambient: AnalyzerAmbientContext, context: AnalyzerDeclarationContext, reachability: AnalyzerPatternReachability, escape: AnalyzerSoaEscape, model: SemanticModel, errors: List<CompilerError>, diagnostics: AnalyzerDiagnosticSink) {
+    constructor(operands: AnalyzerPassThroughOperands, ambient: AnalyzerAmbientContext, context: AnalyzerDeclarationContext, reachability: AnalyzerPatternReachability, escape: AnalyzerSoaEscape, model: SemanticModel, errors: List<CompilerError>, diagnostics: AnalyzerDiagnosticSink, memberResolution: AnalyzerMemberResolution, extensionResolution: AnalyzerExtensionMethodResolution, sourceCalls: AnalyzerSyntheticCallWalk, sourceValidator: AnalyzerSyntheticCallValidator, reflectionArguments: AnalyzerReflectionArgumentBinder, clrConversion: AnalyzerClrTypeConversion) {
         Operands = operands
         Ambient = ambient
         Context = context
@@ -84,6 +90,12 @@ class OperandHarness {
         Model = model
         Errors = errors
         Diagnostics = diagnostics
+        MemberResolution = memberResolution
+        ExtensionResolution = extensionResolution
+        SourceCalls = sourceCalls
+        SourceValidator = sourceValidator
+        ReflectionArguments = reflectionArguments
+        ClrConversion = clrConversion
     }
 }
 
@@ -145,6 +157,20 @@ class OperandPublicOnlyAwaiter {
 
     func OnCompleted(_continuation: Action) {
     }
+}
+
+class OperandCriticalAwaitable {
+    func GetAwaiter(): OperandCriticalAwaiter {
+        return new OperandCriticalAwaiter()
+    }
+}
+
+class OperandCriticalAwaiter: ICriticalNotifyCompletion {
+    IsCompleted: bool { get { return false } }
+
+    func GetResult(): int { return 45 }
+    func OnCompleted(_continuation: Action) {}
+    func UnsafeOnCompleted(_continuation: Action) {}
 }
 
 class OperandGenericGetAwaiterAwaitable {
@@ -242,7 +268,7 @@ func OperandHarnessWith(sourceText: string?): OperandHarness {
     terminatingCalls := new AnalyzerTerminatingCalls()
     validator := new AnalyzerSyntheticCallValidator(context, resolver, assignability, overloadScoring, callWalk, callReporter, spans, diagnostics, constantFacts, postconditions, terminatingCalls)
     operands.SetAwaitBindingServices(members, callWalk, validator, reflectionArguments, clrConversion, model)
-    return new OperandHarness(operands, ambient, context, reachability, escape, model, errors, diagnostics)
+    return new OperandHarness(operands, ambient, context, reachability, escape, model, errors, diagnostics, members, extensions, callWalk, validator, reflectionArguments, clrConversion)
 }
 
 func OperandDefault(): OperandHarness {
@@ -1135,6 +1161,20 @@ test "await accepts an explicit INotifyCompletion implementation" {
     assert harness.Errors.Count == 0
 }
 
+test "await selects the reflected ICriticalNotifyCompletion slot" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    reflectedBinding: AwaitablePatternBinding? = null
+    assert AwaitablePatternBinder.TryBindReflection(typeof(OperandCriticalAwaitable), out reflectedBinding), "the reflected pattern binder must accept ICriticalNotifyCompletion"
+    assert reflectedBinding.IsCritical
+    assert reflectedBinding.CompletionSlot.Name == "UnsafeOnCompleted"
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandCriticalAwaitable))))
+
+    assert harness.Errors.Count == 0, "the analyzer rejected the reflected critical completion slot"
+    assert OperandTypeText(harness.Operands.Result(state)) == "int"
+}
+
 test "await rejects a public OnCompleted method without INotifyCompletion" {
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
@@ -1220,6 +1260,9 @@ test "await resolves the result type of a constructed reflected awaitable" {
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("v", 2, 11), 2, 5), harness.Reachability)
     configuredMethod := typeof(Task<int>).GetMethod("ConfigureAwait", [typeof(bool)])
     assert configuredMethod != null
+    directBinding: AwaitablePatternBinding? = null
+    assert AwaitablePatternBinder.TryBindReflection(configuredMethod.ReturnType, out directBinding), "shared reflected binding rejected the configured awaitable's closed runtime type"
+    assert directBinding != null
     configuredDefinition := configuredMethod.ReturnType.GetGenericTypeDefinition()
     arguments := new List<TypeInfo>()
     arguments.Add(BuiltInTypes.Int)
@@ -1227,8 +1270,8 @@ test "await resolves the result type of a constructed reflected awaitable" {
 
     OperandRunInAsyncBody(harness, state, OperandOne(configuredType))
 
-    assert OperandTypeText(harness.Operands.Result(state)) == "int"
-    assert harness.Errors.Count == 0
+    assert OperandTypeText(harness.Operands.Result(state)) == "int", "analyzer result was " + OperandTypeText(harness.Operands.Result(state))
+    assert harness.Errors.Count == 0, "analyzer recorded " + harness.Errors.Count.ToString() + " errors"
 }
 
 test "await OF A PLAIN VALUE IS ACCUSED AND ANSWERS unknown" {
@@ -1310,6 +1353,89 @@ test "the shared await binder resolves framework critical awaiters" {
     binding: AwaitablePatternBinding? = null
     assert AwaitablePatternBinder.TryBindReflection(typeof(YieldAwaitable), out binding)
     assert binding != null
+}
+
+test "analyzer reflected await binding reports the failed member stage" {
+    harness := OperandDefault()
+    resultType: TypeInfo = BuiltInTypes.Unknown
+    binding: AwaitablePatternBinding? = null
+    reason := ""
+    assert AwaitablePatternBinder.TryBindAnalyzerReflectedAwaiter(
+        OperandReflected(typeof(TaskAwaiter<int>)),
+        harness.MemberResolution,
+        harness.ReflectionArguments,
+        harness.ClrConversion,
+        null,
+        out resultType,
+        out binding,
+        out reason
+    ), reason
+    assert binding != null
+    assert OperandTypeText(resultType) == "int"
+}
+
+test "analyzer reflected GetAwaiter uses the selected ordinary invocation result" {
+    harness := OperandDefault()
+    awaitable := OperandReflected(typeof(Task<int>))
+    groupType := harness.MemberResolution.ResolveMemberWithoutExtensionFallback(awaitable, "GetAwaiter", false, null, true)
+    methods := AwaitablePatternBinder.AwaiterReflectionCandidates(groupType)
+    assert methods.Length > 0, "ordinary member lookup must return Task<T>.GetAwaiter"
+    selected: ReflectionPreBoundCandidate? = null
+    invocation := AwaitablePatternBinder.AwaiterInvocation()
+    assert AwaitablePatternBinder.TrySelectReflectedAwaiterInvocation(methods, invocation, typeof(Task<int>), awaitable, harness.ReflectionArguments, false, out selected), "ordinary invocation binding must select an instance GetAwaiter"
+    assert selected != null
+    selectedResult := AwaitablePatternBinder.AnalyzerReflectionSelectedReturnType(selected)
+    assert !BuiltInTypes.IsUnknown(selectedResult), "the selected GetAwaiter invocation must carry its closed return type"
+    reflectedResultType: TypeInfo = BuiltInTypes.Unknown
+    reflectedResultPattern: AwaitablePatternBinding? = null
+    reflectedReason := ""
+    assert AwaitablePatternBinder.TryBindAnalyzerReflectedAwaiter(selectedResult, harness.MemberResolution, harness.ReflectionArguments, harness.ClrConversion, null, out reflectedResultType, out reflectedResultPattern, out reflectedReason), "selected awaiter '" + selectedResult.ToString() + "': " + reflectedReason
+    binding: AnalyzerAwaitablePatternBinding? = null
+    assert AwaitablePatternBinder.TryBindAnalyzerSelectedAwaiter(
+        awaitable,
+        selectedResult,
+        harness.Context,
+        harness.Model,
+        harness.MemberResolution,
+        harness.SourceCalls,
+        harness.SourceValidator,
+        harness.ReflectionArguments,
+        null,
+        null,
+        selected.RuntimeMethod,
+        false,
+        harness.ClrConversion,
+        new TypeInfo[](0),
+        out binding
+    ), "the selected reflected awaiter '" + selectedResult.ToString() + "' must bind its remaining members"
+    assert binding != null && OperandTypeText(binding.ResultType) == "int"
+}
+
+test "the reflection await binder respects hidden Task<T> GetAwaiter members" {
+    genericBinding: AwaitablePatternBinding? = null
+    assert AwaitablePatternBinder.TryBindReflection(typeof(Task<int>), out genericBinding), "Task<T> must bind through its derived GetAwaiter member"
+    assert genericBinding != null
+    assert genericBinding.AwaiterType == typeof(TaskAwaiter<int>), "Task<T>.GetAwaiter must win over Task.GetAwaiter"
+    assert genericBinding.GetResult.ReturnType == typeof(int), "the selected awaiter must preserve its closed GetResult return type"
+
+    unitBinding: AwaitablePatternBinding? = null
+    assert AwaitablePatternBinder.TryBindReflection(typeof(Task), out unitBinding), "Task must bind through its parameterless GetAwaiter member"
+    assert unitBinding != null
+    assert unitBinding.GetResult.ReturnType == typeof(void), "Task.GetAwaiter must retain its unit result"
+}
+
+test "await analysis retains the shared binding for Task and Task<T>" {
+    for awaitable in [typeof(Task), typeof(Task<int>)] {
+        harness := OperandDefault()
+        state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("v", 2, 11), 2, 5), harness.Reachability)
+        OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(awaitable)))
+        expected := awaitable.IsGenericType ? "int" : "void"
+        assert OperandTypeText(harness.Operands.Result(state)) == expected, "awaited result for " + awaitable.ToString() + " was " + OperandTypeText(harness.Operands.Result(state))
+        assert harness.Errors.Count == 0, "awaiting " + awaitable.ToString() + " produced analyzer errors"
+        selected: AnalyzerAwaitablePatternBinding? = null
+        assert harness.Model.AwaitablePatterns.TryGetValue((Line: 2, Column: 5), out selected), "await binding for " + awaitable.ToString() + " was not retained"
+        assert selected != null
+    }
 }
 
 test "the shared await binder resolves framework awaiters from a metadata load context" {

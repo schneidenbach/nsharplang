@@ -298,6 +298,11 @@ internal sealed class PlaygroundRunner {
             return EvaluateBinaryValues(binary, left, right)
         }
 
+        assignment := expression as AssignmentExpression
+        if assignment != null {
+            return await EvaluateAsyncAssignment(assignment, environment, depth)
+        }
+
         unary := expression as UnaryExpression
         if unary != null {
             unaryValue := await EvaluateAsync(unary.Operand, environment, depth)
@@ -393,6 +398,45 @@ internal sealed class PlaygroundRunner {
         }
 
         return Evaluate(expression, environment, depth)
+    }
+
+    private async func EvaluateAsyncAssignment(assignment: AssignmentExpression, environment: RuntimeEnvironment, depth: int): Task<object?> {
+        value := await EvaluateAsync(assignment.Value, environment, depth)
+        if assignment.Operator != AssignmentOperator.Assign {
+            current := await EvaluateAsync(assignment.Target, environment, depth)
+            if assignment.Operator == AssignmentOperator.AddAssign {
+                value = ToNumber(current) + ToNumber(value)
+            } else if assignment.Operator == AssignmentOperator.SubtractAssign {
+                value = ToNumber(current) - ToNumber(value)
+            } else if assignment.Operator == AssignmentOperator.MultiplyAssign {
+                value = ToNumber(current) * ToNumber(value)
+            } else if assignment.Operator == AssignmentOperator.DivideAssign {
+                value = Divide(current, value)
+            } else if assignment.Operator == AssignmentOperator.NullCoalesceAssign {
+                if current != null {
+                    value = current
+                }
+            } else {
+                assignmentOperatorValue := assignment.Operator as object
+                throw Unsupported(PlaygroundRunFacts.UnsupportedAssignmentOperator(assignmentOperatorValue.ToString() ?? ""))
+            }
+        }
+
+        identifier := assignment.Target as IdentifierExpression
+        if identifier != null {
+            environment.Set(identifier.Name, value)
+            return value
+        }
+        member := assignment.Target as MemberAccessExpression
+        if member != null {
+            target := await EvaluateAsync(member.Object, environment, depth)
+            runtimeObject := target as RuntimeObject
+            if runtimeObject != null {
+                runtimeObject.Fields[member.MemberName] = value
+                return value
+            }
+        }
+        throw Unsupported(PlaygroundRunFacts.UnsupportedAssignmentTarget())
     }
 
     async func EvaluateAsyncCall(call: CallExpression, environment: RuntimeEnvironment, depth: int): Task<object?> {
@@ -613,7 +657,7 @@ internal sealed class PlaygroundRunner {
         selectedOwnerName := RuntimeTypeDefinitionName(selectedOwner)
         for candidate in runtimeOwner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
             candidateOwnerName := RuntimeTypeDefinitionName(candidate.DeclaringType)
-            if candidateOwnerName == selectedOwnerName && candidate.Name == selected.Name && candidate.IsGenericMethod == selected.IsGenericMethod && candidate.GetGenericArguments().Length == selected.GetGenericArguments().Length && candidate.GetParameters().Length == selected.GetParameters().Length {
+            if candidateOwnerName == selectedOwnerName && RuntimeMethodSignaturesMatch(selected, candidate) {
                 return candidate
             }
         }
@@ -632,13 +676,96 @@ internal sealed class PlaygroundRunner {
             index := 0
             while index < mapping.InterfaceMethods.Length {
                 interfaceMethod := mapping.InterfaceMethods[index]
-                if interfaceMethod.Name == selected.Name && interfaceMethod.IsGenericMethod == selected.IsGenericMethod && interfaceMethod.GetGenericArguments().Length == selected.GetGenericArguments().Length && interfaceMethod.GetParameters().Length == selected.GetParameters().Length {
+                if RuntimeMethodSignaturesMatch(selected, interfaceMethod) {
                     return mapping.TargetMethods[index]
                 }
                 index += 1
             }
         }
         return null
+    }
+
+    private static func RuntimeMethodSignaturesMatch(selected: MethodInfo, runtimeMethod: MethodInfo): bool {
+        if selected == null || runtimeMethod == null || selected.Name != runtimeMethod.Name || selected.IsStatic != runtimeMethod.IsStatic || selected.GetParameters().Length != runtimeMethod.GetParameters().Length || selected.GetGenericArguments().Length != runtimeMethod.GetGenericArguments().Length {
+            return false
+        }
+        selectedOwner := selected.DeclaringType
+        runtimeOwner := runtimeMethod.DeclaringType
+        if !RuntimeSignatureTypesMatch(selected.ReturnType, runtimeMethod.ReturnType, selectedOwner, runtimeOwner) {
+            return false
+        }
+        selectedParameters := selected.GetParameters()
+        runtimeParameters := runtimeMethod.GetParameters()
+        index := 0
+        while index < selectedParameters.Length {
+            if !RuntimeSignatureTypesMatch(selectedParameters[index].ParameterType, runtimeParameters[index].ParameterType, selectedOwner, runtimeOwner) {
+                return false
+            }
+            index += 1
+        }
+        return true
+    }
+
+    private static func RuntimeSignatureTypesMatch(selected: Type, runtimeType: Type, selectedOwner: Type?, runtimeOwner: Type?): bool {
+        if selected == null || runtimeType == null {
+            return selected == runtimeType
+        }
+        if selected.IsGenericParameter {
+            if selected.DeclaringMethod != null {
+                return runtimeType.IsGenericParameter && runtimeType.DeclaringMethod != null && selected.GenericParameterPosition == runtimeType.GenericParameterPosition
+            }
+            if selectedOwner != null && runtimeOwner != null && selectedOwner.IsGenericType && runtimeOwner.IsGenericType {
+                selectedArguments := selectedOwner.GetGenericArguments()
+                runtimeArguments := runtimeOwner.GetGenericArguments()
+                position := selected.GenericParameterPosition
+                if position >= 0 && position < selectedArguments.Length && position < runtimeArguments.Length {
+                    return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(runtimeArguments[position], runtimeType)
+                }
+            }
+            return runtimeType.IsGenericParameter && selected.GenericParameterPosition == runtimeType.GenericParameterPosition
+        }
+        // The interpreter represents an async `Task<T>` result as `Task<object?>`. Its await
+        // members still come from the same generic method definition, with the owner type argument
+        // substituted to object at runtime. Match those substitutions by owner-parameter position
+        // so the selected reference-assembly method maps to the execution handle without doing a
+        // second overload lookup.
+        if selectedOwner != null && runtimeOwner != null && selectedOwner.IsGenericType && runtimeOwner.IsGenericType {
+            selectedArguments := selectedOwner.GetGenericArguments()
+            runtimeArguments := runtimeOwner.GetGenericArguments()
+            if selectedArguments.Length == runtimeArguments.Length {
+                index := 0
+                while index < selectedArguments.Length {
+                    if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(selectedArguments[index], selected) && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(runtimeArguments[index], runtimeType) {
+                        return true
+                    }
+                    index += 1
+                }
+            }
+        }
+        if selected.HasElementType || runtimeType.HasElementType {
+            selectedElement: Type? = selected.GetElementType()
+            runtimeElement: Type? = runtimeType.GetElementType()
+            return selected.HasElementType && runtimeType.HasElementType && selected.IsArray == runtimeType.IsArray && selected.IsByRef == runtimeType.IsByRef && selected.IsPointer == runtimeType.IsPointer && selectedElement != null && runtimeElement != null && RuntimeSignatureTypesMatch(selectedElement, runtimeElement, selectedOwner, runtimeOwner)
+        }
+        if selected.IsGenericType || runtimeType.IsGenericType {
+            if !selected.IsGenericType || !runtimeType.IsGenericType || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(selected.GetGenericTypeDefinition(), runtimeType.GetGenericTypeDefinition()) {
+                return false
+            }
+            selectedArguments := selected.GetGenericArguments()
+            runtimeArguments := runtimeType.GetGenericArguments()
+            if selectedArguments.Length != runtimeArguments.Length {
+                return false
+            }
+            index := 0
+            while index < selectedArguments.Length {
+                if !RuntimeSignatureTypesMatch(selectedArguments[index], runtimeArguments[index], selectedOwner, runtimeOwner) {
+                    return false
+                }
+                index += 1
+            }
+            return true
+        }
+        return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(selected, runtimeType)
     }
 
     private static func RuntimeTypeDefinitionName(type: Type?): string? {
@@ -705,7 +832,7 @@ internal sealed class PlaygroundRunner {
             return null
         }
         selected: AnalyzerAwaitablePatternBinding? = null
-        if semanticModel.AwaitablePatterns.TryGetValue((Line: awaitNode.Line, Column: awaitNode.Column), out selected) {
+        if AwaitablePatternBinder.TryGetAnalyzerBindingAt(semanticModel, awaitNode.Line, awaitNode.Column, out selected) {
             return selected
         }
         return null
@@ -735,6 +862,9 @@ internal sealed class PlaygroundRunner {
         sourcePattern := pattern.SourceAwaiter
         if sourcePattern == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared source awaitable binding has no source awaiter pattern"))
+        }
+        if sourcePattern.Completion == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter inherits its completion implementation from a CLR base type, which the playground interpreter cannot instantiate"))
         }
         isCompletedValue := ReadRuntimeProperty(awaiter, sourcePattern.IsCompleted, 0)
         if !Convert.ToBoolean(isCompletedValue) {
@@ -1225,6 +1355,16 @@ internal sealed class PlaygroundRunner {
                     return InvokeFunction(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
                 }
             }
+            receiverValue: object? = null
+            if environment.TryGet(PlaygroundRunFacts.ReceiverBindingName(), out receiverValue) {
+                receiver := receiverValue as RuntimeObject
+                if receiver != null {
+                    instanceMethod := FindMethod(receiver.Declaration, identifier.Name, arguments.Length, false)
+                    if instanceMethod != null {
+                        return InvokeFunction(instanceMethod, arguments, receiver, depth)
+                    }
+                }
+            }
             return CallIdentifier(identifier.Name, arguments, depth)
         }
         member := call.Callee as MemberAccessExpression
@@ -1267,6 +1407,22 @@ internal sealed class PlaygroundRunner {
         callable := target as Delegate
         if callable != null {
             return callable.DynamicInvoke(ToInvocationArguments(arguments))
+        }
+
+        genericCompletionSource := target as TaskCompletionSource<object?>
+        if genericCompletionSource != null && memberName == "SetResult" && arguments.Count == 1 {
+            genericCompletionSource.SetResult(arguments[0])
+            return null
+        }
+        integerCompletionSource := target as TaskCompletionSource<int>
+        if integerCompletionSource != null && memberName == "SetResult" && arguments.Count == 1 {
+            integerCompletionSource.SetResult(Convert.ToInt32(arguments[0]))
+            return null
+        }
+        unitCompletionSource := target as TaskCompletionSource
+        if unitCompletionSource != null && memberName == "SetResult" && arguments.Count == 0 {
+            unitCompletionSource.SetResult()
+            return null
         }
 
         criticalAwaiter := target as ICriticalNotifyCompletion
@@ -1529,6 +1685,36 @@ internal sealed class PlaygroundRunner {
         typeName := GetTypeName(newExpression.Type)
         if typeName == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
+        }
+        if typeName == "TaskCompletionSource" {
+            genericType := newExpression.Type as GenericTypeReference
+            if genericType != null {
+                // The interpreter carries generic task values as object-valued tasks. This still
+                // gives pending await tests a real CLR completion source; the bound await pattern
+                // determines the source result type and the set result remains boxed unchanged.
+                return new TaskCompletionSource<object?>()
+            }
+            return new TaskCompletionSource()
+        }
+        if typeName == "ValueTask" {
+            genericType := newExpression.Type as GenericTypeReference
+            if genericType != null {
+                if arguments.Count == 1 {
+                    taskValue := arguments[0] as Task<object?>
+                    if taskValue != null {
+                        return new ValueTask<object?>(taskValue)
+                    }
+                    return new ValueTask<object?>(arguments[0])
+                }
+                return new ValueTask<object?>(null)
+            }
+            if arguments.Count == 1 {
+                taskValue := arguments[0] as Task
+                if taskValue != null {
+                    return new ValueTask(taskValue)
+                }
+            }
+            return ValueTask.CompletedTask
         }
         if PlaygroundRunFacts.IsExceptionTypeName(typeName) {
             if arguments.Count == 0 {
