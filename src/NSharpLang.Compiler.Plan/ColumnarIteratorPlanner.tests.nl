@@ -2610,7 +2610,7 @@ test "iterator planner plans enclosing member writes and refuses unbound ones" {
 
     assert !shape.Supported
     assert shape.DeclineSite == "emit.iterator.unsupported-shape"
-    assert shape.DeclineMessage == "assignment to an unbound identifier 'Absent'"
+    assert shape.DeclineMessage == "assignment to an unbound identifier 'Absent' with operator '='"
 }
 
 test "iterator planner classifies member-call for..in sources" {
