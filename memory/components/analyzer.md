@@ -5126,12 +5126,17 @@ answer; a struct awaitable is called through the address of a temporary, and a s
 the address of its own field (a copy would throw the continuation state away). The awaiter field is
 hoisted UNRESOLVED (role 5) and defined from that awaiter type when the lowering reaches the
 suspension, so a machine with two awaits of different awaitables carries two differently-typed slots.
-`AnalyzerPassThroughOperands.TryAwaitResultType` now answers source-declared awaitables from their
-bound `GetAwaiter`/awaiter members, including the `GetResult()` result type. Reflected and source
-patterns are checked for the complete shape emission invokes; an incomplete known pattern reports
-NL202 at the awaited operand instead of reaching an unpositioned async-emitter decline. Synthetic
-nominal types without an attached source declaration remain unresolved here, as do types whose
-declaration belongs to an earlier diagnostic.
+`AwaitablePatternBinder` in Compiler Core owns the shared await-pattern selection used by analysis,
+planning/emission and the browser runner. It resolves the selected `GetAwaiter`, readable boolean
+`IsCompleted`, non-generic zero-argument `GetResult`, and the `INotifyCompletion` or
+`ICriticalNotifyCompletion` contract; reflected interface slots come from the CLR interface map,
+and source explicit implementations are tied to their resolved interface reference. Candidates are
+filtered for zero-argument invocation, generic arity and accessibility at the await site. The binder
+does not lift through `Nullable<T>`. `AnalyzerPassThroughOperands.TryAwaitResultType` consumes that
+binding, including the selected `GetResult()` result type. An incomplete known pattern reports NL202
+at the awaited operand instead of reaching an unpositioned async-emitter decline. Synthetic nominal
+types without an attached source declaration remain unresolved here, as do types whose declaration
+belongs to an earlier diagnostic.
 
 An ASYNC machine may enumerate a sequence source too: the hoisted `<>__enum{k}` field is the same one
 the synchronous machine reserves, and only its RELEASE differs — a synchronous machine has a FAULT

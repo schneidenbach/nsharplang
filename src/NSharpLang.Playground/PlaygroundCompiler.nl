@@ -157,16 +157,23 @@ sealed class PlaygroundCompiler {
 
         try {
             orderedUnits := new List<CompilationUnit>()
+            semanticModelsByDeclaration := new Dictionary<object, SemanticModel>()
             sourceFiles := analysis.Snapshot.get_SourceFiles()
             for path in sourceFiles {
                 unit: CompilationUnit? = null
                 if analysis.Snapshot.get_CompilationUnits().TryGetValue(path, out unit) {
                     if unit != null {
                         orderedUnits.Add(unit)
+                        semanticModel: SemanticModel? = null
+                        if analysis.Snapshot.get_SemanticModels().TryGetValue(path, out semanticModel) && semanticModel != null {
+                            for declaration in unit.Declarations {
+                                semanticModelsByDeclaration[declaration] = semanticModel
+                            }
+                        }
                     }
                 }
             }
-            runner := new PlaygroundRunner(orderedUnits)
+            runner := new PlaygroundRunner(orderedUnits, semanticModelsByDeclaration)
             run := await runner.RunAsync()
             return new PlaygroundRunResponse(schemaVersion, run.ExitCode == 0, normalizedActiveFile, run.ExitCode, run.Stdout, run.Stderr, null, diagnostics, summary)
         } catch caught: Exception {

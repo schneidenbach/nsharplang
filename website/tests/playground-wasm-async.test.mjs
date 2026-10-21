@@ -134,6 +134,51 @@ async func main() {
         stdout: '43\n',
       },
       {
+        name: 'explicit INotifyCompletion slot wins over an earlier unrelated OnCompleted',
+        source: `import System
+import System.Runtime.CompilerServices
+import System.Threading.Tasks
+
+interface EarlierCompletion {
+    func OnCompleted(continuation: Action)
+}
+
+class OrderedAwaitable(source: Task<int>) {
+    func GetAwaiter(): OrderedAwaiter {
+        return new OrderedAwaiter(source)
+    }
+}
+
+class OrderedAwaiter(source: Task<int>): EarlierCompletion, INotifyCompletion {
+    IsCompleted: bool {
+        get { return source.IsCompleted }
+    }
+
+    func GetResult(): int {
+        return source.GetAwaiter().GetResult()
+    }
+
+    func EarlierCompletion.OnCompleted(_continuation: Action) {
+    }
+
+    func INotifyCompletion.OnCompleted(continuation: Action) {
+        source.GetAwaiter().OnCompleted(continuation)
+    }
+}
+
+async func DelayWork(): Task<int> {
+    await Task.Yield()
+    return 44
+}
+
+async func main() {
+    print await new OrderedAwaitable(DelayWork())
+}
+`,
+        stdout: '44\n',
+        timeoutMs: 5000,
+      },
+      {
         name: 'ConfigureAwait(false)',
         source: `import System.Threading.Tasks
 
@@ -211,9 +256,20 @@ async func main() {
     for (const scenario of cases) {
       let responseText;
       try {
-        responseText = await wasm.RunProject(JSON.stringify([
+        const run = wasm.RunProject(JSON.stringify([
           {name: 'Program.nl', code: scenario.source},
         ]), 'Program.nl');
+        if (scenario.timeoutMs) {
+          let timer;
+          responseText = await Promise.race([
+            run,
+            new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error(`${scenario.name} timed out`)), scenario.timeoutMs);
+            }),
+          ]).finally(() => clearTimeout(timer));
+        } else {
+          responseText = await run;
+        }
       } catch (error) {
         assert.fail(`${scenario.name}: WASM execution threw ${String(error)} (${error?.stack ?? 'no stack'})`);
       }

@@ -8315,16 +8315,17 @@ class ColumnarIteratorBodyPlanner {
     // exactly the same suspension as a written `await`, with no second copy of the awaitable pattern.
     static func AppendAwaitOfStackValue(emit: ColumnarMoveNextEmit, operandType: Type, out resultType: Type): bool {
         resultType = VoidReturnType()
-        getAwaiter := AwaitPatternMethodOrNull(emit, operandType, "GetAwaiter")
-        if getAwaiter == null {
+        pattern: AwaitablePatternBinding? = null
+        if !TryBindAwaitablePatternForEmit(emit, operandType, out pattern) || pattern == null {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + operandType.Name + "' is not awaitable: it has no `GetAwaiter()`")
             return false
         }
-        awaiterType := AwaitPatternReturnType(operandType, getAwaiter)
-        isCompleted := AwaitPatternIsCompletedGetterOrNull(emit, awaiterType)
-        getResult := AwaitPatternMethodOrNull(emit, awaiterType, "GetResult")
-        onCompleted := AwaitPatternContinuationMethodOrNull(emit, awaiterType)
-        if isCompleted == null || getResult == null || onCompleted == null {
+        getAwaiter := pattern.GetAwaiter
+        awaiterType := pattern.AwaiterType
+        isCompleted := pattern.IsCompletedGetter
+        getResult := pattern.GetResult
+        onCompleted := pattern.CompletionSlot
+        if getAwaiter == null || isCompleted == null || getResult == null || onCompleted == null {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + awaiterType.Name + "' is not an awaiter: it needs `IsCompleted`, `GetResult()` and INotifyCompletion")
             return false
         }
@@ -8342,7 +8343,7 @@ class ColumnarIteratorBodyPlanner {
         byAddress := IsAwaitPatternValueType(emit, awaiterType)
 
         // this.<>__awaiterK = <operand>.GetAwaiter() — the receiver and the operand are already down.
-        if IsAwaitPatternValueType(emit, operandType) {
+        if !pattern.GetAwaiterIsExtension && IsAwaitPatternValueType(emit, operandType) {
             // An instance call on a STRUCT needs a managed pointer, and the operand is a value on the
             // stack; park it in a temporary and call through its address. The receiver of the store
             // (`this`) is already below it and is untouched.
@@ -8350,7 +8351,8 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), operandTemp)
             emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), operandTemp)
         }
-        emit.Plan.AppendMethodInstruction(InstanceCallOpcode(emit, operandType), emit.Plan.AddMethod(getAwaiter))
+        getAwaiterOpcode := (short)(pattern.GetAwaiterIsExtension ? ColumnarCodePlanContract.Call() : InstanceCallOpcode(emit, operandType))
+        emit.Plan.AppendMethodInstruction(getAwaiterOpcode, emit.Plan.AddMethod(getAwaiter))
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), awPool)
 
         fastLabel := emit.Plan.DefineLabel()
@@ -8368,7 +8370,7 @@ class ColumnarIteratorBodyPlanner {
                 emit.Context.FieldForName("<>t__builder").FieldType,
                 awaiterType,
                 emit.Context.StateMachineType,
-                IsCriticalNotifyCompletion(emit, awaiterType)
+                pattern.IsCritical
             )
             emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(awaiterMethod))
         } else {
@@ -8452,13 +8454,13 @@ class ColumnarIteratorBodyPlanner {
         }
         if owner.IsGenericType && !owner.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(owner) {
             definition := owner.GetGenericTypeDefinition()
-            definitionMethod := definition.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+            definitionMethod := AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(definition, name)
             if definitionMethod == null {
                 return null
             }
             return TypeBuilder.GetMethod(owner, definitionMethod)
         }
-        return owner.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+        return AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(owner, name)
     }
 
     static func AwaitPatternReturnType(owner: Type, method: MethodInfo): Type {
@@ -8476,6 +8478,54 @@ class ColumnarIteratorBodyPlanner {
 
     // Source types are still TypeBuilders while their async body is planned. Resolve their awaiter
     // pattern from declaration facts; reflection cannot answer member questions on an unbaked type.
+    static func TryBindAwaitablePatternForEmit(emit: ColumnarMoveNextEmit, awaitableType: Type, out binding: AwaitablePatternBinding?): bool {
+        binding = null
+        if awaitableType == null {
+            return false
+        }
+
+        let sourceAwaitable: ColumnarStructDef? = null
+        sourceAvailable := ColumnarSourceDefinitionResolver.TryResolveStruct(awaitableType, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceAwaitable)
+        if !sourceAvailable && !(awaitableType is TypeBuilder) && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(awaitableType) {
+            if AwaitablePatternBinder.TryBindReflection(awaitableType, out binding) {
+                return binding != null
+            }
+            if AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(awaitableType, "GetAwaiter") != null {
+                return false
+            }
+            return TryBindReflectionGetAwaiterExtension(emit, awaitableType, out binding)
+        }
+
+        getAwaiter := AwaitPatternMethodOrNull(emit, awaitableType, "GetAwaiter")
+        if getAwaiter == null {
+            return TryBindReflectionGetAwaiterExtension(emit, awaitableType, out binding)
+        }
+        awaiterType := AwaitPatternReturnType(awaitableType, getAwaiter)
+        isCompleted := AwaitPatternIsCompletedGetterOrNull(emit, awaiterType)
+        getResult := AwaitPatternMethodOrNull(emit, awaiterType, "GetResult")
+        completion := AwaitPatternContinuationMethodOrNull(emit, awaiterType)
+        if isCompleted == null || getResult == null || completion == null {
+            return false
+        }
+
+        critical := IsCriticalNotifyCompletion(emit, awaiterType)
+        binding = new AwaitablePatternBinding(awaitableType, awaiterType, getAwaiter, isCompleted, getResult, completion, critical)
+        return true
+    }
+
+    static func TryBindReflectionGetAwaiterExtension(emit: ColumnarMoveNextEmit, awaitableType: Type, out binding: AwaitablePatternBinding?): bool {
+        binding = null
+        scope := ColumnarBindingScopeFacts.Of(emit.Context.Nodes)
+        if scope == null {
+            return false
+        }
+        selection := ColumnarExtensionMethodSelection.None()
+        if !scope.TryResolveExtensionMethod(awaitableType, "GetAwaiter", new Type[](0), ColumnarDirectCallArgumentFacts.Empty(0), out selection) || selection == null || !selection.IsSelected || selection.Method == null {
+            return false
+        }
+        return AwaitablePatternBinder.TryBindReflectionGetAwaiterExtension(awaitableType, selection.Method, out binding)
+    }
+
     static func AwaitPatternMethodOrNull(emit: ColumnarMoveNextEmit, owner: Type, name: string): MethodInfo? {
         if owner == null || owner.IsGenericParameter {
             return null
@@ -8483,7 +8533,7 @@ class ColumnarIteratorBodyPlanner {
         let sourceDefinition: ColumnarStructDef? = null
         if ColumnarSourceDefinitionResolver.TryResolveStruct(owner, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
             let sourceMethod: ColumnarInstanceMethodDef? = null
-            if ColumnarSourceMemberChainResolver.TryFindMethodOnChain(sourceDefinition, name, 0, out sourceMethod) && sourceMethod != null && sourceMethod.Generics == null {
+            if ColumnarSourceMemberChainResolver.TryFindAwaitPatternMethodOnChain(sourceDefinition, name, out sourceMethod) && sourceMethod != null {
                 return sourceMethod.Builder
             }
             return null
@@ -8501,10 +8551,13 @@ class ColumnarIteratorBodyPlanner {
         if !IsNotifyCompletion(emit, owner) {
             return null
         }
+        let contract: Type = null
         if IsCriticalNotifyCompletion(emit, owner) {
-            return typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion).GetMethod("UnsafeOnCompleted", [typeof(Action)])
+            contract = typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)
+            return AwaitablePatternBinder.ResolveInterfaceSlot(owner, contract, "UnsafeOnCompleted")
         }
-        return typeof(System.Runtime.CompilerServices.INotifyCompletion).GetMethod("OnCompleted", [typeof(Action)])
+        contract = typeof(System.Runtime.CompilerServices.INotifyCompletion)
+        return AwaitablePatternBinder.ResolveInterfaceSlot(owner, contract, "OnCompleted")
     }
 
     static func AwaitPatternIsCompletedGetterOrNull(emit: ColumnarMoveNextEmit, awaiterType: Type): MethodInfo? {
@@ -8522,13 +8575,13 @@ class ColumnarIteratorBodyPlanner {
         property: PropertyInfo? = null
         if awaiterType.IsGenericType && !awaiterType.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(awaiterType) {
             definition := awaiterType.GetGenericTypeDefinition()
-            property = definition.GetProperty("IsCompleted", BindingFlags.Public | BindingFlags.Instance)
+            property = AwaitablePatternBinder.SelectReadableBooleanProperty(definition, "IsCompleted")
             if property != null && property.GetMethod != null {
                 return TypeBuilder.GetMethod(awaiterType, property.GetMethod)
             }
             return null
         }
-        property = awaiterType.GetProperty("IsCompleted", BindingFlags.Public | BindingFlags.Instance)
+        property = AwaitablePatternBinder.SelectReadableBooleanProperty(awaiterType, "IsCompleted")
         if property == null || property.PropertyType != typeof(bool) {
             return null
         }

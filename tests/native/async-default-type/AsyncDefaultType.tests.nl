@@ -2,12 +2,42 @@ namespace NSharpLang.AsyncDefaultType.Tests
 
 import System
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
 import System.Threading.Tasks
 import NSharpLang.Cli
 import NSharpLang.Compiler
+
+class AdtProcessResult {
+    ExitCode: int
+    Stdout: string
+    Stderr: string
+
+    constructor(exitCode: int, stdout: string, stderr: string) {
+        ExitCode = exitCode
+        Stdout = stdout
+        Stderr = stderr
+    }
+}
+
+func AdtRunProcess(arguments: string, workingDirectory: string): AdtProcessResult {
+    startInfo := new ProcessStartInfo { FileName: "dotnet", Arguments: arguments }
+    startInfo.WorkingDirectory = workingDirectory
+    startInfo.RedirectStandardOutput = true
+    startInfo.RedirectStandardError = true
+    startInfo.UseShellExecute = false
+    startInfo.EnvironmentVariables["NLC_NO_DAEMON"] = "1"
+    process := new Process { StartInfo: startInfo }
+    process.Start()
+    stdout := process.StandardOutput.ReadToEnd()
+    stderr := process.StandardError.ReadToEnd()
+    process.WaitForExit()
+    result := new AdtProcessResult(process.ExitCode, stdout, stderr)
+    process.Dispose()
+    return result
+}
 
 // `language.asyncDefaultType` IS HONOURED, BY THE ANALYZER AND THE EMITTER ALIKE (issue #199).
 //
@@ -115,6 +145,41 @@ func AdtRoot(tag: string): string {
     root := Path.Combine(Path.GetTempPath(), "nsharp-async-default-" + tag + "-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory(root)
     return root
+}
+
+func AdtBuildAwaitablePatternFixture(root: string): string {
+    fixtureDirectory := Path.Combine(root, "fixture")
+    outputDirectory := Path.Combine(root, "fixture-bin")
+    Directory.CreateDirectory(fixtureDirectory)
+    Directory.CreateDirectory(outputDirectory)
+    projectPath := Path.Combine(fixtureDirectory, "AwaitablePatternFixture.csproj")
+    project := "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <Nullable>enable</Nullable>\n  </PropertyGroup>\n</Project>\n"
+    source := "using System;\nusing System.Runtime.CompilerServices;\nusing System.Threading.Tasks;\n\nnamespace AwaitablePatternFixtures;\n\npublic interface EarlierCompletion {\n    void OnCompleted(Action continuation);\n}\n\npublic sealed class MixedAwaitable(Task source) {\n    public MixedAwaiter GetAwaiter<T>() => throw new InvalidOperationException(\"generic GetAwaiter selected\");\n    public MixedAwaiter GetAwaiter() => new(source);\n}\n\npublic sealed class MixedAwaiter(Task source) : EarlierCompletion, INotifyCompletion {\n    public bool IsCompleted => source.IsCompleted;\n    public int GetResult<T>() => throw new InvalidOperationException(\"generic GetResult selected\");\n    public int GetResult() { source.GetAwaiter().GetResult(); return 73; }\n    void EarlierCompletion.OnCompleted(Action continuation) { }\n    void INotifyCompletion.OnCompleted(Action continuation) => source.GetAwaiter().OnCompleted(continuation);\n}\n\npublic sealed class GenericOnlyAwaitable {\n    public MixedAwaiter GetAwaiter<T>() => new(Task.CompletedTask);\n}\n\npublic sealed class PrivateMemberAwaitable {\n    public PrivateMemberAwaiter GetAwaiter() => new();\n}\n\npublic sealed class PrivateMemberAwaiter : INotifyCompletion {\n    private bool IsCompleted => true;\n    private int GetResult() => 89;\n    public void OnCompleted(Action continuation) => continuation();\n}\n\npublic sealed class ExtensionAwaitable(Task source) {\n    public Task Source { get; } = source;\n}\n\npublic static class AwaitableExtensions {\n    public static MixedAwaiter GetAwaiter(this ExtensionAwaitable value) => new(value.Source);\n}\n"
+    File.WriteAllText(projectPath, project)
+    File.WriteAllText(Path.Combine(fixtureDirectory, "Awaitables.cs"), source)
+    build := AdtRunProcess("build \"" + projectPath + "\" --output \"" + outputDirectory + "\" --disable-build-servers -nr:false -v q", fixtureDirectory)
+    assert build.ExitCode == 0, build.Stdout + build.Stderr
+    fixtureAssembly := Path.Combine(outputDirectory, "AwaitablePatternFixture.dll")
+    assert File.Exists(fixtureAssembly), fixtureAssembly
+    return fixtureAssembly
+}
+
+func AdtCompileAwaitableSource(root: string, name: string, fixtureAssembly: string, source: string, out errors: List<CompilerError>): string {
+    File.Copy(fixtureAssembly, Path.Combine(root, "AwaitablePatternFixture.dll"), true)
+    File.WriteAllText(Path.Combine(root, "project.yml"), "name: " + name + "\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - dll: AwaitablePatternFixture.dll\n")
+    File.WriteAllText(Path.Combine(root, "Program.nl"), source)
+    config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
+    CompilationReferenceResolver.AddResolvedDllReferences(root, config, new ReferenceResolutionOptions { Quiet: true })
+    compiler := new MultiFileCompiler(root, config)
+    compiler.AotMode = false
+    outputPath := Path.Combine(Path.Combine(root, "out"), name + ".dll")
+    Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? root)
+    result := compiler.CompileToIlAssembly(name, outputPath, true, true)
+    errors = new List<CompilerError>()
+    for error in result.Errors {
+        errors.Add(error)
+    }
+    return outputPath
 }
 
 // A web project, because both issue shapes live in the ASP.NET shared framework.
@@ -294,5 +359,64 @@ test "a generic async method cannot shadow its declaring type parameter" {
         assert errors[0].Message.Contains("Type parameter 'T' shadows an enclosing type parameter", StringComparison.Ordinal), errors[0].Message
     } finally {
         Directory.Delete(root, true)
+    }
+}
+
+test "await selects non-generic overloads and rejects generic-only GetAwaiter" {
+    fixtureRoot := AdtRoot("await-pattern-overloads-fixture")
+    runtimeRoot := AdtRoot("await-pattern-overloads-runtime")
+    negativeRoot := AdtRoot("await-pattern-overloads-negative")
+    try {
+        fixture := AdtBuildAwaitablePatternFixture(fixtureRoot)
+        runtimeSource := "namespace AwaitablePatternProbe\n\nimport System.Threading.Tasks\nimport AwaitablePatternFixtures\n\nclass Probe {\n    static async func Read(source: Task): Task<int> {\n        return await new MixedAwaitable(source)\n    }\n\n    static async func ReadExtension(source: Task): Task<int> {\n        return await new ExtensionAwaitable(source)\n    }\n}\n"
+        runtimeErrors: List<CompilerError> = null
+        runtimeAssembly := AdtCompileAwaitableSource(runtimeRoot, "AwaitPatternRuntime", fixture, runtimeSource, out runtimeErrors)
+        assert runtimeErrors.Count == 0, AdtErrorText(runtimeErrors)
+        runtimeDirectory := Path.GetDirectoryName(runtimeAssembly) ?? runtimeRoot
+        File.Copy(fixture, Path.Combine(runtimeDirectory, "AwaitablePatternFixture.dll"), true)
+        assembly := Assembly.LoadFrom(runtimeAssembly)
+        owner := assembly.GetType("AwaitablePatternProbe.Probe")
+        assert owner != null
+        method := owner.GetMethod("Read", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+        assert method != null
+        gate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+        arguments := new object[](1)
+        arguments[0] = gate.Task
+        pending := method.Invoke(null, arguments) as Task<int>
+        assert pending != null
+        assert !pending.IsCompleted
+        gate.SetResult()
+        assert pending.Wait(TimeSpan.FromSeconds(5)), "the explicit INotifyCompletion slot did not resume the async method"
+        assert pending.Result == 73
+
+        extensionMethod := owner.GetMethod("ReadExtension", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+        assert extensionMethod != null
+        extensionGate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+        extensionArguments := new object[](1)
+        extensionArguments[0] = extensionGate.Task
+        extensionPending := extensionMethod.Invoke(null, extensionArguments) as Task<int>
+        assert extensionPending != null
+        assert !extensionPending.IsCompleted
+        extensionGate.SetResult()
+        assert extensionPending.Wait(TimeSpan.FromSeconds(5)), "the extension GetAwaiter path did not resume the async method"
+        assert extensionPending.Result == 73
+
+        negativeSource := "namespace AwaitablePatternProbe\n\nimport System.Threading.Tasks\nimport AwaitablePatternFixtures\n\nclass Probe {\n    static async func Read(value: GenericOnlyAwaitable): Task<int> {\n        return await value\n    }\n}\n"
+        negativeErrors: List<CompilerError> = null
+        AdtCompileAwaitableSource(negativeRoot, "AwaitPatternNegative", fixture, negativeSource, out negativeErrors)
+        assert negativeErrors.Count == 1, AdtErrorText(negativeErrors)
+        assert negativeErrors[0].Line == 8 && negativeErrors[0].Column == 22, AdtErrorText(negativeErrors)
+        assert negativeErrors[0].Message.Contains("awaiter pattern is incomplete", StringComparison.Ordinal), AdtErrorText(negativeErrors)
+
+        privateSource := "namespace AwaitablePatternProbe\n\nimport System.Threading.Tasks\nimport AwaitablePatternFixtures\n\nclass Probe {\n    static async func Read(value: PrivateMemberAwaitable): Task<int> {\n        return await value\n    }\n}\n"
+        privateErrors: List<CompilerError> = null
+        AdtCompileAwaitableSource(negativeRoot, "AwaitPatternPrivate", fixture, privateSource, out privateErrors)
+        assert privateErrors.Count == 1, AdtErrorText(privateErrors)
+        assert privateErrors[0].Line == 8 && privateErrors[0].Column == 22, AdtErrorText(privateErrors)
+        assert privateErrors[0].Message.Contains("awaiter pattern is incomplete", StringComparison.Ordinal), AdtErrorText(privateErrors)
+    } finally {
+        Directory.Delete(fixtureRoot, true)
+        Directory.Delete(runtimeRoot, true)
+        Directory.Delete(negativeRoot, true)
     }
 }

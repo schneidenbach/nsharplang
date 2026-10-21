@@ -147,6 +147,50 @@ class OperandPublicOnlyAwaiter {
     }
 }
 
+class OperandGenericGetAwaiterAwaitable {
+    func GetAwaiter<T>(): OperandExplicitAwaiter {
+        return new OperandExplicitAwaiter()
+    }
+}
+
+class OperandGenericGetResultAwaitable {
+    func GetAwaiter(): OperandGenericGetResultAwaiter {
+        return new OperandGenericGetResultAwaiter()
+    }
+}
+
+class OperandGenericGetResultAwaiter: INotifyCompletion {
+    IsCompleted: bool {
+        get { return true }
+    }
+
+    func GetResult<T>(): int {
+        return 42
+    }
+
+    func INotifyCompletion.OnCompleted(_continuation: Action) {
+    }
+}
+
+class OperandPrivateMemberAwaitable {
+    func GetAwaiter(): OperandPrivateMemberAwaiter {
+        return new OperandPrivateMemberAwaiter()
+    }
+}
+
+class OperandPrivateMemberAwaiter: INotifyCompletion {
+    private IsCompleted: bool {
+        get { return true }
+    }
+
+    private func GetResult(): int {
+        return 44
+    }
+
+    func INotifyCompletion.OnCompleted(_continuation: Action) {
+    }
+}
+
 func OperandPath(): string {
     return Path.GetFullPath("pass-through-operands-contract.nl")
 }
@@ -1100,6 +1144,60 @@ test "await rejects a reflected awaiter without OnCompleted at the awaited opera
     assert OperandTypeText(harness.Operands.Result(state)) == "unknown"
 }
 
+test "await rejects an awaitable with only a generic GetAwaiter at the operand" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandGenericGetAwaiterAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await rejects an awaiter with only a generic GetResult at the operand" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandGenericGetResultAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await rejects a reflected pattern with inaccessible members at the operand" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandPrivateMemberAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await does not lift its pattern through Nullable of a value type" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(Nullable<YieldAwaitable>))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await keeps a nullable reference awaitable pattern" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandNullable(OperandReflected(typeof(OperandExplicitAwaitable)))))
+
+    assert harness.Errors.Count == 0
+    assert OperandTypeText(harness.Operands.Result(state)) == "int"
+}
+
 test "await resolves the result type of a constructed reflected awaitable" {
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("v", 2, 11), 2, 5), harness.Reachability)
@@ -1179,4 +1277,39 @@ test "AN AWAITED ROW VIEW IS REFUSED AND THE AWAITABLE RULE IS NOT THEN ALSO APP
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "SoA row views cannot be awaited; use the table and row index instead"
     assert OperandTypeText(harness.Operands.Result(state)) == "unknown"
+}
+
+test "the shared await binder resolves framework critical awaiters" {
+    awaiterType := typeof(YieldAwaitable).GetMethod("GetAwaiter").ReturnType
+    assert AwaitablePatternBinder.SelectReadableBooleanProperty(awaiterType, "IsCompleted") != null
+    assert AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(awaiterType, "GetResult") != null
+    contract := AwaitablePatternBinder.FindCompletionInterface(awaiterType, typeof(ICriticalNotifyCompletion))
+    assert contract != null
+    assert AwaitablePatternBinder.ResolveInterfaceSlot(awaiterType, contract, "UnsafeOnCompleted") != null
+    binding: AwaitablePatternBinding? = null
+    assert AwaitablePatternBinder.TryBindReflection(typeof(YieldAwaitable), out binding)
+    assert binding != null
+}
+
+test "the shared await binder resolves framework awaiters from a metadata load context" {
+    surface := new AnalyzerMetadataLoadSurface(new List<Assembly>(), new Dictionary<string, string>(StringComparer.Ordinal))
+    surface.Open()
+    context := surface.Context
+    assert context != null
+    tasks := context.LoadFromAssemblyName("System.Threading.Tasks")
+    taskType := tasks.GetType("System.Threading.Tasks.Task")
+    assert taskType != null
+    yieldType := taskType.GetMethod("Yield").ReturnType
+    getAwaiter := AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(yieldType, "GetAwaiter")
+    assert getAwaiter != null, "metadata GetAwaiter lookup failed"
+    awaiterType := getAwaiter.ReturnType
+    assert AwaitablePatternBinder.SelectReadableBooleanProperty(awaiterType, "IsCompleted") != null, "metadata IsCompleted lookup failed"
+    assert AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(awaiterType, "GetResult") != null, "metadata GetResult lookup failed"
+    contract := AwaitablePatternBinder.FindCompletionInterface(awaiterType, typeof(ICriticalNotifyCompletion))
+    assert contract != null, "metadata ICriticalNotifyCompletion identity lookup failed"
+    assert AwaitablePatternBinder.ResolveInterfaceSlot(awaiterType, contract, "UnsafeOnCompleted") != null, "metadata continuation slot lookup failed"
+    binding: AwaitablePatternBinding? = null
+    assert AwaitablePatternBinder.TryBindReflection(yieldType, out binding), "metadata complete pattern binding failed"
+    assert binding != null
+    surface.Close()
 }

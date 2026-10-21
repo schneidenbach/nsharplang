@@ -515,7 +515,7 @@ class ColumnarRangeIndexPlanner {
                 awaitableType := typeof(object)
                 planned = TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out awaitableType, out nestedOwnership)
                 if planned {
-                    planned = AppendAwaitTypeDiscoveryResult(plan, awaitableType, out resultType)
+                    planned = AppendAwaitTypeDiscoveryResult(nodes, plan, awaitableType, out resultType)
                 }
             }
         } else if kind == ColumnarExpressionNodeKind.BinaryExpression {
@@ -588,20 +588,26 @@ class ColumnarRangeIndexPlanner {
     // Type-only await planning is used in speculative expression plans. The live MoveNext plan owns
     // suspension; its speculative siblings only need a correctly typed placeholder result so overload
     // selection and plan validation can proceed without emitting a second await.
-    static func AppendAwaitTypeDiscoveryResult(plan: ColumnarCodePlan, awaitableType: Type, out resultType: Type): bool {
+    static func AppendAwaitTypeDiscoveryResult(nodes: ColumnarNodeTable, plan: ColumnarCodePlan, awaitableType: Type, out resultType: Type): bool {
         resultType = typeof(object)
         if awaitableType == null || awaitableType.IsGenericParameter || awaitableType.IsByRef || awaitableType.IsPointer {
             return false
         }
-        getAwaiter := awaitableType.GetMethod("GetAwaiter", BindingFlags.Public | BindingFlags.Instance, null, System.Type.EmptyTypes, null)
-        if getAwaiter == null {
+        binding: AwaitablePatternBinding? = null
+        if !AwaitablePatternBinder.TryBindReflection(awaitableType, out binding) {
+            if AwaitablePatternBinder.SelectZeroArgumentInstanceMethod(awaitableType, "GetAwaiter") != null {
+                return false
+            }
+            scope := ColumnarBindingScopeFacts.Of(nodes)
+            selection := ColumnarExtensionMethodSelection.None()
+            if scope == null || !scope.TryResolveExtensionMethod(awaitableType, "GetAwaiter", new Type[](0), ColumnarDirectCallArgumentFacts.Empty(0), out selection) || selection == null || !selection.IsSelected || selection.Method == null || !AwaitablePatternBinder.TryBindReflectionGetAwaiterExtension(awaitableType, selection.Method, out binding) {
+                return false
+            }
+        }
+        if binding == null {
             return false
         }
-        awaiterType := getAwaiter.ReturnType
-        getResult := awaiterType.GetMethod("GetResult", BindingFlags.Public | BindingFlags.Instance, null, System.Type.EmptyTypes, null)
-        if getResult == null {
-            return false
-        }
+        getResult := binding.GetResult
         resultType = getResult.ReturnType
         if resultType.IsByRef || resultType.IsPointer {
             return false

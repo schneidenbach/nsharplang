@@ -17,15 +17,17 @@ internal sealed class PlaygroundRunner {
     private functions: Dictionary<string, FunctionDeclaration>
     private types: Dictionary<string, Declaration>
     private typeNamespaces: Dictionary<string, string?>
+    private semanticModelsByDeclaration: IReadOnlyDictionary<object, SemanticModel>
     private stdout: StringBuilder
     private steps: int
     private outputLines: int
 
-    constructor(sourceUnits: IEnumerable<CompilationUnit>) {
+    constructor(sourceUnits: IEnumerable<CompilationUnit>, semanticModels: IReadOnlyDictionary<object, SemanticModel>) {
         units = sourceUnits.ToList()
         functions = new Dictionary<string, FunctionDeclaration>(StringComparer.Ordinal)
         types = new Dictionary<string, Declaration>(StringComparer.Ordinal)
         typeNamespaces = new Dictionary<string, string?>(StringComparer.Ordinal)
+        semanticModelsByDeclaration = semanticModels
         stdout = new StringBuilder()
         steps = 0
         outputLines = 0
@@ -509,23 +511,6 @@ internal sealed class PlaygroundRunner {
             return await AwaitSourceAwaitable(runtimeObject)
         }
 
-        task := value as Task
-        if task != null {
-            await task
-            taskType := task.GetType()
-            if taskType.IsGenericType {
-                resultProperty := taskType.GetProperty("Result", BindingFlags.Public | BindingFlags.Instance)
-                if resultProperty != null {
-                    try {
-                        return resultProperty.GetValue(task)
-                    } catch invocationFailure: TargetInvocationException {
-                        RethrowInvocationFailure(invocationFailure)
-                    }
-                }
-            }
-            return null
-        }
-
         awaitableType := value.GetType()
         if awaitableType == typeof(YieldAwaitable) {
             // The browser linker does not preserve YieldAwaitable.GetAwaiter for reflection.
@@ -533,21 +518,14 @@ internal sealed class PlaygroundRunner {
             await Task.Yield()
             return null
         }
-        if awaitableType == typeof(ValueTask) || (awaitableType.IsGenericType && awaitableType.GetGenericTypeDefinition() == typeof(ValueTask<object?>).GetGenericTypeDefinition()) {
-            asTask := awaitableType.GetMethod("AsTask", BindingFlags.Public | BindingFlags.Instance)
-            if asTask == null {
-                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("ValueTask has no AsTask method"))
-            }
-            try {
-                taskValue := asTask.Invoke(value, null)
-                return await AwaitTaskValue(taskValue)
-            } catch invocationFailure: TargetInvocationException {
-                RethrowInvocationFailure(invocationFailure)
-            }
+        pattern: AwaitablePatternBinding? = null
+        if !AwaitablePatternBinder.TryBindReflection(awaitableType, out pattern) || pattern == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand has no accessible C# awaitable pattern"))
         }
-        getAwaiter := awaitableType.GetMethod("GetAwaiter", BindingFlags.Public | BindingFlags.Instance)
-        if getAwaiter == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand without a public GetAwaiter method"))
+        getAwaiter := pattern.GetAwaiter
+        isCompletedGetter := pattern.IsCompletedGetter
+        if getAwaiter == null || isCompletedGetter == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand has no complete C# awaitable pattern"))
         }
         awaiter: object? = null
         try {
@@ -559,45 +537,21 @@ internal sealed class PlaygroundRunner {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("GetAwaiter returned no awaiter"))
         }
 
-        awaiterType := awaiter.GetType()
-        isCompletedProperty := awaiterType.GetProperty("IsCompleted", BindingFlags.Public | BindingFlags.Instance)
-        getResult := awaiterType.GetMethod("GetResult", BindingFlags.Public | BindingFlags.Instance)
-        if isCompletedProperty == null || getResult == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand has an incomplete awaiter pattern"))
-        }
-        isCompleted := Convert.ToBoolean(isCompletedProperty.GetValue(awaiter))
+        isCompleted := Convert.ToBoolean(isCompletedGetter.Invoke(awaiter, null))
         if !isCompleted {
             completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
             continuation := CreateAwaiterContinuation(completion)
             callbackArguments := new object?[](1)
             callbackArguments[0] = continuation
-            if typeof(ICriticalNotifyCompletion).IsAssignableFrom(awaiterType) {
-                unsafeOnCompleted := typeof(ICriticalNotifyCompletion).GetMethod("UnsafeOnCompleted")
-                if unsafeOnCompleted == null {
-                    throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("critical awaiter has no UnsafeOnCompleted method"))
-                }
-                try {
-                    unsafeOnCompleted.Invoke(awaiter, callbackArguments)
-                } catch invocationFailure: TargetInvocationException {
-                    RethrowInvocationFailure(invocationFailure)
-                }
-            } else if typeof(INotifyCompletion).IsAssignableFrom(awaiterType) {
-                onCompleted := typeof(INotifyCompletion).GetMethod("OnCompleted")
-                if onCompleted == null {
-                    throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("awaiter has no OnCompleted method"))
-                }
-                try {
-                    onCompleted.Invoke(awaiter, callbackArguments)
-                } catch invocationFailure: TargetInvocationException {
-                    RethrowInvocationFailure(invocationFailure)
-                }
-            } else {
-                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("awaiter does not implement INotifyCompletion"))
+            try {
+                pattern.CompletionSlot.Invoke(awaiter, callbackArguments)
+            } catch invocationFailure: TargetInvocationException {
+                RethrowInvocationFailure(invocationFailure)
             }
             await completion.Task
         }
         try {
-            return getResult.Invoke(awaiter, null)
+            return pattern.GetResult.Invoke(awaiter, null)
         } catch invocationFailure: TargetInvocationException {
             RethrowInvocationFailure(invocationFailure)
         }
@@ -605,7 +559,7 @@ internal sealed class PlaygroundRunner {
     }
 
     private async func AwaitSourceAwaitable(value: RuntimeObject): Task<object?> {
-        getAwaiter := FindMethod(value.Declaration, "GetAwaiter", 0, false)
+        getAwaiter := AwaitablePatternBinder.SelectSourceMethod(value.Declaration, "GetAwaiter", 0)
         if getAwaiter == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await operand has no GetAwaiter method"))
         }
@@ -614,26 +568,31 @@ internal sealed class PlaygroundRunner {
         if awaiter == null {
             return await AwaitTaskValue(awaiterValue)
         }
-        isCompletedValue := ReadRuntimeProperty(awaiter, "IsCompleted", 0)
+        semanticModel: SemanticModel? = null
+        sourcePattern: SourceAwaiterPatternBinding? = null
+        if awaiter.Declaration == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter has no source declaration"))
+        }
+        if !semanticModelsByDeclaration.TryGetValue(awaiter.Declaration, out semanticModel) || semanticModel == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter has no bound source semantic model"))
+        }
+        failureReason: string = ""
+        if !AwaitablePatternBinder.TryBindSourceAwaiter(awaiter.Declaration, semanticModel, out sourcePattern, out failureReason) {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression(failureReason))
+        }
+        if sourcePattern == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter pattern binding returned no result"))
+        }
+        isCompletedValue := ReadRuntimeProperty(awaiter, sourcePattern.IsCompleted, 0)
         if !Convert.ToBoolean(isCompletedValue) {
             completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
             continuation := CreateAwaiterContinuation(completion)
             completionArguments := new object?[](1)
             completionArguments[0] = continuation
-            critical := RuntimeTypeImplements(awaiter.Declaration, "ICriticalNotifyCompletion")
-            callbackName := critical ? "UnsafeOnCompleted" : "OnCompleted"
-            continuationMethod := FindAwaitContinuationMethod(awaiter.Declaration, callbackName)
-            if continuationMethod == null {
-                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter has no completion-interface implementation"))
-            }
-            InvokeFunction(continuationMethod, completionArguments, awaiter, 0)
+            InvokeFunction(sourcePattern.Completion, completionArguments, awaiter, 0)
             await completion.Task
         }
-        getResult := FindMethod(awaiter.Declaration, "GetResult", 0, false)
-        if getResult == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("custom awaiter has no GetResult method"))
-        }
-        return InvokeFunction(getResult, new object?[](0), awaiter, 0)
+        return InvokeFunction(sourcePattern.GetResult, new object?[](0), awaiter, 0)
     }
 
     private static func RethrowInvocationFailure(failure: TargetInvocationException) {
@@ -1377,61 +1336,6 @@ internal sealed class PlaygroundRunner {
             }
         } catch returned: ReturnSignal {
             return returned.Value
-        }
-        return null
-    }
-
-    private static func RuntimeTypeImplements(declaration: Declaration?, interfaceName: string): bool {
-        interfaces: List<TypeReference>? = null
-        classDeclaration := declaration as ClassDeclaration
-        if classDeclaration != null {
-            interfaces = classDeclaration.Interfaces
-        } else {
-            structDeclaration := declaration as StructDeclaration
-            if structDeclaration != null {
-                interfaces = structDeclaration.Interfaces
-            } else {
-                recordDeclaration := declaration as RecordDeclaration
-                if recordDeclaration != null {
-                    interfaces = recordDeclaration.Interfaces
-                }
-            }
-        }
-        if interfaces == null {
-            return false
-        }
-        for interfaceReference in interfaces {
-            name := GetTypeName(interfaceReference) ?? ""
-            if name == interfaceName || name.EndsWith("." + interfaceName, StringComparison.Ordinal) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func FindAwaitContinuationMethod(declaration: Declaration?, methodName: string): FunctionDeclaration? {
-        method := FindMethod(declaration, methodName, 1, false)
-        if method != null {
-            return method
-        }
-        members: List<Declaration>? = null
-        classDeclaration := declaration as ClassDeclaration
-        if classDeclaration != null {
-            members = classDeclaration.Members
-        } else {
-            structDeclaration := declaration as StructDeclaration
-            if structDeclaration != null {
-                members = structDeclaration.Members
-            }
-        }
-        if members == null {
-            return null
-        }
-        for member in members {
-            function := member as FunctionDeclaration
-            if function != null && function.Parameters.Count == 1 && function.Name.EndsWith("." + methodName, StringComparison.Ordinal) {
-                return function
-            }
         }
         return null
     }

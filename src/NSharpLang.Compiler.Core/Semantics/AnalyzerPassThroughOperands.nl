@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
@@ -143,17 +142,19 @@ class AnalyzerPassThroughOperands {
     typeResolverValue: AnalyzerTypeResolver
     ambientValue: AnalyzerAmbientContext
     declarationContextValue: AnalyzerDeclarationContext
+    extensionMethodResolutionValue: AnalyzerExtensionMethodResolution?
     loopSequenceValue: AnalyzerLoopSequence
     constantFactsValue: AnalyzerConstantExpressionFacts
     mustVerdictsValue: Dictionary<object, bool>
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, declarationContext: AnalyzerDeclarationContext, loopSequence: AnalyzerLoopSequence, constantFacts: AnalyzerConstantExpressionFacts) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, declarationContext: AnalyzerDeclarationContext, loopSequence: AnalyzerLoopSequence, constantFacts: AnalyzerConstantExpressionFacts, extensionMethodResolution: AnalyzerExtensionMethodResolution? = null) {
         diagnosticsValue = diagnostics
         spansValue = spans
         soaEscapeValue = soaEscape
         typeResolverValue = typeResolver
         ambientValue = ambient
         declarationContextValue = declarationContext
+        extensionMethodResolutionValue = extensionMethodResolution
         loopSequenceValue = loopSequence
         constantFactsValue = constantFacts
         mustVerdictsValue = new Dictionary<object, bool>()
@@ -704,15 +705,16 @@ class AnalyzerPassThroughOperands {
     // OWNER. Unresolved shapes answer "no" because there is nothing to ask; external types without
     // a bound shape are rejected at the await site rather than being sent to an unpositioned emit
     // decline. Reflected and source awaiters must provide the complete pattern emission invokes.
+    // Task-family aliases keep their language-owned result rules. Every other awaitable pattern is
+    // resolved once by AwaitablePatternBinder, including reflected members, source declarations and
+    // imported extension GetAwaiter methods.
     func TryAwaitResultType(awaitableType: TypeInfo, out resultType: TypeInfo): bool {
         resultType = BuiltInTypes.Unknown
-        resolved := loopSequenceValue.NormalizeShapeType(awaitableType)
-        if BuiltInTypes.IsUnknown(resolved) {
+        if AwaitablePatternBinder.IsNullableValueType(awaitableType) {
             return false
         }
-
-        external := resolved as ExternalTypeInfo
-        if external != null {
+        resolved := loopSequenceValue.NormalizeShapeType(awaitableType)
+        if BuiltInTypes.IsUnknown(resolved) {
             return false
         }
 
@@ -721,293 +723,17 @@ class AnalyzerPassThroughOperands {
             resultType = taskResult
             return true
         }
-
         if AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(resolved) {
             resultType = BuiltInTypes.Void
             return true
         }
 
-        reflected := resolved as ReflectionTypeInfo
-        if reflected != null {
-            reflectedResult: TypeInfo = BuiltInTypes.Unknown
-            if TryReflectionAwaitResultType(reflected.Type, out reflectedResult) {
-                resultType = reflectedResult
-                return true
-            }
-        }
-
-        constructed := resolved as GenericTypeInfo
-        if constructed != null {
-            definitionInfo := constructed.GenericDefinition as ReflectionTypeInfo
-            if definitionInfo != null {
-                constructedResult: TypeInfo = BuiltInTypes.Unknown
-                if TryReflectionGenericAwaitResultType(definitionInfo.Type, constructed.TypeArguments, out constructedResult) {
-                    resultType = constructedResult
-                    return true
-                }
-            }
-        }
-
-        sourceResult: TypeInfo = BuiltInTypes.Unknown
-        if TrySourceAwaitResultType(resolved, out sourceResult) {
-            resultType = sourceResult
-            return true
-        }
-
-        return false
-    }
-
-    // SOURCE AWAITABLES ARE CHECKED AGAINST THE SAME COMPLETE SHAPE THE EMITTER WILL CALL. A
-    // declared `GetAwaiter` alone is not enough: its result must expose a readable bool
-    // `IsCompleted`, a parameterless `GetResult`, and implement `INotifyCompletion`. The interface
-    // requirement is semantic: explicit implementations are valid and a same-named public method
-    // on an unrelated type is not. The method returns the value type of `GetResult`, so awaiting a
-    // user-defined source awaitable participates in return and argument checking just like `Task<T>`.
-    func TrySourceAwaitResultType(awaitableType: TypeInfo, out resultType: TypeInfo): bool {
-        resultType = BuiltInTypes.Unknown
-        owner := awaitableType
-        substitution := SourceAwaitSubstitution(owner)
-        constructed := owner as GenericTypeInfo
-        if constructed != null && constructed.GenericDefinition != null && declarationContextValue.ContainsSourceType(constructed.GenericDefinition) {
-            owner = constructed.GenericDefinition
-        }
-        if !declarationContextValue.ContainsSourceType(owner) {
+        binding: AnalyzerAwaitablePatternBinding? = null
+        if !AwaitablePatternBinder.TryBindAnalyzerAwaitable(resolved, declarationContextValue, extensionMethodResolutionValue, ambientValue.CurrentTypeName, out binding) || binding == null {
             return false
         }
-
-        getAwaiterSelection := new AnalyzerMemberSelection()
-        if !TryFindSourceFunction(owner, "GetAwaiter", 0, out getAwaiterSelection) {
-            return false
-        }
-        getAwaiter := getAwaiterSelection.Member
-        if getAwaiter == null || getAwaiter.Kind != DeclaredMemberKind.Function || getAwaiter.ParameterCount != 0 || getAwaiter.ReturnType == null {
-            return false
-        }
-
-        awaiterType: TypeInfo = BuiltInTypes.Unknown
-        if !declarationContextValue.TryResolveTypeForOwner(getAwaiter.ReturnType, getAwaiterSelection.Owner, substitution, out awaiterType) || BuiltInTypes.IsUnknown(awaiterType) {
-            return false
-        }
-
-        return TrySourceAwaiterResultType(awaiterType, out resultType)
-    }
-
-    func TrySourceAwaiterResultType(awaiterType: TypeInfo, out resultType: TypeInfo): bool {
-        resultType = BuiltInTypes.Unknown
-        resolvedAwaiter := declarationContextValue.ResolveDeclaredAlias(awaiterType)
-        reflected := resolvedAwaiter as ReflectionTypeInfo
-        if reflected != null {
-            return TryReflectionAwaiterResultType(reflected.Type, out resultType)
-        }
-
-        constructed := resolvedAwaiter as GenericTypeInfo
-        if constructed != null {
-            definitionInfo := constructed.GenericDefinition as ReflectionTypeInfo
-            if definitionInfo != null {
-                return TryReflectionGenericAwaiterResultType(definitionInfo.Type, constructed.TypeArguments, out resultType)
-            }
-            if constructed.GenericDefinition != null && declarationContextValue.ContainsSourceType(constructed.GenericDefinition) {
-                awaiterType = constructed.GenericDefinition
-            }
-        }
-
-        if !declarationContextValue.ContainsSourceType(awaiterType) {
-            return false
-        }
-
-        substitution := SourceAwaitSubstitution(resolvedAwaiter)
-        isCompletedType: TypeInfo = BuiltInTypes.Unknown
-        isCompleted := new AnalyzerMemberSelection()
-        if !declarationContextValue.TryFindMember(awaiterType, "IsCompleted", out isCompleted) || isCompleted.Member == null || isCompleted.Member.Kind != DeclaredMemberKind.Property || isCompleted.Member.Type == null || !declarationContextValue.TryResolveTypeForOwner(isCompleted.Member.Type, isCompleted.Owner, substitution, out isCompletedType) || !BuiltInTypes.Is(isCompletedType, BuiltInTypes.Bool) {
-            return false
-        }
-
-        if !SourceTypeImplementsNotifyCompletion(resolvedAwaiter, 0) {
-            return false
-        }
-
-        getResult := new AnalyzerMemberSelection()
-        if !TryFindSourceFunction(awaiterType, "GetResult", 0, out getResult) || getResult.Member == null {
-            return false
-        }
-        if getResult.Member.ReturnType == null {
-            resultType = BuiltInTypes.Void
-            return true
-        }
-        if !declarationContextValue.TryResolveTypeForOwner(getResult.Member.ReturnType, getResult.Owner, substitution, out resultType) {
-            resultType = BuiltInTypes.Unknown
-            return false
-        }
+        resultType = binding.ResultType
         return !BuiltInTypes.IsUnknown(resultType)
-    }
-
-    // Whether a source type's implements closure reaches the CLR continuation contract. Looking
-    // for a method named OnCompleted is not equivalent: explicit interface implementations do not
-    // have that metadata name, while unrelated methods with that spelling do not satisfy builders.
-    func SourceTypeImplementsNotifyCompletion(awaiterType: TypeInfo, depth: int): bool {
-        if depth > 32 || awaiterType == null {
-            return false
-        }
-
-        resolved := declarationContextValue.ResolveDeclaredAlias(awaiterType)
-        reflected := resolved as ReflectionTypeInfo
-        if reflected != null {
-            return ReflectionTypeImplementsNotifyCompletion(reflected.Type)
-        }
-        constructed := resolved as GenericTypeInfo
-        if constructed != null {
-            definitionInfo := constructed.GenericDefinition as ReflectionTypeInfo
-            if definitionInfo != null {
-                return ReflectionTypeImplementsNotifyCompletion(definitionInfo.Type)
-            }
-        }
-
-        sourceOwner := resolved
-        substitution := SourceAwaitSubstitution(resolved)
-        if constructed != null && constructed.GenericDefinition != null && declarationContextValue.ContainsSourceType(constructed.GenericDefinition) {
-            sourceOwner = constructed.GenericDefinition
-        }
-        if !declarationContextValue.ContainsSourceType(sourceOwner) {
-            return false
-        }
-
-        references := new List<TypeReference>()
-        classType := sourceOwner as ClassTypeInfo
-        if classType != null {
-            references.AddRange(classType.Interfaces)
-        }
-        structType := sourceOwner as StructTypeInfo
-        if structType != null {
-            references.AddRange(structType.Interfaces)
-        }
-        recordType := sourceOwner as RecordTypeInfo
-        if recordType != null {
-            references.AddRange(recordType.Interfaces)
-        }
-        interfaceType := sourceOwner as InterfaceTypeInfo
-        if interfaceType != null {
-            references.AddRange(interfaceType.BaseInterfaces)
-        }
-        for reference in references {
-            implemented: TypeInfo = BuiltInTypes.Unknown
-            if declarationContextValue.TryResolveTypeForOwner(reference, sourceOwner, substitution, out implemented) && SourceTypeIsNotifyCompletion(implemented, depth + 1) {
-                return true
-            }
-        }
-
-        shape := new AnalyzerSourceMemberShape()
-        if declarationContextValue.TryGetSourceMemberShape(sourceOwner, substitution, out shape) && shape.BaseType != null && SourceTypeImplementsNotifyCompletion(shape.BaseType, depth + 1) {
-            return true
-        }
-        return false
-    }
-
-    func SourceTypeIsNotifyCompletion(typeInfo: TypeInfo, depth: int): bool {
-        if depth > 32 || typeInfo == null {
-            return false
-        }
-        resolved := declarationContextValue.ResolveDeclaredAlias(typeInfo)
-        reflected := resolved as ReflectionTypeInfo
-        if reflected != null {
-            return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(reflected.Type, typeof(System.Runtime.CompilerServices.INotifyCompletion))
-        }
-        constructed := resolved as GenericTypeInfo
-        if constructed != null {
-            definition := constructed.GenericDefinition as ReflectionTypeInfo
-            if definition != null {
-                return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(definition.Type, typeof(System.Runtime.CompilerServices.INotifyCompletion))
-            }
-        }
-        return SourceTypeImplementsNotifyCompletion(resolved, depth + 1)
-    }
-
-    static func ReflectionTypeImplementsNotifyCompletion(type: Type): bool {
-        if type == null {
-            return false
-        }
-        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(type, typeof(System.Runtime.CompilerServices.INotifyCompletion)) {
-            return true
-        }
-        for implemented in type.GetInterfaces() {
-            if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(implemented, typeof(System.Runtime.CompilerServices.INotifyCompletion)) || TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(implemented, typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)) {
-                return true
-            }
-        }
-        return false
-    }
-
-    func TryFindSourceFunction(owner: TypeInfo, name: string, parameterCount: int, out selection: AnalyzerMemberSelection): bool {
-        return TryFindSourceFunctionCore(owner, name, parameterCount, out selection)
-    }
-
-    func TryFindSourceFunctionCore(owner: TypeInfo, name: string, parameterCount: int, out selection: AnalyzerMemberSelection): bool {
-        sourceOwner := owner
-        substitution := SourceAwaitSubstitution(owner)
-        constructed := sourceOwner as GenericTypeInfo
-        if constructed != null && constructed.GenericDefinition != null && declarationContextValue.ContainsSourceType(constructed.GenericDefinition) {
-            sourceOwner = constructed.GenericDefinition
-        }
-
-        shape := new AnalyzerSourceMemberShape()
-        if declarationContextValue.TryGetSourceMemberShape(sourceOwner, substitution, out shape) {
-            foundName := false
-            for member in shape.DeclaredMembers {
-                if member.Name != name {
-                    continue
-                }
-                foundName = true
-                if member.Kind == DeclaredMemberKind.Function && member.ParameterCount == parameterCount {
-                    selection = new AnalyzerMemberSelection(shape.Owner, member, declarationContextValue.GetDeclarationFile(shape.Owner), member.Line, member.Column, "function", member.IsExported)
-                    return true
-                }
-            }
-            if foundName {
-                selection = new AnalyzerMemberSelection()
-                return false
-            }
-        }
-
-        if !declarationContextValue.TryFindMember(sourceOwner, name, out selection) || selection.Member == null || selection.Member.Kind != DeclaredMemberKind.Function || selection.Member.ParameterCount != parameterCount {
-            selection = new AnalyzerMemberSelection()
-            return false
-        }
-        return true
-    }
-
-    func SourceAwaitSubstitution(owner: TypeInfo): Dictionary<string, TypeInfo>? {
-        constructed := owner as GenericTypeInfo
-        if constructed == null || constructed.GenericDefinition == null {
-            return null
-        }
-
-        parameters: TypeParameter[]? = null
-        classType := constructed.GenericDefinition as ClassTypeInfo
-        if classType != null {
-            parameters = classType.TypeParameters
-        }
-        structType := constructed.GenericDefinition as StructTypeInfo
-        if structType != null {
-            parameters = structType.TypeParameters
-        }
-        recordType := constructed.GenericDefinition as RecordTypeInfo
-        if recordType != null {
-            parameters = recordType.TypeParameters
-        }
-        interfaceType := constructed.GenericDefinition as InterfaceTypeInfo
-        if interfaceType != null {
-            parameters = interfaceType.TypeParameters
-        }
-        if parameters == null {
-            return null
-        }
-
-        substitution := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
-        index := 0
-        while index < parameters.Length && index < constructed.TypeArguments.Count {
-            substitution[parameters[index].Name] = constructed.TypeArguments[index]
-            index = index + 1
-        }
-        return substitution
     }
 
     // WHEN A NON-AWAITABLE VALUE IS ACCUSED. An unresolved shape stays quiet because an earlier
@@ -1016,6 +742,9 @@ class AnalyzerPassThroughOperands {
     // cannot be resolved; reflected CLR shapes follow the same rule. Built-ins, arrays, functions,
     // tuples and unions cannot carry the pattern and are reported directly.
     func ShouldReportAwaitMismatch(awaitableType: TypeInfo): bool {
+        if AwaitablePatternBinder.IsNullableValueType(awaitableType) {
+            return true
+        }
         resolved := loopSequenceValue.NormalizeShapeType(awaitableType)
         if BuiltInTypes.IsUnknown(resolved) {
             return false
@@ -1046,7 +775,7 @@ class AnalyzerPassThroughOperands {
 
     func HasSourceAwaiterPattern(awaitableType: TypeInfo): bool {
         resultType: TypeInfo = BuiltInTypes.Unknown
-        return TrySourceAwaitResultType(awaitableType, out resultType)
+        return TryAwaitResultType(awaitableType, out resultType)
     }
 
     func AwaitMismatchMessage(awaitableType: TypeInfo): string {
@@ -1055,149 +784,6 @@ class AnalyzerPassThroughOperands {
             return "await expression cannot use '" + TypeText(awaitableType) + "' because its awaiter pattern is incomplete; it needs GetAwaiter() and an awaiter with bool IsCompleted, GetResult(), and INotifyCompletion"
         }
         return "await expression needs an awaitable value, but this expression is '" + TypeText(awaitableType) + "'"
-    }
-
-    // THE REFLECTED DUCK-TYPED AWAITER PATTERN: a parameterless `GetAwaiter` whose return type
-    // carries the members the lowering will invoke. Visibility is deliberately wide — a non-public
-    // member satisfies the pattern here, as it did in `Analyzer.cs` — and a `Nullable<T>` is
-    // unwrapped first so that `Task<int>?` finds the awaiter `Task<int>` has.
-    //
-    // `System.Void` is compared by IDENTITY against the LIVE one rather than by name, which is the
-    // comparison `Analyzer.cs` made with `typeof(void)`; a type read through a MetadataLoadContext
-    // answers with THAT context's void and is deliberately not recognised, because recognising it
-    // would change what an awaited external unit task answers.
-    static func TryReflectionAwaitResultType(clrType: Type, out resultType: TypeInfo): bool {
-        resultType = BuiltInTypes.Unknown
-        runtimeType := clrType
-        underlying := Nullable.GetUnderlyingType(clrType)
-        if underlying != null {
-            runtimeType = underlying
-        }
-
-        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-        noParameters := new Type[](0)
-        getAwaiterMethod := runtimeType.GetMethod("GetAwaiter", flags, null, noParameters, null)
-        if getAwaiterMethod == null {
-            return false
-        }
-
-        awaiterType := getAwaiterMethod.ReturnType
-        if !HasReflectionAwaiterPattern(awaiterType) {
-            return false
-        }
-        getResultMethod := awaiterType.GetMethod("GetResult", flags, null, noParameters, null)
-        if getResultMethod == null {
-            return false
-        }
-
-        returnType := getResultMethod.ReturnType
-        if returnType == AnalyzerReflectionArgumentBinder.LiveVoidType() {
-            resultType = BuiltInTypes.Void
-            return true
-        }
-
-        resultType = AnalyzerReflectionTypeConversion.ConvertReflectionType(returnType)
-        return true
-    }
-
-    // A GENERIC AWAITABLE CAN BE INSPECTED FROM ITS OPEN DEFINITION. `ConfiguredTaskAwaitable<T>`
-    // arrives as a GenericTypeInfo whose definition lives in the metadata context, while the
-    // source argument `T` may be a runtime TypeInfo; closing those two Type objects together crosses
-    // load contexts. Read the pattern from the open definition and substitute its type parameters
-    // into `GetResult`'s return type instead.
-    static func TryReflectionGenericAwaitResultType(definition: Type, typeArguments: List<TypeInfo>, out resultType: TypeInfo): bool {
-        resultType = BuiltInTypes.Unknown
-        if definition == null || !definition.IsGenericTypeDefinition {
-            return false
-        }
-        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-        getAwaiter := definition.GetMethod("GetAwaiter", flags, null, Type.EmptyTypes, null)
-        if getAwaiter == null {
-            return false
-        }
-        awaiterType := getAwaiter.ReturnType
-        if !HasReflectionAwaiterPattern(awaiterType) {
-            return false
-        }
-        getResult := awaiterType.GetMethod("GetResult", flags, null, Type.EmptyTypes, null)
-        if getResult == null {
-            return false
-        }
-        parameters := definition.GetGenericArguments()
-        if parameters.Length != typeArguments.Count {
-            return false
-        }
-        overrides := new Dictionary<Type, TypeInfo>()
-        index := 0
-        while index < parameters.Length {
-            overrides[parameters[index]] = typeArguments[index]
-            index += 1
-        }
-        resultType = AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(getResult.ReturnType, overrides, null)
-        return !BuiltInTypes.IsUnknown(resultType)
-    }
-
-    static func TryReflectionAwaiterResultType(awaiterType: Type, out resultType: TypeInfo): bool {
-        resultType = BuiltInTypes.Unknown
-        if !HasReflectionAwaiterPattern(awaiterType) {
-            return false
-        }
-
-        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-        getResult := awaiterType.GetMethod("GetResult", flags, null, Type.EmptyTypes, null)
-        if getResult == null {
-            return false
-        }
-        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(getResult.ReturnType, AnalyzerReflectionArgumentBinder.LiveVoidType()) {
-            resultType = BuiltInTypes.Void
-            return true
-        }
-        resultType = AnalyzerReflectionTypeConversion.ConvertReflectionType(getResult.ReturnType)
-        return !BuiltInTypes.IsUnknown(resultType)
-    }
-
-    static func TryReflectionGenericAwaiterResultType(definition: Type, typeArguments: List<TypeInfo>, out resultType: TypeInfo): bool {
-        resultType = BuiltInTypes.Unknown
-        if definition == null || !definition.IsGenericTypeDefinition || !HasReflectionAwaiterPattern(definition) {
-            return false
-        }
-        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-        getResult := definition.GetMethod("GetResult", flags, null, Type.EmptyTypes, null)
-        if getResult == null {
-            return false
-        }
-        parameters := definition.GetGenericArguments()
-        if parameters.Length != typeArguments.Count {
-            return false
-        }
-        overrides := new Dictionary<Type, TypeInfo>()
-        index := 0
-        while index < parameters.Length {
-            overrides[parameters[index]] = typeArguments[index]
-            index += 1
-        }
-        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(getResult.ReturnType, AnalyzerReflectionArgumentBinder.LiveVoidType()) {
-            resultType = BuiltInTypes.Void
-            return true
-        }
-        resultType = AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(getResult.ReturnType, overrides, null)
-        return !BuiltInTypes.IsUnknown(resultType)
-    }
-
-    static func HasReflectionAwaiterPattern(awaiterType: Type): bool {
-        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-        isCompleted := awaiterType.GetProperty("IsCompleted", flags)
-        if isCompleted == null || isCompleted.GetMethod == null || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(isCompleted.PropertyType, typeof(bool)) {
-            return false
-        }
-
-        noParameters := new Type[](0)
-        getResult := awaiterType.GetMethod("GetResult", flags, null, noParameters, null)
-        if getResult == null {
-            return false
-        }
-
-        return ReflectionTypeImplementsNotifyCompletion(awaiterType)
     }
 
     // A TYPE'S RENDERED TEXT, TAKEN THROUGH `object`. `Analyzer.cs` wrote `$"{type}"`; the columnar

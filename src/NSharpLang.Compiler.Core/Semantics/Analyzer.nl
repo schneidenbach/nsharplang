@@ -298,7 +298,8 @@ class Analyzer: IDisposable {
             Ambient,
             DeclarationContext,
             LoopSequence,
-            ConstantExpressionFacts
+            ConstantExpressionFacts,
+            ExtensionMethodResolution
         )
         TargetTypedOperands = new AnalyzerTargetTypedOperands(
             TypeResolver,
