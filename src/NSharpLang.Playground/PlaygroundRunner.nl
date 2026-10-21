@@ -630,12 +630,8 @@ internal sealed class PlaygroundRunner {
         if !isCompleted {
             completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
             continuation := CreateAwaiterContinuation(completion)
-            callbackArguments := new object?[](1)
-            callbackArguments[0] = continuation
-            try {
-                completionSlot.Invoke(awaiter, callbackArguments)
-            } catch invocationFailure: TargetInvocationException {
-                RethrowInvocationFailure(invocationFailure)
+            if !RegisterReflectedAwaiterContinuation(awaiter, pattern, continuation) {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected awaiter completion interface is unavailable at runtime"))
             }
             await completion.Task
         }
@@ -645,6 +641,30 @@ internal sealed class PlaygroundRunner {
             RethrowInvocationFailure(invocationFailure)
         }
         return null
+    }
+
+    // The shared binder's slot is resolved from the reference model, which can be a
+    // MetadataLoadContext. Invoke the matching CLR interface contract on the runtime awaiter so
+    // dispatch follows the runtime interface map (including explicit implementations) without
+    // invoking a metadata-only MethodInfo.
+    private static func RegisterReflectedAwaiterContinuation(awaiter: object, pattern: AwaitablePatternBinding, continuation: Action): bool {
+        if awaiter == null || pattern == null || pattern.CompletionSlot == null || continuation == null {
+            return false
+        }
+        if pattern.IsCritical {
+            criticalAwaiter := awaiter as ICriticalNotifyCompletion
+            if criticalAwaiter == null {
+                return false
+            }
+            criticalAwaiter.UnsafeOnCompleted(continuation)
+            return true
+        }
+        notifyAwaiter := awaiter as INotifyCompletion
+        if notifyAwaiter == null {
+            return false
+        }
+        notifyAwaiter.OnCompleted(continuation)
+        return true
     }
 
     private static func AwaitablePatternAt(semanticModel: SemanticModel?, awaitNode: AwaitExpression?): AnalyzerAwaitablePatternBinding? {

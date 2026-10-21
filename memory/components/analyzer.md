@@ -5133,6 +5133,10 @@ planning/emission and the browser runner. It resolves the selected `GetAwaiter`,
 and source explicit implementations are tied to their resolved interface reference. Source interface
 inheritance is walked through the resolved type graph, so an explicit base `INotifyCompletion` slot
 still wins over a public same-name method when the source class implements a derived interface.
+The browser runner uses the shared binding to choose the notification interface, then registers through
+the runtime `INotifyCompletion` / `ICriticalNotifyCompletion` interface call. It does not invoke the
+binding's `MethodInfo`, which may belong to a `MetadataLoadContext` and cannot dispatch on runtime
+objects.
 Candidates are
 filtered for zero-argument invocation, generic arity and accessibility at the await site. The binder
 does not lift through `Nullable<T>`. `AnalyzerPassThroughOperands.TryAwaitResultType` consumes that
