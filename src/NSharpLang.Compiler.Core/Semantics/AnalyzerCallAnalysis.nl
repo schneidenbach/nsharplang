@@ -1510,6 +1510,20 @@ class AnalyzerCallAnalysis {
         acceptedPostconditions := finalizeState.Postconditions
         state.FinalizeState = null
         if bound != null {
+            // A reflected overload is not applicable when binding its target-typed lambda body
+            // produced an error. In particular, an untyped lambda can make a delegate overload
+            // look viable until its body is checked (`next(ctx)` is valid for a RequestDelegate
+            // parameter but not for `Func<Task>`). Keep that candidate's diagnostics speculative,
+            // withdraw them, and let the next overload be checked against the same source lambda.
+            // A single reflected method is still selected normally so its body diagnostics remain
+            // attached to the user's code.
+            if state.ReflectionCandidates != null && diagnostics.ErrorCount > state.ReflectionErrorsBefore {
+                diagnostics.RollbackErrorsTo(state.ReflectionErrorsBefore)
+                state.ReflectionCandidateIndex = state.ReflectionCandidateIndex + 1
+                state.Phase = 35
+                return null
+            }
+
             // FINALIZER REFUSAL FOLLOWS THE SELECTED METHOD, not the unresolved group. A legal
             // overload may share the name with object.Finalize, and only ordinary overload binding
             // can establish which member this call names.
