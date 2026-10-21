@@ -36,6 +36,18 @@ async func main() {
         stdout: '40\n',
       },
       {
+        name: 'reflected TaskAwaiter completion interface map',
+        source: `import System.Threading.Tasks
+
+async func main() {
+    await Task.Delay(10)
+    print await Task.FromResult(45)
+}
+`,
+        stdout: '45\n',
+        timeoutMs: 5000,
+      },
+      {
         name: 'ValueTask and ValueTask<T>',
         source: `import System.Threading.Tasks
 
@@ -242,7 +254,10 @@ class InheritedInterfaceAwaiter(source: Task<int>): ResumableCompletion {
         return source.GetAwaiter().GetResult()
     }
 
-    func OnCompleted(continuation: Action) {
+    func OnCompleted(_continuation: Action) {
+    }
+
+    func INotifyCompletion.OnCompleted(continuation: Action) {
         source.GetAwaiter().OnCompleted(continuation)
     }
 }
@@ -258,6 +273,31 @@ async func main() {
 `,
         stdout: '46\n',
         timeoutMs: 5000,
+      },
+      {
+        name: 'generic extension GetAwaiter uses receiver inference',
+        source: `import System
+import System.Runtime.CompilerServices
+
+class GenericBox<T>(value: T) {
+    Value: T { get { return value } }
+}
+
+class GenericBoxAwaiter<T>(value: T): INotifyCompletion {
+    IsCompleted: bool { get { return true } }
+    func GetResult(): T { return value }
+    func OnCompleted(continuation: Action) { continuation() }
+}
+
+func GetAwaiter<T>(this value: GenericBox<T>): GenericBoxAwaiter<T> {
+    return new GenericBoxAwaiter<T>(value.Value)
+}
+
+async func main() {
+    print await new GenericBox<int>(47)
+}
+`,
+        stdout: '47\n',
       },
       {
         name: 'ConfigureAwait(false)',
@@ -385,6 +425,35 @@ async func main() {
     assert.equal(invalidResponse.ok, false, 'non-implementing OnCompleted methods must not pass analysis');
     assert.ok(invalidResponse.diagnostics.some((diagnostic) => diagnostic.line > 0 && diagnostic.column > 0),
       JSON.stringify(invalidResponse.diagnostics));
+
+    const shadowedExtension = `import System
+import System.Runtime.CompilerServices
+
+class ExtensionAwaiter: INotifyCompletion {
+    IsCompleted: bool { get { return true } }
+    func GetResult(): int { return 99 }
+    func OnCompleted(continuation: Action) { continuation() }
+}
+
+class InvalidInstanceAwaitable {
+    func GetAwaiter(): int { return 0 }
+}
+
+func GetAwaiter(this _value: InvalidInstanceAwaitable): ExtensionAwaiter {
+    return new ExtensionAwaiter()
+}
+
+async func main() {
+    print await new InvalidInstanceAwaitable()
+}
+`;
+    const shadowedText = await wasm.RunProject(JSON.stringify([
+      {name: 'Program.nl', code: shadowedExtension},
+    ]), 'Program.nl');
+    const shadowedResponse = JSON.parse(shadowedText);
+    assert.equal(shadowedResponse.ok, false, 'an applicable instance GetAwaiter returning a non-awaiter must block extension fallback');
+    assert.ok(shadowedResponse.diagnostics.some((diagnostic) => diagnostic.line === 19 && diagnostic.column > 0),
+      JSON.stringify(shadowedResponse.diagnostics));
   } finally {
     globalThis.fetch = nativeFetch;
   }

@@ -5130,7 +5130,10 @@ suspension, so a machine with two awaits of different awaitables carries two dif
 planning/emission and the browser runner. It resolves the selected `GetAwaiter`, readable boolean
 `IsCompleted`, non-generic zero-argument `GetResult`, and the `INotifyCompletion` or
 `ICriticalNotifyCompletion` contract; reflected interface slots come from the CLR interface map,
-and source explicit implementations are tied to their resolved interface reference. Candidates are
+and source explicit implementations are tied to their resolved interface reference. Source interface
+inheritance is walked through the resolved type graph, so an explicit base `INotifyCompletion` slot
+still wins over a public same-name method when the source class implements a derived interface.
+Candidates are
 filtered for zero-argument invocation, generic arity and accessibility at the await site. The binder
 does not lift through `Nullable<T>`. `AnalyzerPassThroughOperands.TryAwaitResultType` consumes that
 binding, including the selected `GetResult()` result type. An incomplete known pattern reports NL202

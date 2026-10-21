@@ -998,29 +998,107 @@ class AwaitablePatternBinder {
     }
 
     static func SourceQualifierResolvesTo(owner: Declaration, semanticModel: SemanticModel, qualifier: string, contractReference: TypeReference?, expected: Type): bool {
-        if contractReference != null && TypeReferenceFacts.GetDisplayName(contractReference) == qualifier {
+        if contractReference != null {
             resolvedContract: TypeInfo = BuiltInTypes.Unknown
-            if TryResolveSourceTypeReference(semanticModel, contractReference, out resolvedContract) && TypeInfoImplementsCompletionInterface(resolvedContract, expected, semanticModel, 0) {
+            if TryResolveSourceTypeReference(semanticModel, contractReference, out resolvedContract) && SourceQualifierIdentifiesResolvedReference(semanticModel, contractReference, qualifier, resolvedContract) && TypeInfoImplementsCompletionInterface(resolvedContract, expected, semanticModel, 0) {
                 return true
             }
         }
         references := SourceInterfaces(owner)
         if references != null {
             for reference in references {
-                if TypeReferenceFacts.GetDisplayName(reference) == qualifier {
-                    resolvedContract: TypeInfo = BuiltInTypes.Unknown
-                    if TryResolveSourceTypeReference(semanticModel, reference, out resolvedContract) && TypeInfoImplementsCompletionInterface(resolvedContract, expected, semanticModel, 0) {
-                        return true
-                    }
+                resolvedContract: TypeInfo = BuiltInTypes.Unknown
+                if TryResolveSourceTypeReference(semanticModel, reference, out resolvedContract) && SourceTypeClosureContainsQualifier(resolvedContract, qualifier, expected, semanticModel, 0) {
+                    return true
                 }
             }
         }
-        resolved: TypeInfo? = null
-        if semanticModel.Types.TryGetValue(qualifier, out resolved) && resolved != null {
-            return TypeInfoImplementsCompletionInterface(resolved, expected, semanticModel, 0)
+        return false
+    }
+
+    static func SourceQualifierIdentifiesResolvedReference(semanticModel: SemanticModel, reference: TypeReference, qualifier: string, resolved: TypeInfo): bool {
+        if semanticModel == null || reference == null || resolved == null || qualifier == null || qualifier.Length == 0 {
+            return false
         }
-        if semanticModel.TypesByIdentity.TryGetValue(TypeArityNames.Key(qualifier, 0), out resolved) && resolved != null {
-            return TypeInfoImplementsCompletionInterface(resolved, expected, semanticModel, 0)
+        if TypeReferenceFacts.GetDisplayName(reference) == qualifier {
+            return true
+        }
+        candidate: TypeInfo? = null
+        if semanticModel.Types.TryGetValue(qualifier, out candidate) && candidate != null && TypeInfoIdentityFacts.AreEqual(candidate, resolved) {
+            return true
+        }
+        if semanticModel.TypesByIdentity.TryGetValue(TypeArityNames.Key(qualifier, 0), out candidate) && candidate != null && TypeInfoIdentityFacts.AreEqual(candidate, resolved) {
+            return true
+        }
+        return false
+    }
+
+    // An explicit implementation may name an inherited completion slot even when the implementing
+    // class writes only a derived source interface (`class Awaiter: ResumableCompletion` where
+    // `ResumableCompletion: INotifyCompletion`). Walk the resolved interface closure, carrying the
+    // exact source TypeReference at each edge so this remains semantic and never relies on a simple
+    // method-name suffix.
+    static func SourceTypeClosureContainsQualifier(typeInfo: TypeInfo, qualifier: string, expected: Type, semanticModel: SemanticModel, depth: int): bool {
+        if typeInfo == null || semanticModel == null || depth > 32 {
+            return false
+        }
+
+        reflected := typeInfo as ReflectionTypeInfo
+        if reflected != null {
+            reflectedName := reflected.Type.FullName
+            if (reflected.Type.IsInterface && (reflected.Type.Name == qualifier || reflectedName == qualifier) && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(reflected.Type, expected)) {
+                return true
+            }
+            for implemented in reflected.Type.GetInterfaces() {
+                implementedName := implemented.FullName
+                if (implemented.Name == qualifier || implementedName == qualifier) && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(implemented, expected) {
+                    return true
+                }
+            }
+            baseType := reflected.Type.BaseType
+            if baseType != null && SourceTypeClosureContainsQualifier(new ReflectionTypeInfo(baseType), qualifier, expected, semanticModel, depth + 1) {
+                return true
+            }
+            return false
+        }
+
+        constructed := typeInfo as GenericTypeInfo
+        if constructed != null && constructed.GenericDefinition != null {
+            typeInfo = constructed.GenericDefinition
+        }
+
+        references := new List<TypeReference>()
+        classType := typeInfo as ClassTypeInfo
+        if classType != null {
+            if classType.BaseClass != null {
+                references.Add(classType.BaseClass)
+            }
+            references.AddRange(classType.Interfaces)
+        }
+        structType := typeInfo as StructTypeInfo
+        if structType != null {
+            references.AddRange(structType.Interfaces)
+        }
+        recordType := typeInfo as RecordTypeInfo
+        if recordType != null {
+            references.AddRange(recordType.Interfaces)
+        }
+        interfaceType := typeInfo as InterfaceTypeInfo
+        if interfaceType != null {
+            references.AddRange(interfaceType.BaseInterfaces)
+        }
+
+        for reference in references {
+            resolved: TypeInfo = BuiltInTypes.Unknown
+            if !TryResolveSourceTypeReference(semanticModel, reference, out resolved) {
+                continue
+            }
+            if SourceQualifierIdentifiesResolvedReference(semanticModel, reference, qualifier, resolved) && TypeInfoImplementsCompletionInterface(resolved, expected, semanticModel, 0) {
+                return true
+            }
+            if SourceTypeClosureContainsQualifier(resolved, qualifier, expected, semanticModel, depth + 1) {
+                return true
+            }
         }
         return false
     }
