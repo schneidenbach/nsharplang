@@ -358,6 +358,27 @@ test "a critical awaiter registers with UnsafeOnCompleted" {
     assert string.Join(",", trace) == "unsafe"
 }
 
+test "an async iterator registers a critical awaiter through its interface slot" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    trace := new List<string>()
+    pending := ConsumeCriticalAwait(new CriticalAwaitable(gate.Task, trace))
+    assert !pending.IsCompleted
+    assert string.Join(",", trace) == "unsafe"
+
+    gate.SetResult(40)
+    assert pending.Result == 40
+    assert string.Join(",", trace) == "unsafe"
+}
+
+test "an explicit INotifyCompletion implementation resumes through interface dispatch" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitExplicitNotify(new ExplicitNotifyAwaitable(gate.Task))
+    assert !pending.IsCompleted
+
+    gate.SetResult(39)
+    assert pending.Result == 39
+}
+
 test "async lambda and local function captures remain shared across their awaits" {
     lambdaGate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
     lambdaTask := CaptureAsyncLambda(lambdaGate.Task)

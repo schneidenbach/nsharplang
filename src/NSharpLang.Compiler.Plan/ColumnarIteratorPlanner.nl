@@ -2127,7 +2127,7 @@ class ColumnarIteratorPlanner {
     // `yield return`. Classification counts it and walks the operand as the ORDINARY expression it
     // is; WHICH awaitable it names, and therefore which awaiter type the machine hoists, is a
     // question that needs live CLR handles, so the emission asks the awaitable pattern
-    // (`GetAwaiter()` / `IsCompleted` / `OnCompleted(Action)` / `GetResult()`) of whatever the
+    // (`GetAwaiter()` / `IsCompleted` / `GetResult()` / `INotifyCompletion`) of whatever the
     // operand's planned type turns out to be.
     static func WalkAwait(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
         if nodes.ChildCount(node) != 1 {
@@ -8228,9 +8228,9 @@ class ColumnarIteratorBodyPlanner {
         awaiterType := AwaitPatternReturnType(operandType, getAwaiter)
         isCompleted := AwaitPatternIsCompletedGetterOrNull(emit, awaiterType)
         getResult := AwaitPatternMethodOrNull(emit, awaiterType, "GetResult")
-        onCompleted := AwaitPatternActionMethodOrNull(emit, awaiterType, "OnCompleted")
+        onCompleted := AwaitPatternContinuationMethodOrNull(emit, awaiterType)
         if isCompleted == null || getResult == null || onCompleted == null {
-            emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + awaiterType.Name + "' is not an awaiter: it needs `IsCompleted`, `OnCompleted(Action)` and `GetResult()`")
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + awaiterType.Name + "' is not an awaiter: it needs `IsCompleted`, `GetResult()` and INotifyCompletion")
             return false
         }
 
@@ -8290,7 +8290,11 @@ class ColumnarIteratorBodyPlanner {
             AppendAwaiterReceiver(emit, awPool, byAddress)
             LoadThis(emit)
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, "<>__continuation"))
-            emit.Plan.AppendMethodInstruction(AwaiterCallOpcode(byAddress), emit.Plan.AddMethod(onCompleted))
+            if byAddress {
+                awaiterTypeIndex := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(awaiterType), emit.Context.StructuralTypeReferences)
+                emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Constrained(), awaiterTypeIndex)
+            }
+            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(onCompleted))
         }
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.RegionEndLabel)
         emit.Plan.AppendMarkLabel(emit.ResumeLabels[resumeState])
@@ -8395,22 +8399,17 @@ class ColumnarIteratorBodyPlanner {
         return ParameterlessMethodOrNull(owner, name)
     }
 
-    static func AwaitPatternActionMethodOrNull(emit: ColumnarMoveNextEmit, owner: Type, name: string): MethodInfo? {
-        if owner == null || owner.IsGenericParameter {
+    // Continuations are registered through their CLR contract, not by a method named OnCompleted.
+    // Interface dispatch preserves explicit implementations and keeps the builder's generic
+    // INotifyCompletion constraint aligned with semantic awaiter validation.
+    static func AwaitPatternContinuationMethodOrNull(emit: ColumnarMoveNextEmit, owner: Type): MethodInfo? {
+        if !IsNotifyCompletion(emit, owner) {
             return null
         }
-        let sourceDefinition: ColumnarStructDef? = null
-        if ColumnarSourceDefinitionResolver.TryResolveStruct(owner, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
-            let sourceMethod: ColumnarInstanceMethodDef? = null
-            if ColumnarSourceMemberChainResolver.TryFindMethodOnChain(sourceDefinition, name, 1, out sourceMethod) && sourceMethod != null && sourceMethod.ParamTypes[0] == typeof(Action) && sourceMethod.Generics == null {
-                return sourceMethod.Builder
-            }
-            return null
+        if IsCriticalNotifyCompletion(emit, owner) {
+            return typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion).GetMethod("UnsafeOnCompleted", [typeof(Action)])
         }
-        if owner is TypeBuilder {
-            return null
-        }
-        return ActionMethodOrNull(owner, name)
+        return typeof(System.Runtime.CompilerServices.INotifyCompletion).GetMethod("OnCompleted", [typeof(Action)])
     }
 
     static func AwaitPatternIsCompletedGetterOrNull(emit: ColumnarMoveNextEmit, awaiterType: Type): MethodInfo? {
@@ -8457,10 +8456,77 @@ class ColumnarIteratorBodyPlanner {
         if ColumnarSourceDefinitionResolver.TryResolveStruct(awaiterType, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
             return SourceTypeImplementsCriticalNotifyCompletion(sourceDefinition, emit.Context.RequiredScope().Facts.StructDefinitions)
         }
-        if awaiterType is TypeBuilder {
+        lookupType := AwaiterInterfaceLookupType(awaiterType)
+        if lookupType == null {
             return false
         }
-        return typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion).IsAssignableFrom(awaiterType)
+        for implemented in lookupType.GetInterfaces() {
+            if ColumnarTypeEquivalenceFacts.TypesEquivalent(implemented, typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func IsNotifyCompletion(emit: ColumnarMoveNextEmit, awaiterType: Type): bool {
+        let sourceDefinition: ColumnarStructDef? = null
+        if ColumnarSourceDefinitionResolver.TryResolveStruct(awaiterType, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
+            return SourceTypeImplementsNotifyCompletion(sourceDefinition, emit.Context.RequiredScope().Facts.StructDefinitions)
+        }
+        lookupType := AwaiterInterfaceLookupType(awaiterType)
+        if lookupType == null {
+            return false
+        }
+        for implemented in lookupType.GetInterfaces() {
+            if ColumnarTypeEquivalenceFacts.TypesEquivalent(implemented, typeof(System.Runtime.CompilerServices.INotifyCompletion)) || ColumnarTypeEquivalenceFacts.TypesEquivalent(implemented, typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // Reflection.Emit's generic instantiations do not expose GetInterfaces until bake. The awaiter
+    // contracts are implemented by the generic definition, independent of its constructed arguments,
+    // so inspect that baked definition while preserving source definitions through the branch above.
+    static func AwaiterInterfaceLookupType(awaiterType: Type): Type? {
+        if awaiterType == null || awaiterType.IsGenericParameter || awaiterType is TypeBuilder {
+            return null
+        }
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(awaiterType) {
+            try {
+                if awaiterType.IsGenericType {
+                    return awaiterType.GetGenericTypeDefinition()
+                }
+            } catch ex: NotSupportedException {
+                return null
+            } catch ex: NotImplementedException {
+                return null
+            }
+        }
+        return awaiterType
+    }
+
+    static func SourceTypeImplementsNotifyCompletion(definition: ColumnarStructDef, definitions: IEnumerable<ColumnarStructDef>): bool {
+        notifyContract := typeof(System.Runtime.CompilerServices.INotifyCompletion)
+        criticalContract := typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)
+        for interfaceType in definition.ImplementedInterfaceTypes {
+            if ColumnarTypeEquivalenceFacts.TypesEquivalent(interfaceType, notifyContract) || ColumnarTypeEquivalenceFacts.TypesEquivalent(interfaceType, criticalContract) {
+                return true
+            }
+            let interfaceDefinition: ColumnarStructDef? = null
+            if ColumnarSourceDefinitionResolver.TryResolveStruct(interfaceType, definitions, out interfaceDefinition) && interfaceDefinition != null && SourceTypeImplementsNotifyCompletion(interfaceDefinition, definitions) {
+                return true
+            }
+        }
+        for externalInterface in definition.ExternalInterfaces {
+            if ColumnarTypeEquivalenceFacts.TypesEquivalent(externalInterface, notifyContract) || typeof(System.Runtime.CompilerServices.INotifyCompletion).IsAssignableFrom(externalInterface) {
+                return true
+            }
+        }
+        if definition.BaseDef != null {
+            return SourceTypeImplementsNotifyCompletion(definition.BaseDef, definitions)
+        }
+        return false
     }
 
     static func SourceTypeImplementsCriticalNotifyCompletion(definition: ColumnarStructDef, definitions: IEnumerable<ColumnarStructDef>): bool {

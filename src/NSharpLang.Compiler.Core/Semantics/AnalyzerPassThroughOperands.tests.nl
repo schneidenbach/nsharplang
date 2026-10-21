@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Runtime.CompilerServices
 import System.Threading.Tasks
 import NSharpLang.Compiler.Ast
 
@@ -101,6 +102,48 @@ class OperandIncompleteAwaiter {
 
     func GetResult(): int {
         return 1
+    }
+}
+
+class OperandExplicitAwaitable {
+    func GetAwaiter(): OperandExplicitAwaiter {
+        return new OperandExplicitAwaiter()
+    }
+}
+
+class OperandExplicitAwaiter: INotifyCompletion {
+    IsCompleted: bool {
+        get {
+            return true
+        }
+    }
+
+    func GetResult(): int {
+        return 42
+    }
+
+    func INotifyCompletion.OnCompleted(continuation: Action) {
+    }
+}
+
+class OperandPublicOnlyAwaitable {
+    func GetAwaiter(): OperandPublicOnlyAwaiter {
+        return new OperandPublicOnlyAwaiter()
+    }
+}
+
+class OperandPublicOnlyAwaiter {
+    IsCompleted: bool {
+        get {
+            return true
+        }
+    }
+
+    func GetResult(): int {
+        return 42
+    }
+
+    func OnCompleted(continuation: Action) {
     }
 }
 
@@ -1021,6 +1064,29 @@ test "await FINDS A DUCK-TYPED AWAITER THROUGH REFLECTION" {
     assert harness.Errors.Count == 0
 }
 
+test "await accepts an explicit INotifyCompletion implementation" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandExplicitAwaitable))))
+
+    assert OperandTypeText(harness.Operands.Result(state)) == "int"
+    assert harness.Errors.Count == 0
+}
+
+test "await rejects a public OnCompleted method without INotifyCompletion" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandPublicOnlyAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("INotifyCompletion")
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+    assert OperandTypeText(harness.Operands.Result(state)) == "unknown"
+}
+
 test "await rejects a reflected awaiter without OnCompleted at the awaited operand" {
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
@@ -1029,7 +1095,7 @@ test "await rejects a reflected awaiter without OnCompleted at the awaited opera
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
-    assert harness.Errors[0].Message.Contains("OnCompleted(Action)")
+    assert harness.Errors[0].Message.Contains("INotifyCompletion")
     assert OperandErrorText(harness, 0).Contains("6:15:")
     assert OperandTypeText(harness.Operands.Result(state)) == "unknown"
 }

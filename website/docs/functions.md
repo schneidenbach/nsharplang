@@ -1992,7 +1992,10 @@ async func* rows(): IAsyncEnumerable<string> {
 
 The awaited operand may be any awaitable — a `Task`, a `Task<T>`, a `ValueTask<T>`, or a type of your
 own — because the compiler asks the operand's own type for `GetAwaiter()`, and that awaiter for a
-readable `bool IsCompleted`, `OnCompleted(Action)` and parameterless `GetResult()`. A malformed
+readable `bool IsCompleted`, parameterless `GetResult()` and the `INotifyCompletion` contract.
+An explicit `INotifyCompletion.OnCompleted` implementation is valid; a public method with that
+name does not satisfy the contract by itself. Critical awaiters use `ICriticalNotifyCompletion` and
+register through `UnsafeOnCompleted`. A malformed
 awaiter pattern is reported at the `await` expression. An `await` may appear inside a larger
 expression. Values evaluated earlier in the expression are spilled to the iterator state machine and
 reloaded after the await, preserving left-to-right evaluation order across call arguments, binary

@@ -570,6 +570,56 @@ async func AwaitCritical(source: CriticalAwaitable): Task<int> {
     return await source
 }
 
+async func* YieldCriticalAwait(source: CriticalAwaitable): IAsyncEnumerable<int> {
+    yield await source
+}
+
+async func ConsumeCriticalAwait(source: CriticalAwaitable): Task<int> {
+    value := 0
+    await foreach item in YieldCriticalAwait(source) {
+        value += item
+    }
+    return value
+}
+
+class ExplicitNotifyAwaitable {
+    Source: Task<int>
+
+    constructor(source: Task<int>) {
+        Source = source
+    }
+
+    func GetAwaiter(): ExplicitNotifyAwaiter {
+        return new ExplicitNotifyAwaiter(Source)
+    }
+}
+
+class ExplicitNotifyAwaiter: INotifyCompletion {
+    Source: Task<int>
+
+    constructor(source: Task<int>) {
+        Source = source
+    }
+
+    IsCompleted: bool {
+        get {
+            return Source.IsCompleted
+        }
+    }
+
+    func GetResult(): int {
+        return Source.GetAwaiter().GetResult()
+    }
+
+    func INotifyCompletion.OnCompleted(continuation: Action) {
+        Source.GetAwaiter().OnCompleted(continuation)
+    }
+}
+
+async func AwaitExplicitNotify(source: ExplicitNotifyAwaitable): Task<int> {
+    return await source
+}
+
 async func CaptureAsyncLambda(gate: Task): Task<int> {
     captured := 3
     read: Func<Task<int>> = async () => {

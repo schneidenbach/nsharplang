@@ -5118,8 +5118,11 @@ question.
 The `await Task.Delay(<int>)`-only admission is gone. `ColumnarIteratorPlanner.WalkAwait` counts the
 suspension and walks the operand as an ordinary expression;
 `ColumnarIteratorBodyPlanner.AppendAwait` then asks the operand's PLANNED type for `GetAwaiter()`, and
-that awaiter for `get_IsCompleted`, `OnCompleted(Action)` and `GetResult()` — ordinary CLR member
-lookup, no table of known tasks. A `Task`, a `Task<T>`, a `ValueTask<T>` and a user awaitable all
+that awaiter for `get_IsCompleted`, `GetResult()` and semantic implementation of `INotifyCompletion`.
+Continuation registration dispatches through the interface, so an explicit
+`INotifyCompletion.OnCompleted` implementation works while an unrelated same-named method does not.
+Critical awaiters use `ICriticalNotifyCompletion.UnsafeOnCompleted`; the async-iterator continuation
+path also calls the interface slot. A `Task`, a `Task<T>`, a `ValueTask<T>` and a user awaitable all
 answer; a struct awaitable is called through the address of a temporary, and a struct awaiter through
 the address of its own field (a copy would throw the continuation state away). The awaiter field is
 hoisted UNRESOLVED (role 5) and defined from that awaiter type when the lowering reaches the

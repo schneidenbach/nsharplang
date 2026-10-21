@@ -696,7 +696,7 @@ class AnalyzerPassThroughOperands {
         if ShouldReportAwaitMismatch(state.OperandType) {
             span := spansValue.GetExpressionDiagnosticSpan(awaitNode.Expression)
             message := AwaitMismatchMessage(state.OperandType)
-            diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, "Await a Task, ValueTask, or provide a complete awaiter pattern with GetAwaiter(), IsCompleted, OnCompleted(Action), and GetResult().", span.Length)
+            diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, "Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.", span.Length)
         }
     }
 
@@ -759,9 +759,10 @@ class AnalyzerPassThroughOperands {
 
     // SOURCE AWAITABLES ARE CHECKED AGAINST THE SAME COMPLETE SHAPE THE EMITTER WILL CALL. A
     // declared `GetAwaiter` alone is not enough: its result must expose a readable bool
-    // `IsCompleted`, a parameterless `GetResult`, and `OnCompleted(Action)`. The method returns
-    // the value type of `GetResult`, so awaiting a user-defined source awaitable participates in
-    // return and argument checking just like `Task<T>`.
+    // `IsCompleted`, a parameterless `GetResult`, and implement `INotifyCompletion`. The interface
+    // requirement is semantic: explicit implementations are valid and a same-named public method
+    // on an unrelated type is not. The method returns the value type of `GetResult`, so awaiting a
+    // user-defined source awaitable participates in return and argument checking just like `Task<T>`.
     func TrySourceAwaitResultType(awaitableType: TypeInfo, out resultType: TypeInfo): bool {
         resultType = BuiltInTypes.Unknown
         owner := awaitableType
@@ -821,16 +822,7 @@ class AnalyzerPassThroughOperands {
             return false
         }
 
-        onCompleted := new AnalyzerMemberSelection()
-        if !TryFindSourceFunctionWithParameter(awaiterType, "OnCompleted", 1, new ReflectionTypeInfo(typeof(Action)), out onCompleted) || onCompleted.Member == null || onCompleted.Member.ParameterTypes.Length != 1 {
-            return false
-        }
-        continuationType: TypeInfo = BuiltInTypes.Unknown
-        continuationResultType: TypeInfo = BuiltInTypes.Void
-        if !declarationContextValue.TryResolveTypeForOwner(onCompleted.Member.ParameterTypes[0], onCompleted.Owner, substitution, out continuationType) || !TypeInfoIdentityFacts.AreEqual(continuationType, new ReflectionTypeInfo(typeof(Action))) {
-            return false
-        }
-        if onCompleted.Member.ReturnType != null && (!declarationContextValue.TryResolveTypeForOwner(onCompleted.Member.ReturnType, onCompleted.Owner, substitution, out continuationResultType) || !BuiltInTypes.Is(continuationResultType, BuiltInTypes.Void)) {
+        if !SourceTypeImplementsNotifyCompletion(resolvedAwaiter, 0) {
             return false
         }
 
@@ -849,15 +841,106 @@ class AnalyzerPassThroughOperands {
         return !BuiltInTypes.IsUnknown(resultType)
     }
 
+    // Whether a source type's implements closure reaches the CLR continuation contract. Looking
+    // for a method named OnCompleted is not equivalent: explicit interface implementations do not
+    // have that metadata name, while unrelated methods with that spelling do not satisfy builders.
+    func SourceTypeImplementsNotifyCompletion(awaiterType: TypeInfo, depth: int): bool {
+        if depth > 32 || awaiterType == null {
+            return false
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(awaiterType)
+        reflected := resolved as ReflectionTypeInfo
+        if reflected != null {
+            return ReflectionTypeImplementsNotifyCompletion(reflected.Type)
+        }
+        constructed := resolved as GenericTypeInfo
+        if constructed != null {
+            definitionInfo := constructed.GenericDefinition as ReflectionTypeInfo
+            if definitionInfo != null {
+                return ReflectionTypeImplementsNotifyCompletion(definitionInfo.Type)
+            }
+        }
+
+        sourceOwner := resolved
+        substitution := SourceAwaitSubstitution(resolved)
+        if constructed != null && constructed.GenericDefinition != null && declarationContextValue.ContainsSourceType(constructed.GenericDefinition) {
+            sourceOwner = constructed.GenericDefinition
+        }
+        if !declarationContextValue.ContainsSourceType(sourceOwner) {
+            return false
+        }
+
+        references := new List<TypeReference>()
+        classType := sourceOwner as ClassTypeInfo
+        if classType != null {
+            references.AddRange(classType.Interfaces)
+        }
+        structType := sourceOwner as StructTypeInfo
+        if structType != null {
+            references.AddRange(structType.Interfaces)
+        }
+        recordType := sourceOwner as RecordTypeInfo
+        if recordType != null {
+            references.AddRange(recordType.Interfaces)
+        }
+        interfaceType := sourceOwner as InterfaceTypeInfo
+        if interfaceType != null {
+            references.AddRange(interfaceType.BaseInterfaces)
+        }
+        for reference in references {
+            implemented: TypeInfo = BuiltInTypes.Unknown
+            if declarationContextValue.TryResolveTypeForOwner(reference, sourceOwner, substitution, out implemented) && SourceTypeIsNotifyCompletion(implemented, depth + 1) {
+                return true
+            }
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if declarationContextValue.TryGetSourceMemberShape(sourceOwner, substitution, out shape) && shape.BaseType != null && SourceTypeImplementsNotifyCompletion(shape.BaseType, depth + 1) {
+            return true
+        }
+        return false
+    }
+
+    func SourceTypeIsNotifyCompletion(typeInfo: TypeInfo, depth: int): bool {
+        if depth > 32 || typeInfo == null {
+            return false
+        }
+        resolved := declarationContextValue.ResolveDeclaredAlias(typeInfo)
+        reflected := resolved as ReflectionTypeInfo
+        if reflected != null {
+            return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(reflected.Type, typeof(System.Runtime.CompilerServices.INotifyCompletion))
+        }
+        constructed := resolved as GenericTypeInfo
+        if constructed != null {
+            definition := constructed.GenericDefinition as ReflectionTypeInfo
+            if definition != null {
+                return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(definition.Type, typeof(System.Runtime.CompilerServices.INotifyCompletion))
+            }
+        }
+        return SourceTypeImplementsNotifyCompletion(resolved, depth + 1)
+    }
+
+    static func ReflectionTypeImplementsNotifyCompletion(type: Type): bool {
+        if type == null {
+            return false
+        }
+        if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(type, typeof(System.Runtime.CompilerServices.INotifyCompletion)) {
+            return true
+        }
+        for implemented in type.GetInterfaces() {
+            if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(implemented, typeof(System.Runtime.CompilerServices.INotifyCompletion)) || TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(implemented, typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)) {
+                return true
+            }
+        }
+        return false
+    }
+
     func TryFindSourceFunction(owner: TypeInfo, name: string, parameterCount: int, out selection: AnalyzerMemberSelection): bool {
-        return TryFindSourceFunctionCore(owner, name, parameterCount, null, out selection)
+        return TryFindSourceFunctionCore(owner, name, parameterCount, out selection)
     }
 
-    func TryFindSourceFunctionWithParameter(owner: TypeInfo, name: string, parameterCount: int, expectedParameterType: TypeInfo, out selection: AnalyzerMemberSelection): bool {
-        return TryFindSourceFunctionCore(owner, name, parameterCount, expectedParameterType, out selection)
-    }
-
-    func TryFindSourceFunctionCore(owner: TypeInfo, name: string, parameterCount: int, expectedParameterType: TypeInfo?, out selection: AnalyzerMemberSelection): bool {
+    func TryFindSourceFunctionCore(owner: TypeInfo, name: string, parameterCount: int, out selection: AnalyzerMemberSelection): bool {
         sourceOwner := owner
         substitution := SourceAwaitSubstitution(owner)
         constructed := sourceOwner as GenericTypeInfo
@@ -874,15 +957,6 @@ class AnalyzerPassThroughOperands {
                 }
                 foundName = true
                 if member.Kind == DeclaredMemberKind.Function && member.ParameterCount == parameterCount {
-                    if expectedParameterType != null {
-                        if member.ParameterTypes.Length != parameterCount {
-                            continue
-                        }
-                        resolvedParameter: TypeInfo = BuiltInTypes.Unknown
-                        if !declarationContextValue.TryResolveTypeForOwner(member.ParameterTypes[0], shape.Owner, substitution, out resolvedParameter) || !TypeInfoIdentityFacts.AreEqual(resolvedParameter, expectedParameterType) {
-                            continue
-                        }
-                    }
                     selection = new AnalyzerMemberSelection(shape.Owner, member, declarationContextValue.GetDeclarationFile(shape.Owner), member.Line, member.Column, "function", member.IsExported)
                     return true
                 }
@@ -896,17 +970,6 @@ class AnalyzerPassThroughOperands {
         if !declarationContextValue.TryFindMember(sourceOwner, name, out selection) || selection.Member == null || selection.Member.Kind != DeclaredMemberKind.Function || selection.Member.ParameterCount != parameterCount {
             selection = new AnalyzerMemberSelection()
             return false
-        }
-        if expectedParameterType != null {
-            if selection.Member.ParameterTypes.Length != parameterCount {
-                selection = new AnalyzerMemberSelection()
-                return false
-            }
-            resolvedParameter: TypeInfo = BuiltInTypes.Unknown
-            if !declarationContextValue.TryResolveTypeForOwner(selection.Member.ParameterTypes[0], selection.Owner, substitution, out resolvedParameter) || !TypeInfoIdentityFacts.AreEqual(resolvedParameter, expectedParameterType) {
-                selection = new AnalyzerMemberSelection()
-                return false
-            }
         }
         return true
     }
@@ -989,7 +1052,7 @@ class AnalyzerPassThroughOperands {
     func AwaitMismatchMessage(awaitableType: TypeInfo): string {
         resolved := loopSequenceValue.NormalizeShapeType(awaitableType)
         if resolved as ClassTypeInfo != null || resolved as StructTypeInfo != null || resolved as RecordTypeInfo != null || resolved as InterfaceTypeInfo != null || resolved as ReflectionTypeInfo != null || resolved as GenericTypeInfo != null || resolved as ExternalTypeInfo != null {
-            return "await expression cannot use '" + TypeText(awaitableType) + "' because its awaiter pattern is incomplete; it needs GetAwaiter(), bool IsCompleted, OnCompleted(Action), and GetResult()"
+            return "await expression cannot use '" + TypeText(awaitableType) + "' because its awaiter pattern is incomplete; it needs GetAwaiter() and an awaiter with bool IsCompleted, GetResult(), and INotifyCompletion"
         }
         return "await expression needs an awaitable value, but this expression is '" + TypeText(awaitableType) + "'"
     }
@@ -1134,16 +1197,7 @@ class AnalyzerPassThroughOperands {
             return false
         }
 
-        for method in awaiterType.GetMethods(flags) {
-            if method.Name != "OnCompleted" {
-                continue
-            }
-            parameters := method.GetParameters()
-            if parameters.Length == 1 && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(parameters[0].ParameterType, typeof(Action)) {
-                return true
-            }
-        }
-        return false
+        return ReflectionTypeImplementsNotifyCompletion(awaiterType)
     }
 
     // A TYPE'S RENDERED TEXT, TAKEN THROUGH `object`. `Analyzer.cs` wrote `$"{type}"`; the columnar
