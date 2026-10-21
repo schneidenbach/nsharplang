@@ -18,16 +18,18 @@ internal sealed class PlaygroundRunner {
     private types: Dictionary<string, Declaration>
     private typeNamespaces: Dictionary<string, string?>
     private semanticModelsByDeclaration: IReadOnlyDictionary<object, SemanticModel>
+    private asyncDefaultFamilyValue: AsyncTaskFamily
     private stdout: StringBuilder
     private steps: int
     private outputLines: int
 
-    constructor(sourceUnits: IEnumerable<CompilationUnit>, semanticModels: IReadOnlyDictionary<object, SemanticModel>) {
+    constructor(sourceUnits: IEnumerable<CompilationUnit>, semanticModels: IReadOnlyDictionary<object, SemanticModel>, asyncDefaultFamily: AsyncTaskFamily) {
         units = sourceUnits.ToList()
         functions = new Dictionary<string, FunctionDeclaration>(StringComparer.Ordinal)
         types = new Dictionary<string, Declaration>(StringComparer.Ordinal)
         typeNamespaces = new Dictionary<string, string?>(StringComparer.Ordinal)
         semanticModelsByDeclaration = semanticModels
+        asyncDefaultFamilyValue = asyncDefaultFamily
         stdout = new StringBuilder()
         steps = 0
         outputLines = 0
@@ -506,17 +508,29 @@ internal sealed class PlaygroundRunner {
 
     private func InvokeAsyncFunctionValue(function: FunctionDeclaration, arguments: IReadOnlyList<object?>, receiver: RuntimeObject?, depth: int): object {
         task := InvokeFunctionAsync(function, arguments, receiver, depth)
-        return WrapAsyncFunctionTaskValue(function.ReturnType, task)
+        return WrapAsyncFunctionTaskValue(function.Name, function.ReturnType, task, asyncDefaultFamilyValue)
     }
 
-    private static func WrapAsyncFunctionTaskValue(returnType: TypeReference?, task: Task<object?>): object {
+    private static func WrapAsyncFunctionTaskValue(functionName: string, returnType: TypeReference?, task: Task<object?>, defaultAsyncFamily: AsyncTaskFamily): object {
         generic := returnType as GenericTypeReference
-        if generic != null && TaskLikeTypeFacts.IsValueTaskName(generic.Name) {
-            return new ValueTask<object?>(task)
+        if generic != null && TaskLikeTypeFacts.IsTaskLikeName(generic.Name) {
+            if TaskLikeTypeFacts.IsValueTaskName(generic.Name) {
+                return new ValueTask<object?>(task)
+            }
+            return task
         }
         simple := returnType as SimpleTypeReference
-        if simple != null && TaskLikeTypeFacts.IsValueTaskName(simple.Name) {
-            return new ValueTask(task)
+        if simple != null && TaskLikeTypeFacts.IsTaskLikeName(simple.Name) {
+            if TaskLikeTypeFacts.IsValueTaskName(simple.Name) {
+                return new ValueTask(task)
+            }
+            return task
+        }
+        if AsyncTaskFamilyFacts.EffectiveFamily(functionName, defaultAsyncFamily) == AsyncTaskFamily.ValueTask {
+            if returnType == null {
+                return new ValueTask(task)
+            }
+            return new ValueTask<object?>(task)
         }
         return task
     }
@@ -587,13 +601,11 @@ internal sealed class PlaygroundRunner {
             return null
         }
         selectedOwner := selected.DeclaringType
-        if selectedOwner == null || selectedOwner.IsInterface {
-            return selected
+        if selectedOwner == null {
+            return null
         }
-        for candidate in runtimeOwner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
-            if candidate.MetadataToken == selected.MetadataToken {
-                return candidate
-            }
+        if selectedOwner.IsInterface {
+            return SelectedRuntimeInterfaceMethodFor(selected, selectedOwner, runtimeOwner)
         }
         // Reference assemblies and runtime assemblies can assign different metadata tokens. The
         // shared binder already selected this exact member; map its declaring type and signature
@@ -605,7 +617,28 @@ internal sealed class PlaygroundRunner {
                 return candidate
             }
         }
-        return selected
+        // Never invoke a reference-assembly member from the analyzer's MetadataLoadContext. A
+        // missing runtime mapping is surfaced to the playground's bounded-run path instead.
+        return null
+    }
+
+    private static func SelectedRuntimeInterfaceMethodFor(selected: MethodInfo, selectedOwner: Type, runtimeOwner: Type): MethodInfo? {
+        selectedOwnerName := RuntimeTypeDefinitionName(selectedOwner)
+        for runtimeInterface in runtimeOwner.GetInterfaces() {
+            if RuntimeTypeDefinitionName(runtimeInterface) != selectedOwnerName {
+                continue
+            }
+            mapping := runtimeOwner.GetInterfaceMap(runtimeInterface)
+            index := 0
+            while index < mapping.InterfaceMethods.Length {
+                interfaceMethod := mapping.InterfaceMethods[index]
+                if interfaceMethod.Name == selected.Name && interfaceMethod.IsGenericMethod == selected.IsGenericMethod && interfaceMethod.GetGenericArguments().Length == selected.GetGenericArguments().Length && interfaceMethod.GetParameters().Length == selected.GetParameters().Length {
+                    return mapping.TargetMethods[index]
+                }
+                index += 1
+            }
+        }
+        return null
     }
 
     private static func RuntimeTypeDefinitionName(type: Type?): string? {

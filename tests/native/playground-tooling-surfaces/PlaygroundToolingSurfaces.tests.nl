@@ -643,9 +643,10 @@ func PgRunDuplicateEntryPoint(): object {
         throw new InvalidOperationException("The production playground runner constructor shape changed.")
     }
     semanticModelType := Type.GetType("NSharpLang.Compiler.SemanticModel, NSharpLang.Compiler.Core")
+    asyncFamilyType := Type.GetType("NSharpLang.Compiler.AsyncTaskFamily, NSharpLang.Compiler.Model")
     dictionaryDefinitionType := Type.GetType("System.Collections.Generic.Dictionary`2")
-    if semanticModelType == null || dictionaryDefinitionType == null {
-        throw new InvalidOperationException("The semantic model or generic dictionary type was not loadable.")
+    if semanticModelType == null || asyncFamilyType == null || dictionaryDefinitionType == null {
+        throw new InvalidOperationException("The semantic model, async task family, or generic dictionary type was not loadable.")
     }
     dictionaryTypeArguments := new Type[](2)
     dictionaryTypeArguments[0] = typeof(object)
@@ -655,9 +656,11 @@ func PgRunDuplicateEntryPoint(): object {
     if semanticModels == null {
         throw new InvalidOperationException("An empty semantic-model map could not be created.")
     }
-    constructorArguments := new object?[](2)
+    asyncFamily := Enum.Parse(asyncFamilyType, "ValueTask")
+    constructorArguments := new object?[](3)
     SetPgObject(constructorArguments, 0, units)
     SetPgObject(constructorArguments, 1, semanticModels)
+    SetPgObject(constructorArguments, 2, asyncFamily)
     runner := constructors[0].Invoke(constructorArguments)
 
     runMethod := runnerType.GetMethod("RunAsync", new Type[](0))

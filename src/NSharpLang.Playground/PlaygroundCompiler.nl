@@ -173,7 +173,7 @@ sealed class PlaygroundCompiler {
                     }
                 }
             }
-            runner := new PlaygroundRunner(orderedUnits, semanticModelsByDeclaration)
+            runner := new PlaygroundRunner(orderedUnits, semanticModelsByDeclaration, analysis.AsyncDefaultFamily)
             run := await runner.RunAsync()
             return new PlaygroundRunResponse(schemaVersion, run.ExitCode == 0, normalizedActiveFile, run.ExitCode, run.Stdout, run.Stderr, null, diagnostics, summary)
         } catch caught: Exception {
@@ -244,6 +244,7 @@ sealed class PlaygroundCompiler {
 
         config := ProjectFileParser.CreateDefault("NSharpPlayground")
         AddBrowserFrameworkReferences(config)
+        defaultAsyncFamily := AsyncTaskFamilyFacts.ForLanguage(config.Language)
         firstFile := files[0]
         config.set_Entry(firstFile.Name)
         config.set_Exclude(new List<string>())
@@ -263,7 +264,7 @@ sealed class PlaygroundCompiler {
             diagnostics.Add(ToPlaygroundDiagnostic(diagnostic))
         }
         AddLintDiagnostics(snapshot, diagnostics)
-        return new ProjectAnalysis(snapshot, diagnostics)
+        return new ProjectAnalysis(snapshot, diagnostics, defaultAsyncFamily)
     }
 
     // The browser registers the target-framework reference pack before requests reach the compiler.
@@ -525,6 +526,6 @@ sealed class PlaygroundCompiler {
         return Path.Combine(Path.GetTempPath(), "nsharp-playground")
     }
 
-    private sealed record ProjectAnalysis(Snapshot: ProjectSnapshot?, Diagnostics: List<PlaygroundDiagnostic>) {
+    private sealed record ProjectAnalysis(Snapshot: ProjectSnapshot?, Diagnostics: List<PlaygroundDiagnostic>, AsyncDefaultFamily: AsyncTaskFamily = AsyncTaskFamily.ValueTask) {
     }
 }
