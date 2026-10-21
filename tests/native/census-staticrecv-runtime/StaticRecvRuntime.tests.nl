@@ -276,7 +276,7 @@ func StaticRecvAssertServerInitialize(directoryName: string, assemblyName: strin
 }
 
 [UnixLspFact]
-test "an inline reflected configuration delegate starts OmniSharp and answers initialize" {
+test "an inline reflected configuration delegate awaits external Task<T> and answers initialize" {
     StaticRecvAssertServerInitialize("staticrecv-runtime-inline", "NSharpLang.StaticRecvRuntimeInline")
 }
 

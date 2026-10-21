@@ -821,22 +821,13 @@ class AnalyzerPassThroughOperands {
             runtimeDefinition := AnalyzerFunctionTypeFactory.RequiredCoreType(definitionName)
             resultTypeClr := conversion.TryConvertTypeInfoToClrType(resultType)
             if resultTypeClr != null {
-                runtimeResultType: Type? = null
-                runtimeResultName := resultTypeClr.AssemblyQualifiedName
-                if runtimeResultName != null {
-                    runtimeResultType = Type.GetType(runtimeResultName, false)
-                }
-                if runtimeResultType == null && resultTypeClr.FullName != null {
-                    runtimeResultType = AnalyzerFunctionTypeFactory.RequiredCoreType(resultTypeClr.FullName)
-                }
-                if runtimeResultType != null {
-                    try {
-                        runtimeType = runtimeDefinition.MakeGenericType([runtimeResultType])
-                        return true
-                    } catch failure: ArgumentException {
-                        runtimeType = runtimeDefinition
-                        return true
-                    }
+                arguments := new Type[](1)
+                arguments[0] = resultTypeClr
+                genericName := isTaskDefinition ? "Task" : "ValueTask"
+                closedRuntimeType := conversion.CloseGenericDefinition(runtimeDefinition, genericName, arguments)
+                if closedRuntimeType != null {
+                    runtimeType = closedRuntimeType
+                    return true
                 }
             }
             runtimeType = runtimeDefinition
