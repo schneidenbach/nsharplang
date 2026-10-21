@@ -982,7 +982,8 @@ test "020 s38 playground tooling surfaces: RunProject ValidProgram ProducesStdou
 }
 
 test "020 s38 playground tooling surfaces: RunProject awaits async functions through the browser task path" {
-    source := "import System.Threading.Tasks\n\nasync func AddOne(value: int): int {\n    await Task.Delay(1)\n    return value + 1\n}\n\nasync func main() {\n    result := await AddOne(41)\n    print result\n}\n"
+    // Keep the runtime await incomplete so the test covers continuation registration and resumption.
+    source := "import System.Threading.Tasks\n\nasync func AddOne(value: int): int {\n    await Task.Delay(100)\n    return value + 1\n}\n\nasync func main() {\n    result := await AddOne(41)\n    print result\n}\n"
     response := PgRunFiles(source, "Program.nl")
     assert PgOk(response) == "True", PgCensus(response) + " stderr=" + PgStderr(response)
     assert PgExitCode(response) == "0"
