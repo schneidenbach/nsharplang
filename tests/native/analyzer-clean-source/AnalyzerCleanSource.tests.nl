@@ -11970,7 +11970,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — th
     assert AcCensus(analysis) == "NL202:TypeMismatch@4:20+1;", AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or provide a complete awaiter pattern with GetAwaiter(), IsCompleted, OnCompleted(Action), and GetResult().|Error"
+    assert AcRow(analysis, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcSnippet(analysis, 0) == "<null>"
@@ -11979,13 +11979,13 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — th
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "TypeMismatch") == 1
     assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
-    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or provide a complete awaiter pattern with GetAwaiter(), IsCompleted, OnCompleted(Action), and GetResult().|Error"
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.|Error"
     assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@4:20+1"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@4:20+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or provide a complete awaiter pattern with GetAwaiter(), IsCompleted, OnCompleted(Action), and GetResult().|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "    value := await 1"
@@ -11994,7 +11994,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — th
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or provide a complete awaiter pattern with GetAwaiter(), IsCompleted, OnCompleted(Action), and GetResult().|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:20+1"
 }
 

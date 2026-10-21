@@ -2039,7 +2039,8 @@ sealed class ColumnarIlEmitter {
             isInstance ? ownerType : null,
             closureBoxNames,
             closureBoxSourceFields,
-            null
+            null,
+            false
         )
         if result.Succeeded {
             return true
@@ -4839,7 +4840,8 @@ sealed class ColumnarIlEmitter {
             null,
             null,
             null,
-            null
+            null,
+            false
         )
         if result.Succeeded {
             return true
@@ -8739,7 +8741,8 @@ sealed class ColumnarIlEmitter {
                         localIsInstance ? localSynthesizedMethodOwner : null,
                         localAsyncClosureBoxNames,
                         localAsyncClosureBoxFields,
-                        null
+                        null,
+                        false
                     )
                     if !result.Succeeded {
                         return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)

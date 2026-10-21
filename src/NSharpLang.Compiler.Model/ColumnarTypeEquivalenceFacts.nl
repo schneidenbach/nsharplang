@@ -54,6 +54,23 @@ class ColumnarTypeEquivalenceFacts {
             return true
         }
 
+        // Reflection can return distinct GenericTypeParameterBuilder wrappers for the same metadata
+        // variable. A CLR type parameter's identity is its declaring owner and position, never its
+        // name; comparing those facts keeps duplicate reads equal while separating owners and slots.
+        if a.IsGenericParameter || b.IsGenericParameter {
+            if !a.IsGenericParameter || !b.IsGenericParameter || a.GenericParameterPosition != b.GenericParameterPosition {
+                return false
+            }
+            aMethod := a.DeclaringMethod
+            bMethod := b.DeclaringMethod
+            if aMethod != null || bMethod != null {
+                return aMethod != null && bMethod != null && aMethod == bMethod
+            }
+            aOwner := a.DeclaringType
+            bOwner := b.DeclaringType
+            return aOwner != null && bOwner != null && TypesEquivalent(aOwner, bOwner)
+        }
+
         if RuntimeTypeShapeFacts.IsEnumType(a) || RuntimeTypeShapeFacts.IsEnumType(b) {
             return IsSameEnumType(a, b)
         }

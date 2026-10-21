@@ -53,6 +53,91 @@ class ColumnarIteratorRealization {
         return bodyFacts.ModifiedMemberReferences
     }
 
+    // A nested async local's result is first resolved in the containing machine's generic context,
+    // then stored on a child machine which owns a copied set of those parameters. Rebind only type
+    // parameters declared by that owner; method parameters remain available for the method-parameter
+    // substitution that follows.
+    static func TryRebindAsyncOwnerTypeParameters(ownerType: Type, sourceParameters: Type[], targetParameters: Type[], sourceType: Type, out reboundType: Type): bool {
+        reboundType = null
+        if sourceType == null || sourceParameters.Length != targetParameters.Length {
+            return false
+        }
+        if sourceType.IsGenericParameter {
+            if sourceType.DeclaringMethod != null {
+                reboundType = sourceType
+                return true
+            }
+            parameterIndex := 0
+            while parameterIndex < sourceParameters.Length {
+                sourceParameter := sourceParameters[parameterIndex]
+                if sourceType.GenericParameterPosition == parameterIndex && sourceParameter.DeclaringType == ownerType && sourceType.DeclaringType == ownerType {
+                    reboundType = targetParameters[parameterIndex]
+                    return reboundType != null
+                }
+                if Object.ReferenceEquals(sourceType, sourceParameter) || sourceType == sourceParameter {
+                    reboundType = targetParameters[parameterIndex]
+                    return reboundType != null
+                }
+                parameterIndex += 1
+            }
+            reboundType = sourceType
+            return true
+        }
+        if sourceType.IsByRef {
+            elementType: Type = null
+            sourceElementType := ColumnarEmitReflectionFacts.RequiredElementType(sourceType.GetElementType(), "by-ref element type in async owner result rebinding")
+            if !TryRebindAsyncOwnerTypeParameters(ownerType, sourceParameters, targetParameters, sourceElementType, out elementType) {
+                return false
+            }
+            reboundType = elementType.MakeByRefType()
+            return true
+        }
+        if sourceType.IsPointer {
+            elementType: Type = null
+            sourceElementType := ColumnarEmitReflectionFacts.RequiredElementType(sourceType.GetElementType(), "pointer element type in async owner result rebinding")
+            if !TryRebindAsyncOwnerTypeParameters(ownerType, sourceParameters, targetParameters, sourceElementType, out elementType) {
+                return false
+            }
+            reboundType = elementType.MakePointerType()
+            return true
+        }
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
+            elementType: Type = null
+            sourceElementType := ColumnarEmitReflectionFacts.RequiredElementType(sourceType.GetElementType(), "array element type in async owner result rebinding")
+            if !TryRebindAsyncOwnerTypeParameters(ownerType, sourceParameters, targetParameters, sourceElementType, out elementType) {
+                return false
+            }
+            reboundType = elementType.MakeArrayType()
+            return true
+        }
+        if sourceType.IsArray {
+            elementType: Type = null
+            sourceElementType := ColumnarEmitReflectionFacts.RequiredElementType(sourceType.GetElementType(), "array element type in async owner result rebinding")
+            if !TryRebindAsyncOwnerTypeParameters(ownerType, sourceParameters, targetParameters, sourceElementType, out elementType) {
+                return false
+            }
+            reboundType = elementType.MakeArrayType(sourceType.GetArrayRank())
+            return true
+        }
+        if sourceType.IsGenericType && !sourceType.IsGenericTypeDefinition {
+            sourceArguments := sourceType.GetGenericArguments()
+            reboundArguments := new Type[sourceArguments.Length]
+            argumentIndex := 0
+            while argumentIndex < sourceArguments.Length {
+                reboundArgument: Type = null
+                if !TryRebindAsyncOwnerTypeParameters(ownerType, sourceParameters, targetParameters, sourceArguments[argumentIndex], out reboundArgument) {
+                    return false
+                }
+                reboundArguments[argumentIndex] = reboundArgument
+                argumentIndex += 1
+            }
+            reboundType = sourceType.GetGenericTypeDefinition().MakeGenericType(reboundArguments)
+            return true
+        }
+        reboundType = sourceType
+        return true
+    }
+
     static func EmitMember(
         module: ModuleBuilder,
         structDef: ColumnarStructDef,
@@ -988,7 +1073,8 @@ class ColumnarIteratorRealization {
             null,
             null,
             null,
-            null
+            null,
+            false
         )
     }
 
@@ -1014,7 +1100,8 @@ class ColumnarIteratorRealization {
         receiverTypeOverride: Type? = null,
         asyncClosureBoxNames: string[]? = null,
         asyncClosureBoxSourceFields: FieldInfo[]? = null,
-        kickoffReceiverField: FieldInfo? = null
+        kickoffReceiverField: FieldInfo? = null,
+        enclosingOwnerIsAsyncStateMachine: bool = false
     ): ColumnarIteratorRealizationResult {
         kickoffMethodTypeParameters := System.Type.EmptyTypes
         if kickoff.IsGenericMethodDefinition {
@@ -1130,8 +1217,13 @@ class ColumnarIteratorRealization {
                 if !enclosingParameter.IsGenericParameter || enclosingParameter.GenericParameterPosition != parameterIndex {
                     return Declined("emit.async.generic-enclosing", "the declaring type's parameter '" + enclosingParameter.Name + "' is not at position " + parameterIndex.ToString() + " for async function '" + fn.Name + "'", fn.Name)
                 }
-                machineTypeParameterMap[enclosingParameter.Name] = enclosingParameter
-                machineTypeParameters[parameterIndex] = enclosingParameter
+                if enclosingOwnerIsAsyncStateMachine {
+                    machineTypeParameterMap[enclosingParameter.Name] = machineParameterBuilders[parameterIndex]
+                    machineTypeParameters[parameterIndex] = machineParameterBuilders[parameterIndex]
+                } else {
+                    machineTypeParameterMap[enclosingParameter.Name] = enclosingParameter
+                    machineTypeParameters[parameterIndex] = enclosingParameter
+                }
                 enclosingSpecial := 0
                 enclosingBase: Type? = null
                 enclosingInterfaces := System.Type.EmptyTypes
@@ -1192,6 +1284,33 @@ class ColumnarIteratorRealization {
                 parameterIndex += 1
             }
             kickoffMachineType = sm.MakeGenericType(kickoffTypeArguments)
+            if resultType != ColumnarTypeOfPlanner.RequiredVoidType() && enclosingOwnerIsAsyncStateMachine && enclosingParameterCount > 0 {
+                machineEnclosingTypeParameters := new Type[enclosingParameterCount]
+                parameterIndex = 0
+                while parameterIndex < enclosingParameterCount {
+                    machineEnclosingTypeParameters[parameterIndex] = machineTypeParameters[parameterIndex]
+                    parameterIndex += 1
+                }
+                if bodyFacts != null && bodyFacts.EnclosingTypeDefinition != null && bodyFacts.EnclosingTypeDefinition.Builder.IsGenericTypeDefinition {
+                    sourceDeclaringTypeParameters := bodyFacts.EnclosingTypeDefinition.Builder.GetGenericArguments()
+                    declaringTypeParameterCount := sourceDeclaringTypeParameters.Length
+                    if declaringTypeParameterCount > enclosingParameterCount {
+                        return Declined("emit.async.generic-result", "the enclosing declaring type has more generic parameters than async function '" + fn.Name + "' can preserve", fn.Name)
+                    }
+                    declaringTypeMachineParameters := new Type[declaringTypeParameterCount]
+                    parameterIndex = 0
+                    while parameterIndex < declaringTypeParameterCount {
+                        declaringTypeMachineParameters[parameterIndex] = machineEnclosingTypeParameters[parameterIndex]
+                        parameterIndex += 1
+                    }
+                    if !TryRebindAsyncOwnerTypeParameters(bodyFacts.EnclosingTypeDefinition.Builder, sourceDeclaringTypeParameters, declaringTypeMachineParameters, machineResultType, out machineResultType) {
+                        return Declined("emit.async.generic-result", "the enclosing declaring type result of async function '" + fn.Name + "' could not be rebound to its state machine", fn.Name)
+                    }
+                }
+                if !TryRebindAsyncOwnerTypeParameters(enclosingType, enclosingTypeParameters, machineEnclosingTypeParameters, machineResultType, out machineResultType) {
+                    return Declined("emit.async.generic-result", "the enclosing generic result type of async function '" + fn.Name + "' could not be rebound to its state machine", fn.Name)
+                }
+            }
             if resultType != ColumnarTypeOfPlanner.RequiredVoidType() && methodParameterCount > 0 {
                 machineMethodTypeParameters := new Type[methodParameterCount]
                 parameterIndex = 0
@@ -1199,7 +1318,7 @@ class ColumnarIteratorRealization {
                     machineMethodTypeParameters[parameterIndex] = machineTypeParameters[enclosingParameterCount + parameterIndex]
                     parameterIndex += 1
                 }
-                if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(kickoffMethodTypeParameters, machineMethodTypeParameters, resultType, out machineResultType) {
+                if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(kickoffMethodTypeParameters, machineMethodTypeParameters, machineResultType, out machineResultType) {
                     return Declined("emit.async.generic-result", "the generic result type of async function '" + fn.Name + "' could not be rebound to its state machine", fn.Name)
                 }
             }
@@ -1536,7 +1655,8 @@ class ColumnarIteratorRealization {
                 request.KickoffReceiverField == null ? machineType : request.KickoffReceiverField.FieldType,
                 request.CaptureNames,
                 localBoxFields,
-                request.KickoffReceiverField
+                request.KickoffReceiverField,
+                true
             )
             if !childResult.Succeeded {
                 return childResult
@@ -1732,7 +1852,8 @@ class ColumnarIteratorRealization {
                 lambdaReceiverType,
                 request.AsyncClosureBoxNames,
                 request.AsyncClosureBoxFields,
-                request.KickoffReceiverField
+                request.KickoffReceiverField,
+                false
             )
             if !result.Succeeded {
                 return result
@@ -2279,7 +2400,7 @@ class ColumnarIteratorRealization {
                 typeResolution.Structs,
                 typeResolution.Unions,
                 out resolvedType
-        ) && (resolvedType.IsGenericParameter || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(resolvedType) && ColumnarEmitReflectionFacts.RequiredElementType(resolvedType.GetElementType(), "array element type in iterator parameter analysis").IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(resolvedType) || IsOpenDelegateFieldType(resolvedType)) && !ContainsMethodVarReference(resolvedType, smTypeParamMap)
+            ) && (resolvedType.IsGenericParameter || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(resolvedType) && ColumnarEmitReflectionFacts.RequiredElementType(resolvedType.GetElementType(), "array element type in iterator parameter analysis").IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(resolvedType) || IsOpenDelegateFieldType(resolvedType)) && !ContainsMethodVarReference(resolvedType, smTypeParamMap)
         }
         return ColumnarCanonicalTypeResolver.TryResolveType(
             canonical,

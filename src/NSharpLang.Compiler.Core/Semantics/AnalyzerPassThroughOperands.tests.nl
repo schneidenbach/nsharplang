@@ -122,7 +122,7 @@ class OperandExplicitAwaiter: INotifyCompletion {
         return 42
     }
 
-    func INotifyCompletion.OnCompleted(continuation: Action) {
+    func INotifyCompletion.OnCompleted(_continuation: Action) {
     }
 }
 
@@ -143,7 +143,7 @@ class OperandPublicOnlyAwaiter {
         return 42
     }
 
-    func OnCompleted(continuation: Action) {
+    func OnCompleted(_continuation: Action) {
     }
 }
 

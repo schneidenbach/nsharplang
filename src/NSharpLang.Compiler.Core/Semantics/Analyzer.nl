@@ -1378,7 +1378,6 @@ class Analyzer: IDisposable {
 
         localFunction := statement as LocalFunctionStatement
         if localFunction != null {
-            localDeclaration := localFunction.Function
             // The enclosing function's byref parameters travel INTO the local function's walk, so a
             // read of one inside the body is reported at the read (NL331) rather than declining the
             // whole program at emission with nowhere to point.

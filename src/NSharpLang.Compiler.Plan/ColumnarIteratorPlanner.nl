@@ -4401,7 +4401,7 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), spill)
         LoadThis(emit)
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), spill)
-        if awaitedType != storageType && !emit.Context.RequiredScope().TryAppendStorageConversion(emit.Plan, awaitedType, storageType) {
+        if !ColumnarTypeEquivalenceFacts.TypesEquivalent(awaitedType, storageType) && !emit.Context.RequiredScope().TryAppendStorageConversion(emit.Plan, awaitedType, storageType) {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "an awaited '" + awaitedType.Name + "' cannot be stored as '" + storageType.Name + "'")
             return false
         }
