@@ -524,7 +524,7 @@ class AnalyzerMemberAccess {
 
         includeStaticMembers := IsStaticMemberAccessTarget(member.Object)
         invocationPosition := IsCallCalleePosition(member)
-        memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition, InheritsProtectedThrough(receiverType, member.Object))
+        memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition, InheritsProtectedThrough(receiverType, member.Object), invocationPosition ? ambientValue.WrittenCallTypeArgumentCount : 0)
         if !invocationPosition && ambientValue.WriteTargetExpressionTypes != null {
             memberType = ApplyReflectedPropertyInputNullability(receiverType, member, includeStaticMembers, memberType)
         }

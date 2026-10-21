@@ -71,12 +71,14 @@ class AmbientCallCalleeFrame {
     AllowSyntheticSoaOperationReference: bool
     AnalyzingCallCallee: bool
     CallCalleeNode: Expression?
+    WrittenTypeArgumentCount: int
 
-    constructor(allowUnboundCallableReference: bool, allowSyntheticSoaOperationReference: bool, analyzingCallCallee: bool, callCalleeNode: Expression?) {
+    constructor(allowUnboundCallableReference: bool, allowSyntheticSoaOperationReference: bool, analyzingCallCallee: bool, callCalleeNode: Expression?, writtenTypeArgumentCount: int) {
         AllowUnboundCallableReference = allowUnboundCallableReference
         AllowSyntheticSoaOperationReference = allowSyntheticSoaOperationReference
         AnalyzingCallCallee = analyzingCallCallee
         CallCalleeNode = callCalleeNode
+        WrittenTypeArgumentCount = writtenTypeArgumentCount
     }
 }
 
@@ -251,6 +253,7 @@ class AnalyzerAmbientContext {
     allowSyntheticSoaOperationReferenceValue: bool
     analyzingCallCalleeValue: bool
     callCalleeNodeValue: Expression?
+    writtenCallTypeArgumentCountValue: int
     writeTargetExpressionTypesValue: Dictionary<object, TypeInfo>?
     pendingTargetArgumentValue: Expression?
 
@@ -410,6 +413,11 @@ class AnalyzerAmbientContext {
     // and the reader compares by identity.
     CallCalleeNode: Expression? => callCalleeNodeValue
 
+    // The generic arity on the invocation whose callee is being resolved, or zero when the call
+    // omitted its type-argument list. Member lookup uses it to continue to a base only when the
+    // current source type has no method at that arity.
+    WrittenCallTypeArgumentCount: int => writtenCallTypeArgumentCountValue
+
     // THE SUB-EXPRESSION TYPES OF THE WRITE TARGET CURRENTLY BEING ANALYSED, or `null` when no write
     // target is open. Keyed by NODE IDENTITY rather than by position, because the semantic model's
     // line/column keys collide for nested chains that share a start column — `a.b.c` has three nodes
@@ -482,6 +490,7 @@ class AnalyzerAmbientContext {
         allowSyntheticSoaOperationReferenceValue = false
         analyzingCallCalleeValue = false
         callCalleeNodeValue = null
+        writtenCallTypeArgumentCountValue = 0
         writeTargetExpressionTypesValue = null
         pendingTargetArgumentValue = null
     }
@@ -573,12 +582,13 @@ class AnalyzerAmbientContext {
     // being analysed is the thing a call NAMES, not a value the program holds. Nothing opens any of
     // the three on its own except the method-group suppression above, so there is no reason to make
     // a caller spell three save/restore pairs and no way for it to get two of the three right.
-    func EnterCallCallee(calleeNode: Expression?): AmbientCallCalleeFrame {
-        saved := new AmbientCallCalleeFrame(allowUnboundCallableReferenceValue, allowSyntheticSoaOperationReferenceValue, analyzingCallCalleeValue, callCalleeNodeValue)
+    func EnterCallCallee(calleeNode: Expression?, writtenTypeArgumentCount: int = 0): AmbientCallCalleeFrame {
+        saved := new AmbientCallCalleeFrame(allowUnboundCallableReferenceValue, allowSyntheticSoaOperationReferenceValue, analyzingCallCalleeValue, callCalleeNodeValue, writtenCallTypeArgumentCountValue)
         allowUnboundCallableReferenceValue = true
         allowSyntheticSoaOperationReferenceValue = true
         analyzingCallCalleeValue = true
         callCalleeNodeValue = calleeNode
+        writtenCallTypeArgumentCountValue = writtenTypeArgumentCount
         return saved
     }
 
@@ -587,6 +597,7 @@ class AnalyzerAmbientContext {
     // because a restore is not commutative when a nested walk reads one of them in between.
     func ExitCallCallee(saved: AmbientCallCalleeFrame) {
         callCalleeNodeValue = saved.CallCalleeNode
+        writtenCallTypeArgumentCountValue = saved.WrittenTypeArgumentCount
         analyzingCallCalleeValue = saved.AnalyzingCallCallee
         allowSyntheticSoaOperationReferenceValue = saved.AllowSyntheticSoaOperationReference
         allowUnboundCallableReferenceValue = saved.AllowUnboundCallableReference

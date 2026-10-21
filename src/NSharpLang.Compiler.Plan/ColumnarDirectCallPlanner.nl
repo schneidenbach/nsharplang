@@ -1768,13 +1768,16 @@ class ColumnarDirectCallPlanner {
                 return false
             }
             if definition == null {
-                ordinaryInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
+                runtimeCandidates := new MethodInfo[](0)
+                ordinaryInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithCandidateMethods(receiverType, memberName, argumentTypes, argumentFacts, false, out runtimeCandidates)
                 if ordinaryInstance.IsSelected || ordinaryInstance.IsOwnedRejected {
                     return false
                 }
-                genericInstance := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
-                if genericInstance.IsSelected {
-                    return false
+                if runtimeCandidates.Length > 0 {
+                    genericInstance := ColumnarRuntimeGenericMethodResolver.ResolveWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, runtimeCandidates)
+                    if genericInstance.IsSelected {
+                        return false
+                    }
                 }
             }
             scope := ColumnarBindingScopeFacts.Of(nodes)
@@ -3762,27 +3765,29 @@ class ColumnarDirectCallPlanner {
                 return false
             }
 
-            ordinary := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(lookupType, memberName, argumentTypes, argumentFacts, true)
+            runtimeCandidates := new MethodInfo[](0)
+            ordinary := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithCandidateMethods(lookupType, memberName, argumentTypes, argumentFacts, true, out runtimeCandidates)
 
-            if ordinary.IsSelected {
-                ownership = ColumnarDirectCallOwnership.OwnedRejected
-                if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, ordinary, out resultType) {
-                    plan.Rollback(checkpoint)
-                    return false
+            // Resolve every reflected declaration as an individual candidate before reducing the
+            // complete applicable set. An ambiguous generic family can still contain members that
+            // a non-generic overload beats, and vice versa.
+            normalStatic := ordinary
+            if runtimeCandidates.Length > 0 {
+                combinedStatic := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, runtimeCandidates)
+                if combinedStatic.IsSelected || combinedStatic.IsAmbiguous {
+                    normalStatic = combinedStatic
                 }
-
-                ownership = ColumnarDirectCallOwnership.Planned
-                return true
             }
 
-            // A GENERIC method definition is an excluded shape for the ordinary tier, because its
-            // signature still mentions its own type parameters. Close it by inference from the
-            // arguments and it becomes an ordinary MethodInfo the same append path emits.
-            genericStatic := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, memberName, argumentTypes, argumentFacts, true)
-
-            if genericStatic.IsSelected {
+            if normalStatic.IsAmbiguous {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
-                if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, genericStatic, out resultType) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            if normalStatic.IsSelected && !normalStatic.IsExpanded {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, normalStatic, out resultType) {
                     plan.Rollback(checkpoint)
                     return false
                 }
@@ -3798,9 +3803,26 @@ class ColumnarDirectCallPlanner {
             // produces.
             optionalStatic := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(lookupType, memberName, argumentTypes, argumentFacts, true)
 
-            if optionalStatic.IsSelected {
+            // THE SAME FILL FOR A GENERIC DEFINITION WHOSE TYPE ARGUMENTS THE WRITTEN ARGUMENTS
+            // INFER: `JsonSerializer.Serialize(value)` omits `options = null`, which cannot bind a type
+            // parameter and is filled after inference closes the method.
+            chosenOptionalStatic := optionalStatic
+            if runtimeCandidates.Length > 0 {
+                combinedOptionalStatic := ColumnarRuntimeGenericMethodResolver.ResolveCombinedOptionalFillWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, runtimeCandidates)
+                if combinedOptionalStatic.IsSelected || combinedOptionalStatic.IsAmbiguous {
+                    chosenOptionalStatic = combinedOptionalStatic
+                }
+            }
+
+            if chosenOptionalStatic.IsAmbiguous {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
-                if !AppendOptionalFillRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, optionalStatic, out resultType) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            if chosenOptionalStatic.IsSelected {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                if !AppendOptionalFillRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, chosenOptionalStatic, out resultType) {
                     plan.Rollback(checkpoint)
                     return false
                 }
@@ -3812,7 +3834,23 @@ class ColumnarDirectCallPlanner {
             // THE LAST TIER: THE CALL SITE PACKS A `params` TAIL. Asked after the fixed-arity,
             // generic and trailing-optional resolvers, because each of those binds a candidate
             // applicable in its NORMAL form and C# prefers all of them to an expanded one.
+            // A generic definition's tail is packed once inference has closed it, and it competes with
+            // the non-generic candidate by better-function-member rules: `Task.WhenAll(first, second)`
+            // over two `Task<int>` takes `WhenAll<int>(params Task<int>[])`, not
+            // `WhenAll(params Task[])`.
             expandedStatic := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(lookupType, memberName, argumentTypes, argumentFacts, true)
+            if runtimeCandidates.Length > 0 {
+                combinedExpandedStatic := ColumnarRuntimeGenericMethodResolver.ResolveCombinedExpandedWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, runtimeCandidates)
+                if combinedExpandedStatic.IsSelected || combinedExpandedStatic.IsAmbiguous {
+                    expandedStatic = combinedExpandedStatic
+                }
+            }
+
+            if expandedStatic.IsAmbiguous {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                plan.Rollback(checkpoint)
+                return false
+            }
 
             if expandedStatic.IsSelected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
@@ -4000,27 +4038,30 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        ordinaryInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
-
-        if ordinaryInstance.IsSelected {
-            ownership = ColumnarDirectCallOwnership.OwnedRejected
-            if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, ordinaryInstance, out resultType) {
-                plan.Rollback(checkpoint)
-                return false
-            }
-
-            ownership = ColumnarDirectCallOwnership.Planned
-            return true
-        }
+        runtimeCandidates := new MethodInfo[](0)
+        ordinaryInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithCandidateMethods(receiverType, memberName, argumentTypes, argumentFacts, false, out runtimeCandidates)
 
         // A GENERIC instance method definition, closed by inference from the arguments, before the
         // fallbacks below: it is an ordinary member of the receiver's own type and must win against an
-        // extension of the same name exactly as a non-generic instance member does.
-        genericInstance := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
+        // extension of the same name exactly as a non-generic instance member does. Generic and
+        // non-generic methods are ranked together after each applicable declaration has been closed.
+        normalInstance := ordinaryInstance
+        if runtimeCandidates.Length > 0 {
+            combinedInstance := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, runtimeCandidates)
+            if combinedInstance.IsSelected || combinedInstance.IsAmbiguous {
+                normalInstance = combinedInstance
+            }
+        }
 
-        if genericInstance.IsSelected {
+        if normalInstance.IsAmbiguous {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
-            if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, genericInstance, out resultType) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        if normalInstance.IsSelected && !normalInstance.IsExpanded {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, normalInstance, out resultType) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -4033,10 +4074,23 @@ class ColumnarDirectCallPlanner {
         // method is tried next, followed by params expansion; both are still instance candidates and
         // therefore precede extension lookup under C# overload resolution.
         optionalInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(receiverType, memberName, argumentTypes, argumentFacts, false)
+        chosenOptionalInstance := optionalInstance
+        if runtimeCandidates.Length > 0 {
+            combinedOptionalInstance := ColumnarRuntimeGenericMethodResolver.ResolveCombinedOptionalFillWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, runtimeCandidates)
+            if combinedOptionalInstance.IsSelected || combinedOptionalInstance.IsAmbiguous {
+                chosenOptionalInstance = combinedOptionalInstance
+            }
+        }
 
-        if optionalInstance.IsSelected {
+        if chosenOptionalInstance.IsAmbiguous {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
-            if !AppendOptionalFillRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, optionalInstance, out resultType) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        if chosenOptionalInstance.IsSelected {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if !AppendOptionalFillRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, chosenOptionalInstance, out resultType) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -4049,6 +4103,18 @@ class ColumnarDirectCallPlanner {
         // lookup, since an applicable expanded instance method still belongs to the receiver's
         // member group and wins over extensions.
         expandedInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
+        if runtimeCandidates.Length > 0 {
+            combinedExpandedInstance := ColumnarRuntimeGenericMethodResolver.ResolveCombinedExpandedWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, runtimeCandidates)
+            if combinedExpandedInstance.IsSelected || combinedExpandedInstance.IsAmbiguous {
+                expandedInstance = combinedExpandedInstance
+            }
+        }
+
+        if expandedInstance.IsAmbiguous {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            plan.Rollback(checkpoint)
+            return false
+        }
 
         if expandedInstance.IsSelected {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
@@ -4341,6 +4407,11 @@ class ColumnarDirectCallPlanner {
         if !selection.IsSelected || method == null {
             resultType = typeof(int)
             return false
+        }
+
+        if selection.IsOptionalFill {
+            optionalSelection := ColumnarRuntimeOptionalCallSelection.Selected(selection.LookupType, method, selection.ParameterTypes, selection.ReturnType, selection.FixedArgumentCount, selection.IsStatic)
+            return AppendOptionalFillRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, inferredArgumentTypes, argumentFacts, optionalSelection, out resultType)
         }
 
         // AN EXPANDED SELECTION WRITES TWO DIFFERENT SIGNATURES AND MUST KEEP THEM APART. The method

@@ -1371,9 +1371,9 @@ test "020 s41 systems gauntlet facts: `10-json-cli` — the JSON CLI reports its
     assert systemsGoldenExists
     assert diagnosticsGoldenExists
     assert perfGoldenExists
-    assert exitCode == 1
-    assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=2,hotFunctions=1,boundaryFunctions=1,findings=1,errors=0,warnings=1,trustedSites=0}"
-    assert diagnostics == "NL103:error@13:15+33|NSYS050:warning@13:39+9"
+    assert exitCode == 0
+    assert envelope == "command=check.systemsReport;ok=True;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=2,hotFunctions=1,boundaryFunctions=1,findings=1,errors=0,warnings=1,trustedSites=0}"
+    assert diagnostics == "NSYS050:warning@13:39+9"
     assert findingCount == 1
     assert finding0 == "code=NSYS050;severity=warning;effect=unknownExternalCall;message=boundary external call 'JsonSerializer.Serialize' reported for systems handoff review;file=Program.nl;line=13;column=39;length=9;function=EmitJson;policy=systems:strict;summarySource=sourceInferred;suggestion=Keep unknown external work inside the [boundary] and expose a systems-safe result.;callPath=[EmitJson]"
     assert trustedCount == 0

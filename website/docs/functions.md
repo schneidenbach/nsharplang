@@ -2544,9 +2544,10 @@ func create(name: string, age: int): User {
 
 ### Which overload a call means
 
-When more than one overload accepts a call, N# picks between them with the same rule C# uses
-(ECMA-334 §12.6.4.3, "better function member"), and it applies to overloads you declared and to
-overloads read out of a referenced assembly alike:
+When more than one overload accepts a call, N# compares candidates by the quality of their argument
+conversions, for overloads you declared and overloads read out of a referenced assembly alike. This
+uses C#'s better-function-member rule (ECMA-334 §12.6.4.3) as a model, with the generic and optional-call
+divergences described below:
 
 > A candidate is **better** than another when, for **every** argument, its parameter is at least as
 > good a conversion target, and for **at least one** argument it is strictly better.
@@ -2561,15 +2562,15 @@ A parameter is the better conversion target when:
    a `short`.
 
 Only when the conversions cannot separate two candidates do the remaining rules run, in this order: a
-**non-generic** signature beats a generic one whose parameters are the same types after
-substitution, a call in **normal form** beats one that had to expand a `params` tail, and a signature
-that fills **fewer defaults** beats one that fills more.
+**non-generic** signature beats a generic one whose supplied parameter types are identical after
+substitution, a call in **normal form** beats one that had to expand a `params` tail, and an exact-arity
+candidate beats one that needs optional parameters filled.
 
-That ordering applies when candidates differ in how many parameters they omit. For example, given
-`Pick(value: object)` and `Pick(value: string, suffix: string = "")`, `Pick("x")` selects the string
-overload: the identity conversion from `string` is better before the omitted-default tie-break runs.
-When the written argument conversions tie, an overload that needs no defaults beats one that needs
-them.
+For example, given `Pick(value: string)` and `Pick(value: string, suffix: string = "")`,
+`Pick("x")` selects the exact-arity overload because the supplied conversions tie and only the other
+candidate needs a default. If both candidates need optional parameters filled, differing omitted
+parameter types or counts do not by themselves decide the call; it remains ambiguous unless another
+overload rule separates them. Omitted parameters are not conversion arguments.
 
 ```n#
 import System.Collections.Generic
@@ -2584,9 +2585,9 @@ func awaitAll(work: List<Task<int>>): int[] {
 ```
 
 Declaration order is **not** a tiebreak, and neither is the order a referenced assembly's metadata
-happens to list its methods in. When two candidates are still tied after every rule above, the call
-is ambiguous and N# reports [NL414](./errors/NL414.md) rather than choosing for you — see that page
-for the three ways to say which overload you meant.
+happens to list its methods in. When two candidates remain tied and no documented generic/optional
+fallback below applies, the call is ambiguous and N# reports [NL414](./errors/NL414.md) rather than
+choosing for you — see that page for the three ways to say which overload you meant.
 
 ## Extension Methods
 
@@ -2609,10 +2610,10 @@ short := text.Truncate(10)  // "This is a..."
 
 ### Calling an extension method
 
-An extension call is resolved the way C# resolves one. The receiver's static type is converted to
-the `this` parameter's type by the ordinary assignability relation, and the method's type arguments
-are then inferred from the receiver and from the arguments. That is one rule, and it is why the
-receiver can be almost anything:
+For the extension-call shapes supported below, N# uses C#-style receiver and argument inference. The
+receiver's static type is converted to the `this` parameter's type by the ordinary assignability
+relation, and the method's type arguments are inferred from the receiver and from the arguments. This
+is why the receiver can be almost anything:
 
 ```n#
 import System.Collections.Generic
@@ -2636,8 +2637,10 @@ func examples(items: List<Query>, words: string[], text: string, map: Dictionary
 The element type may be a type your own project declares — `List<Query>` above is an
 `IEnumerable<Query>` exactly as `List<string>` is an `IEnumerable<string>`.
 
-A lambda argument is typed by the parameter it is passed to, so the compiler chooses the method
-first and types the lambda afterwards. A method group works wherever a lambda does.
+A lambda argument is typed by the selected parameter, so the compiler chooses the method first and
+types the lambda afterwards when the other arguments or an explicit type-argument list identify one
+candidate. Same-arity delegate targets that need the lambda body to choose between them remain
+declined, as described below. A method group works where its target type identifies one candidate.
 
 An instance method of the receiver wins over an extension of the same name **when it is applicable**.
 When none of the receiver's instance overloads accepts the call, the extension methods in scope are
@@ -2695,6 +2698,69 @@ func configure(app: WebApplication) {
 }
 ```
 
+### Inferred type arguments with optional and `params` parameters
+
+Leaving the type argument to inference works when the call omits defaulted parameters or fills a
+`params` tail. Only the arguments you write take part in inference:
+
+```n#
+import System.Text.Json
+import Microsoft.EntityFrameworkCore
+
+func shapes(set: DbSet<Person>, name: string) {
+    json := JsonSerializer.Serialize(5)                          // Serialize<int>(5, options = null)
+    q := set.FromSqlRaw("SELECT * FROM People WHERE Name = {0}", name)  // TEntity from the receiver
+    all := RelationalQueryableExtensions.FromSqlRaw(set, "SELECT * FROM People")
+}
+```
+
+A call whose array argument is already built passes it through unpacked, and a type parameter that only
+an omitted parameter mentions cannot be inferred (write it). When generic and non-generic overloads
+both apply, the compiler compares each supplied argument's conversion to the candidates' effective
+parameter types. For extension calls, the reduced receiver is argument zero and its conversion to each
+candidate's `this` parameter participates in the same comparison as every written argument. If the
+receiver and an explicit argument favor different candidates, they are incomparable; an aggregate
+conversion score cannot decide between them. A strictly better parameter list wins. When effective
+parameter types and applicable parameter counts tie, the non-generic method wins. All applicable generic
+and non-generic candidates are compared together: incomparable candidates remain ambiguous only when no
+other candidate is better than each of them. Optional candidates with
+identical supplied parameter types but different numbers of declared parameters also remain ambiguous,
+matching C#'s optional-parameter tie-break. Runtime-value coverage checks that `Task.WhenAll(first, second)`
+over two `Task<int>` values returns `Task<int[]>`, that `WhenAny` keeps its typed result, that
+`Array.Sort(int[])` and `Array.IndexOf` choose the generic overloads, and that
+`Encoding.UTF8.GetBytes(JsonSerializer.Serialize(values))` produces the expected JSON bytes.
+
+Constraints on type parameters (`class`, `struct`, `new()`, and type constraints) are checked before
+an overload is considered. A source class with a declared public parameterless constructor can satisfy
+`new()` before the type is baked. A null literal contributes no inference bound; the receiver or another
+argument must bind that type parameter.
+
+Generic inference accumulates exact, lower, and upper bounds, then fixes a type argument that satisfies
+all bounds and their implicit conversions. A value type and its nullable lift fix to the nullable type,
+including when the value type is a source enum still being emitted. For example,
+`Enumerable.Contains` can infer `object` from `IEnumerable<object>` and a `string` value. Invariant
+positions still require matching exact bounds.
+
+### Written type arguments with a lambda
+
+When you write the type arguments, an inline lambda is bound after they are fixed: it can only convert to
+a delegate parameter with the same number of parameters, which is how
+`services.AddSingleton<Svc>(sp => new Svc())` chooses the factory overload over the instance one. Two
+same-arity overloads such as `Action<T>` and `Func<T, int>` both accept `_ => ...`, and parameterless
+`Action` and `Func<T>` both accept `() => ...`; those calls remain declined. Overloads that differ only
+by what the lambda body returns (`Task.Run<int>(() => 1)`) also remain ambiguous. Assign the lambda to a
+typed local.
+
+A public generic method inherited from an external base is callable bare, through `this`, or through an
+expression receiver, with its type arguments written (`Set<Person>()` inside a `DbContext` subclass).
+Source declarations are filtered by generic arity, so a derived `Set(int)` leaves an inherited
+`Set<Person>()` candidate available. Protected generic methods from external bases remain unsupported.
+Inherited calls inside a lambda or local function also remain unsupported because the receiver is a
+closure. For explicit generic calls with an inline lambda, overload selection uses the lambda's
+parameter count after written type arguments close the candidates. Same-arity `Action<T>` and
+`Func<T, TResult>` overloads, and parameterless overloads whose lambda bodies need return-type
+inference such as `Task.Run<int>(() => 1)`, remain declined; assign the lambda to a typed local.
+
 ### Extensions over a type parameter
 
 A type parameter constrained to an interface IS that interface for an extension call:
@@ -2743,6 +2809,9 @@ func main() {
 }
 ```
 
+Cross-project extension lookup does not yet discover N# `this` functions declared in a referenced N#
+project.
+
 A value-type receiver closes `T` on the value type itself, so the value is passed as-is, not boxed.
 Inside the function, `value` has every member `object` gives every type, plus the members of its
 constraints ([Generic Constraints](#generic-constraints)).
@@ -2774,8 +2843,10 @@ func main() {
 }
 ```
 
-If the receiver implements the same generic interface at different type arguments, inference is
-ambiguous and the function is not offered for receiver syntax.
+If the receiver implements the same generic interface at different type arguments, it supplies no
+inference bound for that interface. The function is not offered when no other written argument fixes
+the type parameter. If another argument does fix it, the closed receiver parameter is checked against
+the receiver's interfaces before the function is offered.
 
 The result keeps its closed type in the surrounding expression, so receiver calls can be used in
 arithmetic, comparisons, and conditions. When an instance member and a top-level `this` function
