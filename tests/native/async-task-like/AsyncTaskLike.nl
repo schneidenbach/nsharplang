@@ -275,6 +275,24 @@ class AsyncGenericContainer<T> {
     }
 }
 
+class ConstrainedAsyncOwner<T> where T : IDisposable {
+    Resource: T
+
+    constructor(resource: T) {
+        Resource = resource
+    }
+
+    async func DisposeAfter(gate: Task): Task<bool> {
+        async func disposeLater(): Task<bool> {
+            await gate
+            Resource.Dispose()
+            return true
+        }
+
+        return await disposeLater()
+    }
+}
+
 struct AsyncCounter {
     Value: int
 

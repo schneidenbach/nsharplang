@@ -3539,9 +3539,11 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if receiverType.IsGenericParameter && TryAppendGenericParameterObjectCall(nodes, source, callNode, receiverNode, memberName, receiverType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
-            ownership = ColumnarDirectCallOwnership.Planned
-            return true
+        if receiverType.IsGenericParameter {
+            if TryAppendGenericParameterConstrainedCall(nodes, source, callNode, receiverNode, memberName, receiverType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) || TryAppendGenericParameterObjectCall(nodes, source, callNode, receiverNode, memberName, receiverType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
         }
 
         sourceInstance := ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(receiverType, memberName, argumentTypes, bindings.SourceTypeDefinitions, argumentFacts, bindings.EnclosingTypeDefinition)
@@ -3731,6 +3733,57 @@ class ColumnarDirectCallPlanner {
 
         plan.Rollback(checkpoint)
         return false
+    }
+
+    // A constrained type parameter exposes the instance members of each declared constraint.
+    // Emit interface/base dispatch against the exact constrained storage location so struct
+    // instantiations mutate the field in place and class instantiations retain virtual dispatch.
+    static func TryAppendGenericParameterConstrainedCall(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, memberName: string, receiverType: Type, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
+        resultType = typeof(int)
+        if receiverType == null || !receiverType.IsGenericParameter {
+            return false
+        }
+
+        constraints := ColumnarGenericConstraintPlanner.ResolveCallConstraints(bindings.GenericInterfaceConstraints, receiverType)
+        selected: ColumnarOrdinaryRuntimeDirectCallSelection? = null
+        for constraint in constraints {
+            if constraint == null || constraint.IsGenericParameter {
+                continue
+            }
+            candidate := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(constraint, memberName, argumentTypes, argumentFacts, false)
+            if !candidate.IsSelected || candidate.Method == null {
+                continue
+            }
+            if selected != null && !Object.ReferenceEquals(selected.Method, candidate.Method) {
+                return false
+            }
+            selected = candidate
+        }
+
+        if selected == null || selected.Method == null || selected.IsStatic || selected.DeclaringType == null {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        actualReceiverType := typeof(object)
+        if !ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, receiverNode, bindings, plan, out actualReceiverType) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualReceiverType, receiverType) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        method := selected.Method
+        parameters := method.GetParameters()
+        if parameters == null || !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, selected.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), receiverType, true, false) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        methodIndex := plan.AddMethodWithSignature(method, selected.DeclaringType, selected.ParameterTypes, selected.ReturnType, false, method.IsAbstract)
+        receiverTypeIndex := plan.AddType(receiverType)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Constrained(), receiverTypeIndex)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
+        resultType = selected.ReturnType
+        return !ColumnarCodePlanExecutor.IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
     // A generic parameter inherits the public instance members of `object`. Keep its exact storage

@@ -193,7 +193,7 @@ class ColumnarIteratorBodyScope {
     // instantiation for a generic machine — so the identifier owner's `GetOrAddArgument` reuses that
     // pool row instead of adding a conflicting one.
     static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, stateMachineIsValueType: bool = false): ColumnarIteratorBodyScope {
-        return Create(stateMachineType, facts, typeParameters, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), stateMachineIsValueType)
+        return Create(stateMachineType, facts, typeParameters, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), stateMachineIsValueType, new Type[](0), new Type[][](0))
     }
 
     // THE SAME SCOPE, FOR A METHOD THAT ALSO HAS ARGUMENTS OF ITS OWN. A lambda in a generator body
@@ -201,7 +201,7 @@ class ColumnarIteratorBodyScope {
     // binds, so it already IS the closure's display — and that method's own parameters are ordinary
     // arguments 1..n beside the machine at argument 0. Nothing else about the body changes: the same
     // fields, the same enclosing members, the same one expression door.
-    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, stateMachineIsValueType: bool = false): ColumnarIteratorBodyScope {
+    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, stateMachineIsValueType: bool = false, genericParameters: Type[]? = null, genericInterfaceConstraints: Type[][]? = null): ColumnarIteratorBodyScope {
         if stateMachineType == null || facts == null || parameterOrdinals == null || parameterTypes == null {
             throw new InvalidOperationException("An iterator body scope requires a state-machine type and its body facts.")
         }
@@ -233,6 +233,9 @@ class ColumnarIteratorBodyScope {
         bindings.ExactSourceTypes = facts.ExactSourceTypes
         bindings.SiblingCallables = facts.SiblingCallables
         bindings.SetEnclosingTypeDefinition(facts.EnclosingTypeDefinition)
+        if genericParameters != null && genericInterfaceConstraints != null {
+            bindings.SetGenericInterfaceConstraints(genericParameters, genericInterfaceConstraints)
+        }
 
         // Iterator machines are reference types; C# async method machines are structs whose `this`
         // is a managed pointer. Both use runtime current-instance facts because there is no source

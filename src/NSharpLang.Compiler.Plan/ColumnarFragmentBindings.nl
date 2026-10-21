@@ -45,6 +45,10 @@ class ColumnarFragmentBindings {
     // parameters are installed first; an enclosing type parameter with the same name must never
     // replace that more-local binding.
     typeParameters: Dictionary<string, Type>
+    // The interface constraints copied onto synthesized async state-machine parameters. Generic
+    // parameter TypeBuilder handles cannot always answer GetGenericParameterConstraints before bake,
+    // so constrained calls consume this exact owner-supplied map.
+    GenericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>
     // The production emitter passes this live view. Registry aliases may expose the same
     // definition more than once, so member selection deduplicates by definition identity.
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
@@ -100,6 +104,7 @@ class ColumnarFragmentBindings {
         ThisIsCapturedReceiver = false
         CurrentInstance = null
         typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
+        GenericInterfaceConstraints = new Dictionary<Type, Type[]>()
         SourceTypeDefinitions = new List<ColumnarStructDef>()
         ExactSourceTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
         StructuralTypeReferences = new ColumnarStructuralTypeReferenceTable()
@@ -216,6 +221,17 @@ class ColumnarFragmentBindings {
             result.StructuralTypeReferences = structuralTypeReferences
         }
         return result
+    }
+
+    func SetGenericInterfaceConstraints(parameters: Type[], constraints: Type[][]) {
+        if parameters == null || constraints == null {
+            throw new InvalidOperationException("Generic interface constraints require the parameter and constraint rows.")
+        }
+        GenericInterfaceConstraints = ColumnarGenericConstraintPlanner.BuildGenericInterfaceConstraintMap(
+            parameters,
+            constraints,
+            new Dictionary<Type, Type[]>()
+        )
     }
 
     func SetEnclosingTypeDefinition(enclosingTypeDefinition: ColumnarStructDef?) {

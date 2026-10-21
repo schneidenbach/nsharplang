@@ -461,6 +461,19 @@ test "an async local under a generic class method preserves a value type owner p
     assert classLocal.Result == 33
 }
 
+test "a constrained generic owner keeps its IDisposable constraint in a nested async local" {
+    resource := new MemoryStream()
+    gate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+    owner := new ConstrainedAsyncOwner<MemoryStream>(resource)
+    pending := owner.DisposeAfter(gate.Task)
+    assert !pending.IsCompleted
+    assert resource.CanRead
+
+    gate.SetResult()
+    assert pending.Result
+    assert !resource.CanRead
+}
+
 test "`GetAwaiter()` written out works on a generic task, not only on a unit one" {
     assert AwaitedSynchronously() == 41
     assert AwaiterThroughALocal() == 11

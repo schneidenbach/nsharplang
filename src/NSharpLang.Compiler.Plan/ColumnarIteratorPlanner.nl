@@ -2476,7 +2476,7 @@ class ColumnarIteratorEmitContext {
         if scopeTable == null {
             scopeTable = new ColumnarStructuralTypeReferenceTable()
         }
-        bodyScope := ColumnarIteratorBodyScope.Create(stateMachineType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(scopeTable), typeParameters, stateMachineIsValueType)
+        bodyScope := ColumnarIteratorBodyScope.Create(stateMachineType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(scopeTable), typeParameters, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), stateMachineIsValueType, GenericParameters, GenericInterfaceConstraints)
         index := 0
         while index < FieldNames.Length && index < Fields.Length {
             if Fields[index] != null {
@@ -5320,7 +5320,7 @@ class ColumnarIteratorBodyPlanner {
         ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(lambdaMethod, parameterNames)
         lambdaScope: ColumnarIteratorBodyScope? = null
         if nestedOwner {
-            lambdaScope = ColumnarIteratorBodyScope.Create(parentOwnerType, emit.Context.RequiredScope().Facts, emit.Context.TypeParameters, parameterOrdinals, parameterTypeMap)
+            lambdaScope = ColumnarIteratorBodyScope.Create(parentOwnerType, emit.Context.RequiredScope().Facts, emit.Context.TypeParameters, parameterOrdinals, parameterTypeMap, emit.Context.StateMachineIsValueType, emit.Context.GenericParameters, emit.Context.GenericInterfaceConstraints)
             lambdaScope.Bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
         } else {
             lambdaScope = CreateLambdaBodyScope(emit, display, parameterOrdinals, parameterTypeMap)
@@ -5424,7 +5424,7 @@ class ColumnarIteratorBodyPlanner {
     static func CreateLambdaBodyScope(emit: ColumnarMoveNextEmit, display: ColumnarIteratorLambdaDisplay?, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>): ColumnarIteratorBodyScope? {
         context := emit.Context
         if display == null {
-            scope := ColumnarIteratorBodyScope.Create(context.StateMachineType, context.RequiredScope().Facts, context.TypeParameters, parameterOrdinals, parameterTypes, context.StateMachineIsValueType)
+            scope := ColumnarIteratorBodyScope.Create(context.StateMachineType, context.RequiredScope().Facts, context.TypeParameters, parameterOrdinals, parameterTypes, context.StateMachineIsValueType, context.GenericParameters, context.GenericInterfaceConstraints)
             scope.Bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
             index := 0
             while index < context.FieldNames.Length && index < context.Fields.Length {
@@ -5452,7 +5452,7 @@ class ColumnarIteratorBodyPlanner {
             return scope
         }
 
-        scope := ColumnarIteratorBodyScope.Create(display.MethodOwnerType, context.RequiredScope().Facts, display.TypeParameters, parameterOrdinals, parameterTypes)
+        scope := ColumnarIteratorBodyScope.Create(display.MethodOwnerType, context.RequiredScope().Facts, display.TypeParameters, parameterOrdinals, parameterTypes, false, context.GenericParameters, context.GenericInterfaceConstraints)
         scope.Bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
         index := 0
         while index < context.FieldNames.Length && index < context.Fields.Length {
