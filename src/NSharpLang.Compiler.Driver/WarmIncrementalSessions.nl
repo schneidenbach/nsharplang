@@ -102,6 +102,8 @@ class WarmIncrementalSessions {
             WarmIncrementalSessions.busy.Remove(name)
             index := WarmIncrementalSessions.keys.IndexOf(name)
             if index >= 0 {
+                session := WarmIncrementalSessions.sessions[index]
+                session.Dispose()
                 WarmIncrementalSessions.keys.RemoveAt(index)
                 WarmIncrementalSessions.sessions.RemoveAt(index)
             }
@@ -114,6 +116,8 @@ class WarmIncrementalSessions {
             index := WarmIncrementalSessions.keys.Count - 1
             while index >= 0 {
                 if !WarmIncrementalSessions.busy.Contains(WarmIncrementalSessions.keys[index]) {
+                    session := WarmIncrementalSessions.sessions[index]
+                    session.Dispose()
                     WarmIncrementalSessions.keys.RemoveAt(index)
                     WarmIncrementalSessions.sessions.RemoveAt(index)
                 }

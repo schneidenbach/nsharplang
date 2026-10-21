@@ -121,10 +121,23 @@ class IncrementalCompilationState {
         LastEmissionReused = false
     }
 
+    // The session is the analyzer's owner. Clear the owner slot before closing its metadata
+    // context, so reset/discard can be repeated without disposing the same analyzer twice.
+    func ReleaseRetainedAnalyzer(): bool {
+        analyzer := RetainedAnalyzer
+        RetainedAnalyzer = null
+        if analyzer == null {
+            return false
+        }
+
+        analyzer.Dispose()
+        return true
+    }
+
     // Drops everything: the next run analyses and emits every file with a new analyzer.
     func Reset(environmentKey: string): void {
         EnvironmentKey = environmentKey
-        RetainedAnalyzer = null
+        ReleaseRetainedAnalyzer()
         LastProjectBindings = null
         Files.Clear()
         MetadataEntries.Clear()

@@ -546,6 +546,31 @@ test "an EXPECTED type that can take a delegate suppresses the guard; one that c
     assert !owner.IsUnboundCallableReference(reference, group, funcShape)
 }
 
+test "a natural single method group suppresses NL411 for Delegate, while unusable groups do not" {
+    errors := ReporterErrors()
+    scopes := ReporterScopes()
+    owner := ReporterOwner(errors, scopes)
+    reference := RIdentifier("handler", 1, 1)
+    delegateRoot: TypeInfo = new ReflectionTypeInfo(typeof(Delegate))
+
+    assert !owner.IsUnboundCallableReference(reference, RMethodGroup("handler"), delegateRoot)
+
+    overloadedFunctions := new List<FunctionTypeInfo>()
+    overloadedFunctions.Add(RSourceFunction("handler"))
+    overloadedFunctions.Add(RSourceFunction("handler"))
+    overloaded := NSharpMethodGroupInfoFactory.FromFunctions(overloadedFunctions)
+    assert owner.IsUnboundCallableReference(reference, overloaded, delegateRoot)
+
+    byRef := RSourceFunction("handler")
+    byRef.ParameterTypes = RTypes1(BuiltInTypes.Int)
+    byRef.ParameterModifiers = new List<Ast.ParameterModifier>()
+    byRef.ParameterModifiers.Add(Ast.ParameterModifier.Ref)
+    byRefGroupFunctions := new List<FunctionTypeInfo>()
+    byRefGroupFunctions.Add(byRef)
+    byRefGroup := NSharpMethodGroupInfoFactory.FromFunctions(byRefGroupFunctions)
+    assert owner.IsUnboundCallableReference(reference, byRefGroup, delegateRoot)
+}
+
 test "an ordinary value type is not a callable reference, and a lambda-typed value is not either" {
     errors := ReporterErrors()
     scopes := ReporterScopes()

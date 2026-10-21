@@ -158,7 +158,7 @@
     "pretest": "npm run build-server && npm run compile",
     "test": "npm run test:launch-policy && node ./out/test/runTest.js",
     "test:headless": "npm run test:launch-policy && node ./out/src/test/runTest.js",
-    "test:launch-policy": "npm run compile && nlc test --project ../../tests/native/vscode-launch-policy --filter \"VS Code launch policy\"",
+    "test:launch-policy": "npm run compile && if [ -f ../../src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll ]; then dotnet ../../src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll test --project ../../tests/native/vscode-launch-policy --filter \"VS Code launch policy\"; else nlc test --project ../../tests/native/vscode-launch-policy --filter \"VS Code launch policy\"; fi",
     "test:smoke": "npm run test:launch-policy && TEST_SUITE=extension,diagnostics,hover,completion node ./out/test/runTest.js"
   },
   "dependencies": {

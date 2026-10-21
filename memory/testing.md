@@ -1196,6 +1196,12 @@ integration run measured the current Core counters at 471/280/280; issue #199 th
 `ColumnarAsyncWrapperSelection.nl` (Plan) to the closure, moving them to 474/282/282. Issue #253 then
 added `AtomicFile.nl` (Model), moving them to 479/284/284, which is the checked-in structural baseline.
 
+The 2026-10-19 wave-2 clean-copy measurement kept Core at 484 files parsed, 287 emit parses,
+287 files analyzed and 3 assemblies emitted. The dependency-resolution work raised the compiler-owned
+reference-image count from 28 to 30. The generated Core-scale emit remained at 161 files parsed,
+160 emit parses, 160 files analyzed, 1 assembly and 0 compiler-owned reference images; all other
+counters remained zero.
+
 **Exact structural behavior is always gated; timing runs only when product inputs changed.** Both
 relative gates run `git diff base..head` and time only if it touches a compiler/runtime/CLI product
 input. The source set is explicit: `.nl`, `.cs` and `project.yml` inputs under the compiler slice
@@ -1251,9 +1257,10 @@ output as one JSON envelope. The test writes the verdict and ratio table to
 `artifacts/compile-time/relative-gate.md` and `last-gate-run.txt`; `tests/scripts/test-all.sh` copies
 those records out before deleting its isolated tree, including when a later step fails.
 
-The same project also contains a corpus harness. It measures the 197 distinct projects with
-`project.yml` under `examples/`, `tests/` and `templates/` (21 examples, 170 test and fixture
-projects, and 6 templates; the benchmark harness's own project is excluded). The eleven nested
+The same project also contains a corpus harness. It measures the 217 distinct projects with
+`project.yml` under `examples/`, `tests/` and `templates/` (21 examples, 190 test and fixture
+projects, and 6 templates; the benchmark harness's own project is excluded). This count was measured
+from the merged wave-2 tree, not derived by adding per-issue project totals. The eleven nested
 projects under `examples/11-advanced-features/` and all six template projects are discovered
 individually; projects holding only `.tests.nl` are reported as "no non-test sources". It also
 measures Compiler Core. It writes `runs.csv`, `compile-time.csv` and
@@ -1262,20 +1269,16 @@ to `artifacts/compile-time/<date>/`. Those corpus reports are informational and 
 paired Core-scale gate. Options include `--only <substring>`, `--scope corpus|bootstrap|all`,
 `--cli <Cli.dll>` and `--out <dir>`.
 
-The 2026-10-09 integration census includes six unique iterator and generic-call projects, bringing
-the compile-time corpus to 197. The separate repository-root workspace census pins 235 member roots
-(including the repository root) and 2,017 checked `.nl` files. The only source addition since
-`0c554b664` is `tests/native/gate-script-contracts/CiTestSharding.tests.nl`; no `.nl` files were
-removed. A fresh Debug CLI repository-root `nlc check` on 2026-10-11 measured 3,164 parse events
-under the unchanged strict cap of three per checked file (6,048 maximum), and 12,021 reference-image
-opens against a dynamically computed maximum of 17,979 (33 shared opens for each of 235 members,
-plus six opens for each of 1,704 resolved reference images). These are historical counters from
-before installed framework/reference-pack paths were excluded. Wall time is now record-only: this
-correctness test has no absolute timing budget. The reference-image maximum remains dependency-derived
-from the discovered member inventory and resolved reference closure; the contract verifies it on every run.
-`tests/native/aspnetcore-hosted-services` (2026-10-16, `nlc test` binding a project's shared
-frameworks) moves the compile-time corpus to 198 and the repository-root census to 236 member roots
-and 2,019 checked files.
+The 2026-10-19 wave-2 integration census pins 255 repository member roots (including the repository
+root) and 2,107 checked `.nl` files. A fresh Debug CLI `nlc check --project . --json --stats=...`
+after building the Language Server, Playground and Build Tasks projects returned `ok: true`, zero
+errors and zero project failures. It measured 1,171 parse events under the strict cap of three per
+checked file (6,321 maximum) and 327 reference-image opens against the dependency-derived budget; the
+run also measured 679 emit parses, 679 files analyzed, 9 assemblies emitted and zero framework bytes
+hashed or processes spawned. The 160 warnings are part of the workspace's checked diagnostics and do
+not mark member projects as failed. Wall time is record-only: this correctness test has no absolute
+timing budget. The reference-image maximum remains dependency-derived from the discovered member
+inventory and resolved reference closure; the contract verifies it on every run.
 
 The September 2026 absolute wall/RSS baselines remain historical measurements only; their machine,
 load and phase context is retained in the measurement verdicts. They are no longer a pass/fail
@@ -1906,6 +1909,25 @@ VSCODE_TESTS=skip ./scripts/test-all.sh --commit
 ./scripts/dev.sh Columnar         # every native project whose directory name matches
 ./scripts/dev.sh --list           # every slice name
 ```
+
+#### Expression emission shape census (2026-10-18)
+`tests/native/census-emit-shapes` owns runtime contracts for small legal expression shapes that the
+columnar emitter must preserve: nested call arguments, mixed numeric types, interpolation-hole
+expressions, bitwise operators, external struct arrays, and struct initializer temporaries. Run the
+native project alone with `./scripts/dev.sh --no-estate census-emit-shapes`; `--no-estate` matters
+because the slice name is a native project, not a compiler-service estate row. The slice's owner facts
+remain focused separately with `./scripts/dev.sh --estate AnalyzerLiteralExpressions`,
+`./scripts/dev.sh --estate ConstantConversionFacts`,
+`./scripts/dev.sh --estate ColumnarScalarLiteralPlanner`,
+`./scripts/dev.sh --estate ColumnarCatalogReferenceArrayControls`, and
+`./scripts/dev.sh --estate ColumnarInstanceMemberPlanner`, plus
+`./scripts/dev.sh --estate ColumnarCodePlanExecutor` for struct-initializer temporary validation.
+Unary-minus boundary coverage is owned by `NumericLiteralFacts`, `AnalyzerOperatorExpressions`,
+`ColumnarUnaryLiteralPlanner`, and the same native project. Its contracts pin the exact integer
+tokens, inferred signed types, runtime minimum values, target-typed `int` assignment, neighboring
+values, and `int` versus `long` overload selection. Run those focused rows through
+`~/code/nsharplang-wt/bin/mnw-slot build` with the private `NUGET_PACKAGES` directory before the
+fresh heavy integration gate.
 
 ### The compiler-service estate
 ```bash

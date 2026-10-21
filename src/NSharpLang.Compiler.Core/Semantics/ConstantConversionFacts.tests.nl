@@ -7,12 +7,12 @@ import System.Runtime.InteropServices
 import NSharpLang.Compiler.Ast
 
 
-// 023/1e — THE TWO CONSTANT CONVERSIONS, AND THE THREE CAPS THAT ARE NOT THE SPEC'S.
+// 023/1e — THE TWO CONSTANT CONVERSIONS, AND THE ONE CAP THAT IS NOT THE SPEC'S.
 //
 // These contracts pin the OWNER. The per-position contracts live in
 // `tests/native/columnar-emit-facts/ConstantConversionEmitFacts.tests.nl`, because what a rule costs is
-// only visible where it is USED; what is pinned here is the decision itself, including the three places
-// the decision is deliberately narrower than ECMA-334 §10.2.11.
+// only visible where it is USED; what is pinned here is the decision itself, including the one place
+// the decision is deliberately narrower than ECMA-334 §10.2.11 (negative magnitudes).
 func ConstantFactsEnumType(): Type {
     // ASSEMBLY-QUALIFIED ON PURPOSE. `AssemblyFlags` lives in `System.Reflection.Metadata.dll`, not in
     // CoreLib, so a bare metadata name resolves to nothing -- the wall STATUS 2.1 records for
@@ -86,24 +86,25 @@ test "a negative constant reaches the signed targets and no unsigned one" {
     assert !ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(ulong), "1", true, out value)
 }
 
-// ── THE THREE CAPS THAT ARE TIGHTER THAN §10.2.11 ────────────────────────────────────────────────
-// They are NOT the spec's, they are the legacy pipeline's, and 023/1e carried them VERBATIM out of
-// `ColumnarIlEmitter.TryEmitIntLiteralAsType` because moving the decision must not move the answer.
-// A decline the two owners disagree about is a claim the N# door makes and the host then refuses --
-// the failure `ColumnarMethodBodyPlanner` exists to prevent. FILED, not fixed: now that the decision
-// lives in one place, they are correctable in one place.
-test "the caps are the pipeline's, not the spec's, and they are pinned so a fix is a deliberate act" {
+// ── POSITIVE CONSTANTS TAKE THE TARGET'S FULL RANGE, NEGATIVES STAY CAPPED ──────────────────────
+// §10.2.11: `u: uint = 4000000000`, `m: long = 4294967295` and `m: ulong = 18446744073709551615` are
+// all constants C# accepts. Only the negative cap (#14) still sits below the spec and stays pinned so
+// a fix is a deliberate act.
+test "a positive constant takes the full range of its target and a negative one stays capped" {
     value := 0L
 
-    // #12 — `uint` caps at int.MaxValue, not uint.MaxValue. C# accepts `uint u = 4000000000;`.
-    assert ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(uint), "2147483647", false, out value)
-    assert !ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(uint), "2147483648", false, out value)
-    assert !ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(uint), "4000000000", false, out value)
+    assert ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(uint), "4294967295", false, out value)
+    assert value == 4294967295L
+    assert !ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(uint), "4294967296", false, out value)
 
-    // #13 — positive `long`/`ulong` magnitudes ALSO cap at int.MaxValue.
-    assert ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(long), "2147483647", false, out value)
-    assert !ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(long), "5000000000", false, out value)
-    assert !ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(ulong), "5000000000", false, out value)
+    assert ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(long), "5000000000", false, out value)
+    assert value == 5000000000L
+    assert ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(long), "9223372036854775807", false, out value)
+    assert !ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(long), "9223372036854775808", false, out value)
+
+    assert ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(ulong), "5000000000", false, out value)
+    assert ConstantConversionFacts.TryGetInRangeIntegralConstant(typeof(ulong), "18446744073709551615", false, out value)
+    assert value == -1L
 
     // #14 — negatives cap at the target's MAXVALUE magnitude, so the exact MinValues are refused.
     // C# accepts `sbyte v = -128;` and `short w = -32768;`.

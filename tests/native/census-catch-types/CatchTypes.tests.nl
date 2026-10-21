@@ -51,3 +51,16 @@ test "a finally runs after a non-corelib typed clause returns" {
 test "the bound variable carries the clause's own type" {
     assert CatchTypes.BoundVariableIsTheClauseType() == "timed-out"
 }
+
+test "a catch clause may name its exception type with a namespace qualifier" {
+    assert QualifiedCatchTypes.CatchQualified() == "qualified:boom"
+    assert QualifiedCatchTypes.CatchQualifiedInParens() == "paren:paren"
+    assert QualifiedCatchTypes.CatchQualifiedTypeFirst() == "type-first:type-first"
+    assert QualifiedCatchTypes.QualifiedUnmatchedFallsThrough() == "outer:inner"
+}
+
+test "assert throws accepts a qualified exception type" {
+    assert throws System.InvalidOperationException {
+        throw new System.InvalidOperationException("x")
+    }
+}

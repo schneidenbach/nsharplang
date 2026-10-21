@@ -1049,12 +1049,7 @@ class AnalyzerOverloadScoring {
             return true
         }
 
-        fullName := effectiveType.FullName
-        if fullName == "System.Delegate" {
-            return true
-        }
-
-        return fullName == "System.MulticastDelegate"
+        return AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(effectiveType)
     }
 
     // A lambda may be matched against a BROAD delegate parameter only when it annotates every

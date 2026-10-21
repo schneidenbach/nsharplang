@@ -86,10 +86,12 @@ dependencies:
   global packages folder, or the latest stable version on nuget.org if there is none, but
   `dotnet build` refuses the entry with `error NU1015: The following PackageReference item(s) do not
   have a version specified` (measured with the .NET 10 SDK). `nlc add` always writes a version.
-- The packages a package depends on come along automatically. When more than one version of the
-  same package is asked for, a version you list directly in `dependencies:` always wins. Otherwise
-  the **highest** version asked for anywhere in the graph wins, however deep it is, which is what
-  `dotnet restore` resolves.
+- The packages a package depends on come along automatically. NuGet resolves a direct project
+  dependency before transitive requests, even when that direct version is a downgrade. Within one
+  direct package's subgraph, the nearest occurrence of a package wins and dependencies declared
+  only by losing versions are ignored. When separate subgraphs request cousin versions, NuGet picks
+  the lowest version that satisfies all their constraints. Package dependency versions are minimum
+  bounds here, so that is the highest requested minimum among the winning subgraphs.
 - Packages are downloaded into the NuGet global packages folder (`~/.nuget/packages`, or
   `$NUGET_PACKAGES`). After a package is restored, its assemblies are copied next to your program.
 

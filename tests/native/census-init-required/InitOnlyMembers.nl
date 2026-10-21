@@ -2,7 +2,9 @@ namespace NSharpLang.CensusInitRequired.Tests
 
 import System
 import System.Collections.Generic
+import System.Threading
 import System.Threading.Tasks
+import Census.Nullability
 
 
 // The shape the docs promise: an `init` member is set by an object initializer and is a PROPERTY in
@@ -186,4 +188,40 @@ async func AsyncComposedGenericInit(): object {
     return AcceptInitialized(new GenericInitializable<int> {
         Value: 43
     })
+}
+
+// The referenced N# fixture emits init-only setters with modreq(IsExternalInit). Keep these cases
+// here with the existing init-required project so the root-check census gains neither a project nor
+// a framework-reference closure.
+func BuildExternalSync(): int {
+    meter := new ExternalInitMeterOptions("sync") { Scope: "a" }
+    advice := new ExternalInitInstrumentAdvice<int> { HistogramBucketBoundaries: [1, 2, 3] }
+    return advice.HistogramBucketBoundaries.Count * 10 + meter.Name.Length
+}
+
+async func BuildTwoExternalInAsync(): int {
+    meter := new ExternalInitMeterOptions("async") { Scope: "a" }
+    advice := new ExternalInitInstrumentAdvice<int> { HistogramBucketBoundaries: [1, 2, 3] }
+    await Task.Delay(1, CancellationToken.None)
+    return advice.HistogramBucketBoundaries.Count * 10 + meter.Name.Length
+}
+
+async func BuildOneExternalInAsync(): int {
+    meter := new ExternalInitMeterOptions("one") { Scope: "a" }
+    await Task.Yield()
+    return meter.Name.Length
+}
+
+async func BuildSameExternalTypeTwiceInAsync(): int {
+    first := new ExternalInitMeterOptions("first") { Scope: "a" }
+    second := new ExternalInitMeterOptions("second") { Scope: "b" }
+    await Task.Yield()
+    return first.Name.Length * 10 + second.Name.Length
+}
+
+async func BuildNestedExternalInListInAsync(): int {
+    list := [new ExternalInitMeterOptions("x") { Scope: "a" }, new ExternalInitMeterOptions("yy") { Scope: "b" }]
+    advice := new ExternalInitInstrumentAdvice<int> { HistogramBucketBoundaries: [1, 2] }
+    await Task.Yield()
+    return list[1].Name.Length * 10 + advice.HistogramBucketBoundaries.Count
 }

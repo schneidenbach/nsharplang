@@ -50,6 +50,26 @@ names: string[] = ["Alice", "Bob", "Charlie"]
 
 ## Numeric Operators
 
+### Unsuffixed integer literal types
+
+An unsuffixed nonnegative integer literal takes the first integral type that can hold its value:
+`int`, `uint`, `long`, then `ulong`. For example, `4294967295` is a `uint` and `5000000000` is a
+`long`. The compiler then applies the ordinary implicit or constant conversion rules at the use site,
+so this is valid:
+
+```n#
+mask: long = 4294967295
+```
+
+A suffix fixes the literal's type, as in `4294967295L` or `4294967295UL`.
+
+Unary minus has two C# boundary cases. When an integer token with the corresponding magnitude
+immediately follows `-`, `-2147483648` is an `int` with the value `int.MinValue`, and
+`-9223372036854775808` is a `long` with the value `long.MinValue`. The long minimum may also be
+written with an `L` suffix. The same rule applies to radix spellings such as `-0x80000000`. The
+positive magnitudes by themselves still follow the first-fitting rule: `2147483648` is `uint`, and
+`9223372036854775808` is `ulong`.
+
 ### Binary numeric promotion
 
 An arithmetic, bitwise or comparison operator runs in ONE type, and which one is decided by the two
@@ -147,6 +167,14 @@ one; `new T[](n)` builds an empty one of a given size.
 names: string[] = ["Alice", "Bob"]
 empty := new int[](3)
 first := names[0]
+```
+
+Arrays can also hold supported CLR structs, such as `Guid`:
+
+```n#
+import System
+
+ids: Guid[] = [Guid.NewGuid(), Guid.Empty]
 ```
 
 ### Array covariance
@@ -549,6 +577,8 @@ The same rule applies through generics and assembly boundaries. A closed generic
 `new Box<string> { Value: "ready" }` calls the marked setter, and a derived constructor may assign an
 inherited `init` member declared by a referenced `Box<T>`. The emitted call preserves the setter's
 `IsExternalInit` required modifier, so the CLR binds it to the same method the declaration exposes.
+The same behavior applies in an `async` function, including when initialized values remain live across
+an `await`.
 
 `init` may also be written in front of an explicit accessor pair, which puts the same marker on the
 declared setter:
@@ -1091,7 +1121,28 @@ holder.Inner.Value = 7                 // a struct field of a struct variable: t
 `new T { ... }` over a struct starts from its public parameterless constructor when it declares one
 and from the zeroed value otherwise; over a class, from the constructor callable with no arguments,
 including one whose parameters are all optional. That is C#'s rule, so a type means the same thing
-on either side of an assembly boundary.
+on either side of an assembly boundary. The initialized value can be passed directly as a call
+argument, returned, or used inside another initializer:
+
+```n#
+func Sum(point: Point): double {
+    return point.X + point.Y
+}
+
+func Origin(): Point {
+    return new Point { X: 0.0, Y: 0.0 }
+}
+
+sum := Sum(new Point { X: 1.0, Y: 2.0 })
+```
+
+The same expression form works for a struct from a CLR library:
+
+```n#
+import System.Text.Json
+
+doc := JsonDocument.Parse("{}", new JsonDocumentOptions { AllowTrailingCommas: true })
+```
 
 ### Readonly Structs
 
@@ -1130,6 +1181,16 @@ person := new Person {
 // With expressions (create modified copy)
 older := person with { Age: 31 }
 ```
+
+A `with` member is written like an object-initializer member, so `null`, a plain value for a `T?`
+member, `a ?? b` over nullable values and `flag ? v : null` are all valid replacements. `with` also
+works on a record declared in another N# project (a `project:` dependency), including a closed generic
+N# record: a reference record is copied through its public `<Clone>$` method, while a record struct is
+copied by value. A reference record may inherit from another reference record; an ordinary class and a
+record class cannot inherit from each other. The named members are written through public setters
+(including `init` setters) or public fields. A class without a public `<Clone>$` method gets a positioned NL202 diagnostic such as
+`'Plain' is not a record: it has no '<Clone>$' copy method for 'with' to call`.
+The repository has no C#-compiled record fixture, so C# record interoperability has not been verified.
 
 ### Record Structs
 
@@ -1747,6 +1808,17 @@ The closure is searched depth-first in written order, and the first declaration 
 member is still declared exactly once — on the interface that opened it — so the call dispatches
 through that interface's slot, which is what `typeof(IIdentified).GetProperty("Key")` shows and
 `typeof(IDocumentRecord).GetProperty("Key")` (declared-only) does not.
+
+An interface-typed value also has every member `object` gives every type, as in C#: `list.ToString()`,
+`list.GetHashCode()`, `list.Equals(other)` and `list.GetType()` compile on an `IList<int>` (or an
+`IFormattable`, where `object.ToString()` sits beside the interface's `ToString(format, provider)`)
+without casting to `object` first. This holds for interfaces from referenced assemblies, for interfaces
+you declare, and for a type parameter constrained to an interface.
+
+An interface's own overload hides an `object` member only when their parameter signatures match. For
+example, `interface IPrintable { func ToString(format: string): string }` still allows
+`value.ToString()` through `object.ToString()` as well as `value.ToString("hex")` through the
+interface slot.
 
 ### Generic Interfaces
 
@@ -2609,16 +2681,23 @@ Two rules the compiler enforces about the type-argument list itself:
   declarations `[assembly: InternalsVisibleTo(...)]` writes are the `internalsVisibleTo:` key (see
   [Making another assembly your friend](#making-another-assembly-your-friend)). Generic
   attributes (`class Mark<T>: Attribute`) are not supported either.
-- A **catch clause's exception type must be a simple name**: `catch ex: System.InvalidOperationException`
-  does not parse, `import System` plus `catch ex: InvalidOperationException` does. (A type used only
-  as a catch type, only inside a `Func<…>` in a signature, only in an attribute or only as a type
-  argument DOES now count as a use of its import; `NL010` no longer reports those.)
+- A catch clause accepts a simple or namespace-qualified exception type, such as
+  `catch ex: InvalidOperationException` or `catch ex: System.IO.IOException`. Qualified names use
+  the same type-resolution rules as other type references; importing `System` still allows the
+  unqualified spelling. A type used only as a catch type, only inside a `Func<…>` in a signature,
+  only in an attribute or only as a type argument counts as a use of its import, so `NL010` does
+  not report those.
 - **Omitting a defaulted parameter** works for a function, method or constructor declared in the SAME
   project — including a call from another file — and for an external instance, static, extension or
   CONSTRUCTOR parameter, whose default the call site reads out of the callee's metadata and writes
   as a literal (`new Conn("h")` for `constructor(host: string, port: int = 8080)`; `connect("h")`;
   `c.Url()` for `func Url(scheme: string = "http")`; named arguments such as `total(1, c: 20)`
-  skip the ones in between). Every constant default is filled, in your own project and from a
+  skip the ones in between). A call written with a BARE name inside the declaring type fills its
+  defaults exactly as the qualified spelling does: `Show(a)` for `static func Show(a: string,
+  b: string = "-")` from a sibling method, an instance `Tag(a)` for `func Tag(a: string, suffix:
+  string = ".")`, and `Many(a, c: 9)` skipping the middle default. A bare call to a method declared
+  on a BASE class with an omitted default is not filled yet; write `this.` or the owner's name.
+  Every constant default is filled, in your own project and from a
   referenced assembly alike: the null reference, `default`, a `Nullable<T>` with no value or with a
   constant, and every integral, floating, `char`, `bool`, `string`, `decimal` and enum constant (see
   [Optional Parameters](./functions.md#optional-parameters)). What remains:
@@ -2762,6 +2841,32 @@ displayAge := age ?? 0
 `DateTime`, `Guid`, a tuple, and an enum, a struct or a struct record **you declare yourself**. A
 `T?` is `System.Nullable<T>` in metadata whatever `T` is, so a C# caller sees exactly the type it
 expects.
+
+A value converts into a `T?` the way it does in C# (the implicit nullable conversions), wherever a
+`T?` is expected — a typed local, an argument, a return, an assignment, an object-initializer or `with`
+member:
+
+```n#
+n := 5
+len: long? = n                      // int widens to long, then wraps
+flag := true
+when: DateTime? = flag ? DateTime.UtcNow : null   // the null arm takes the DateTime? type
+```
+
+`a ?? b` follows C#'s conversion order. With a `T?` left side, a right value convertible to `T` makes
+the result `T` (`int? ?? 0`); otherwise a right value convertible to `T?` keeps the result `T?`
+(`long? ?? int?` is `long?`); otherwise, when `T` converts to the right side, the result has the
+right side's type (`int? ?? long` is `long`, and `int? ?? long?` is `long?`). A `null` right side
+keeps the left side nullable. Reference operands use the corresponding conversions with reference
+nullability erased for the present value (`Base? ?? Derived` is `Base`, `Derived? ?? Base` is `Base`).
+Integer constants use value-sensitive conversion: `byte? ?? 1` is `byte` when the value fits, while
+`byte? ?? 256` is `int`.
+Lifted `decimal` conversion cases are outside this backend path's verified conversion matrix.
+
+A `(string, int)` tuple converts to `(string?, int?)` element by element; tuple element conversions
+that change representation are limited to a nullable wrap and numeric widening under it (`(int, int)`
+converts to `(long?, int?)`, but still does not convert to `(long, long)`). The emitter rebuilds up to
+seven top-level tuple elements; tuples with eight or more top-level elements remain unsupported.
 
 `Nullable<T>`'s own surface comes with it, also whatever `T` is — `HasValue`, `Value` and both
 `GetValueOrDefault` overloads:

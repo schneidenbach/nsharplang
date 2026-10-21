@@ -336,6 +336,10 @@ class ColumnarLambdaPlacementPlanner {
         childCount := nodes.ChildCount(node)
         c := first
         while c < childCount {
+            if ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(nodes, node, c) {
+                c = c + 1
+                continue
+            }
             CollectContextualLambdaCaptures(nodes, source, nodes.Child(node, c), bound, enclosingCapturableNames, captures)
             c = c + 1
         }

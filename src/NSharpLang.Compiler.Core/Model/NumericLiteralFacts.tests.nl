@@ -307,3 +307,21 @@ test "the integer suffix reports unsigned and long independently in any order or
     assert reversed.HasUnsigned
     assert reversed.HasLong
 }
+
+test "the unary minus minimum tokens follow C sharp decimal suffix rules" {
+    assert NumericLiteralFacts.IsNegatedIntMinimumLiteral("2147483648")
+    assert NumericLiteralFacts.IsNegatedIntMinimumLiteral("2_147_483_648")
+    assert !NumericLiteralFacts.IsNegatedIntMinimumLiteral("2147483648L")
+    assert !NumericLiteralFacts.IsNegatedIntMinimumLiteral("2147483648U")
+    assert NumericLiteralFacts.IsNegatedIntMinimumLiteral("0x80000000")
+    assert NumericLiteralFacts.IsNegatedIntMinimumLiteral("0b10000000000000000000000000000000")
+    assert !NumericLiteralFacts.IsNegatedIntMinimumLiteral("2147483649")
+
+    assert NumericLiteralFacts.IsNegatedLongMinimumLiteral("9223372036854775808")
+    assert NumericLiteralFacts.IsNegatedLongMinimumLiteral("9_223_372_036_854_775_808L")
+    assert !NumericLiteralFacts.IsNegatedLongMinimumLiteral("9223372036854775808UL")
+    assert NumericLiteralFacts.IsNegatedLongMinimumLiteral("0x8000000000000000")
+    assert NumericLiteralFacts.IsNegatedLongMinimumLiteral("0b1000000000000000000000000000000000000000000000000000000000000000")
+    assert !NumericLiteralFacts.IsNegatedLongMinimumLiteral("9223372036854775808LL")
+    assert !NumericLiteralFacts.IsNegatedLongMinimumLiteral("9223372036854775809")
+}

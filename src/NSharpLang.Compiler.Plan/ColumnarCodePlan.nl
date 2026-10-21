@@ -1074,6 +1074,9 @@ class ColumnarCodePlan {
         index := MethodCount
         Methods[index] = value
         MethodUsesDeclaredSignature[index] = false
+        // Plans are reset and reused across expression emission. A method added without a declared
+        // signature must not inherit an init-only signature source left in this pool slot.
+        MethodModifiedSignatureSources[index] = null
         MethodCount = MethodCount + 1
         return index
     }

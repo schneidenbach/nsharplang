@@ -176,6 +176,15 @@ test "a tuple is an array's element type, and a foreign value-type generic still
     assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(System.Numerics.Vector<int>))
 }
 
+test "Guid is an external struct array element while other value shapes stay excluded" {
+    assert ColumnarTypeOfPlanner.IsSupportedElementType(typeof(Guid))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Guid[]))
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(DateTime))
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(System.Text.Json.JsonElement))
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(Span<int>))
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(System.Numerics.Vector<int>))
+}
+
 test "catalog reference element admission keeps unsupported runtime shapes out" {
     dictionary := CatalogReferenceArrayDictionaryType()
     openDictionary := dictionary.GetGenericTypeDefinition()

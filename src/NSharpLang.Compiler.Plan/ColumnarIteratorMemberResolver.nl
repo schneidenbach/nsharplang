@@ -168,7 +168,7 @@ class ColumnarIteratorMemberBinding {
         exactDeclaringContext := (Type)contextObject
         openMethod: MethodInfo? = null
         if propertyLookup {
-            propertyObject: object? = authoritativeOpenOwner.GetProperty(lookupName)
+            propertyObject: object? = ReflectedMemberLookup.FindProperty(authoritativeOpenOwner, lookupName)
             property := (PropertyInfo)propertyObject
             openMethod = property.GetGetMethod()
         } else {
