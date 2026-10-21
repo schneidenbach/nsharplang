@@ -689,6 +689,7 @@ class ColumnarExternalInterfaceMethodBinding {
 }
 
 class ColumnarExternalInterfaceMethodResolver {
+
     // Source methods are stored in a compatibility `Methods` row plus the authoritative overload
     // set. Interface realization must compare the complete slot signature against every overload;
     // choosing the first name match lets a decoy such as OnCompleted(object) hide the actual

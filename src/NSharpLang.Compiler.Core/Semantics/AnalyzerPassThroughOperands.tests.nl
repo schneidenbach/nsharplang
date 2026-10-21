@@ -166,11 +166,19 @@ class OperandCriticalAwaitable {
 }
 
 class OperandCriticalAwaiter: ICriticalNotifyCompletion {
-    IsCompleted: bool { get { return false } }
+    IsCompleted: bool {
+        get {
+            return false
+        }
+    }
 
-    func GetResult(): int { return 45 }
-    func OnCompleted(_continuation: Action) {}
-    func UnsafeOnCompleted(_continuation: Action) {}
+    func GetResult(): int {
+        return 45
+    }
+    func OnCompleted(_continuation: Action) {
+    }
+    func UnsafeOnCompleted(_continuation: Action) {
+    }
 }
 
 class OperandGenericGetAwaiterAwaitable {
