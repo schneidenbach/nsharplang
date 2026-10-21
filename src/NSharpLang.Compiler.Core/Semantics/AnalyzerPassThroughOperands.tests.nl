@@ -1175,6 +1175,7 @@ test "await selects the reflected ICriticalNotifyCompletion slot" {
 
     reflectedBinding: AwaitablePatternBinding? = null
     assert AwaitablePatternBinder.TryBindReflection(typeof(OperandCriticalAwaitable), out reflectedBinding), "the reflected pattern binder must accept ICriticalNotifyCompletion"
+    assert reflectedBinding != null, "the reflected binding must be returned"
     assert reflectedBinding.IsCritical
     assert reflectedBinding.CompletionSlot.Name == "UnsafeOnCompleted"
     OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandCriticalAwaitable))))

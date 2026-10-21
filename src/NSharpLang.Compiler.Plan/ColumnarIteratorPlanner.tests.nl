@@ -3994,6 +3994,8 @@ test "source property emission retains the await binder's declaration origin" {
     assert owner != null && owner.Properties.Count == 1, "the probe must carry its computed property"
     property := owner.Properties[0]
     assert property.SourceDeclarationStart >= 0, "the property input must retain its source offset"
-    position := ColumnarEmissionPlanner.PositionAt(program.SourceFileForFileId(owner.SourceFileId), property.SourceDeclarationStart)
+    sourceFile := program.SourceFileForFileId(owner.SourceFileId)
+    assert sourceFile != null, "the property source file must be retained"
+    position := ColumnarEmissionPlanner.PositionAt(sourceFile, property.SourceDeclarationStart)
     assert position.Line == 4 && position.Column == 5, "the source offset must identify the property declaration"
 }
