@@ -149,6 +149,8 @@ class CallAnalysisState {
     ReflectionArgumentIndex: int
     ReflectionCandidates: List<ReflectionPreBoundCandidate>?
     ReflectionCandidateIndex: int
+    ReflectionLambdaErrorsBefore: int
+    ReflectionLambdaPending: bool
 
     // WHETHER THE CANDIDATE RUN NOW UNDER WAY IS THE EXACT-MATCH ONE. A group whose call carries a
     // LAMBDA argument is walked twice: first demanding that every lambda's own type BE the delegate
@@ -215,6 +217,8 @@ class CallAnalysisState {
         ReflectionArgumentIndex = 0
         ReflectionCandidates = null
         ReflectionCandidateIndex = 0
+        ReflectionLambdaErrorsBefore = 0
+        ReflectionLambdaPending = false
         ReflectionRequireExactLambdaMatch = false
         ReflectionExtensionFallbackTried = false
         ReflectionErrorsBefore = 0
@@ -450,6 +454,11 @@ class AnalyzerCallAnalysis {
         if pending == 36 {
             finalizeState := state.FinalizeState
             if finalizeState != null {
+                if state.ReflectionLambdaPending && state.ReflectionCandidates != null && state.ReflectionCandidates.Count > 1 && diagnostics.HasLambdaInvocationBindingFailureSince(state.ReflectionLambdaErrorsBefore) {
+                    finalizeState.Failed = true
+                }
+                state.ReflectionLambdaPending = false
+
                 supplied: TypeInfo = BuiltInTypes.Unknown
                 if answer != null {
                     supplied = answer
@@ -1481,6 +1490,8 @@ class AnalyzerCallAnalysis {
         if request != null {
             lambda := request.Lambda
             if lambda != null {
+                state.ReflectionLambdaErrorsBefore = diagnostics.ErrorCount
+                state.ReflectionLambdaPending = true
                 state.Pending = 36
                 step := new CallAnalysisRequest(15)
                 step.Lambda = lambda
@@ -1510,20 +1521,6 @@ class AnalyzerCallAnalysis {
         acceptedPostconditions := finalizeState.Postconditions
         state.FinalizeState = null
         if bound != null {
-            // A reflected overload is not applicable when binding its target-typed lambda body
-            // produced an error. In particular, an untyped lambda can make a delegate overload
-            // look viable until its body is checked (`next(ctx)` is valid for a RequestDelegate
-            // parameter but not for `Func<Task>`). Keep that candidate's diagnostics speculative,
-            // withdraw them, and let the next overload be checked against the same source lambda.
-            // A single reflected method is still selected normally so its body diagnostics remain
-            // attached to the user's code.
-            if state.ReflectionCandidates != null && diagnostics.ErrorCount > state.ReflectionErrorsBefore {
-                diagnostics.RollbackErrorsTo(state.ReflectionErrorsBefore)
-                state.ReflectionCandidateIndex = state.ReflectionCandidateIndex + 1
-                state.Phase = 35
-                return null
-            }
-
             // FINALIZER REFUSAL FOLLOWS THE SELECTED METHOD, not the unresolved group. A legal
             // overload may share the name with object.Finalize, and only ordinary overload binding
             // can establish which member this call names.
