@@ -2,6 +2,7 @@ namespace NSharpLang.OwnershipAudit
 
 import System
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Text
 
@@ -252,6 +253,38 @@ func OwnershipFixtureBinaryObservedList(path: string, bytes: byte[]): List<Owner
     observed := new List<OwnershipObservedFile>()
     observed.Add(OwnershipFacts.ObserveBinary(path, OwnershipPolicy.Classify(path), bytes))
     return observed
+}
+
+func OwnershipAuditRunGit(root: string, arguments: string) {
+    startInfo := new ProcessStartInfo {
+        FileName: "git",
+        Arguments: arguments,
+        WorkingDirectory: root,
+        UseShellExecute: false,
+        RedirectStandardOutput: true,
+        RedirectStandardError: true
+    }
+    process := Process.Start(startInfo)
+    if process == null {
+        throw new InvalidOperationException("could not start git " + arguments)
+    }
+    output := process.StandardOutput.ReadToEnd()
+    errorText := process.StandardError.ReadToEnd()
+    process.WaitForExit()
+    exitCode := process.ExitCode
+    process.Dispose()
+    if exitCode != 0 {
+        throw new InvalidOperationException("git " + arguments + " failed: " + output + errorText)
+    }
+}
+
+func OwnershipAuditContainsPath(observed: List<OwnershipObservedFile>, path: string): bool {
+    for item in observed {
+        if item.Path == path {
+            return true
+        }
+    }
+    return false
 }
 
 test "ownership facts normalize text and compute stable fingerprints" {
@@ -980,6 +1013,50 @@ test "repository scan excludes ignored generated files without changing their cl
         if File.Exists(path) {
             File.Delete(path)
         }
+    }
+}
+
+test "repository scan ignores untracked generated package outputs" {
+    root := Directory.CreateTempSubdirectory("nsharp-ownership-untracked-output-").FullName
+    try {
+        OwnershipAuditRunGit(root, "init -q")
+        Directory.CreateDirectory(Path.Combine(root, "src"))
+        File.WriteAllText(Path.Combine(root, "src/Tracked.cs"), "class Tracked {}\n")
+        OwnershipAuditRunGit(root, "add -- src/Tracked.cs")
+        outputPath := Path.Combine(root, "playground-output.zip")
+        File.WriteAllBytes(outputPath, new byte[](1))
+
+        result := new OwnershipAuditResult()
+        observed := OwnershipAudit.ScanRepository(root, result)
+        assert result.Succeeded, result.Report()
+        assert !OwnershipAuditContainsPath(observed, "playground-output.zip")
+        assert OwnershipPolicy.Classify("playground-output.zip").Language == "package-binary"
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "repository scan flags untracked CSharp source while retaining tracked files" {
+    root := Directory.CreateTempSubdirectory("nsharp-ownership-untracked-source-").FullName
+    try {
+        OwnershipAuditRunGit(root, "init -q")
+        Directory.CreateDirectory(Path.Combine(root, "src"))
+        trackedText := "class Tracked {}\n"
+        File.WriteAllText(Path.Combine(root, "src/Tracked.cs"), trackedText)
+        OwnershipAuditRunGit(root, "add -- src/Tracked.cs")
+        File.WriteAllText(Path.Combine(root, "src/Unexpected.cs"), "class Unexpected {}\n")
+
+        scanResult := new OwnershipAuditResult()
+        observed := OwnershipAudit.ScanRepository(root, scanResult)
+        assert scanResult.Succeeded
+        assert OwnershipAuditContainsPath(observed, "src/Tracked.cs")
+        assert OwnershipAuditContainsPath(observed, "src/Unexpected.cs")
+
+        manifest := OwnershipFixtureOne("src/Tracked.cs", trackedText, 0)
+        audit := OwnershipAudit.AuditSnapshot(manifest, observed, false)
+        assert audit.HasCode("OWN003")
+    } finally {
+        Directory.Delete(root, true)
     }
 }
 
