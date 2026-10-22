@@ -308,6 +308,9 @@ class AwaitablePatternBinder {
 
         if selectedFunction != null {
             selectedResult = sourceValidator.ResolveReturnType(selectedFunction, invocation, new List<TypeInfo>(), awaitableType)
+            if isExtension && SourceGetAwaiterUsesOptionalOrExpandedReceiver(selectedFunction) {
+                return false
+            }
             typeArguments := isExtension ? AnalyzerSelectedGenericTypeArguments(selectedFunction, invocation, awaitableType, sourceOverloads) : new TypeInfo[](0)
             if isExtension && typeArguments.Length > 0 {
                 selectedResult = ApplySelectedSourceGenericArguments(selectedFunction, selectedResult, typeArguments)
@@ -332,6 +335,9 @@ class AwaitablePatternBinder {
             if selectedFunction == null || !selectedFunction.SourceHasReceiverParameter || selectedFunction.SourceParameterCount != 1 {
                 return false
             }
+            if SourceGetAwaiterUsesOptionalOrExpandedReceiver(selectedFunction) {
+                return false
+            }
             selectedResult = sourceValidator.ResolveReturnType(selectedFunction, invocation, new List<TypeInfo>(), awaitableType)
             typeArguments := AnalyzerSelectedGenericTypeArguments(selectedFunction, invocation, awaitableType, sourceOverloads)
             if typeArguments.Length > 0 {
@@ -349,7 +355,8 @@ class AwaitablePatternBinder {
         if !TrySelectReflectedAwaiterInvocation(extensionCandidates, invocation, receiverClrType, awaitableType, reflectionArguments, true, out bestExtension) || bestExtension == null {
             return false
         }
-        if bestExtension.SignatureMethod.GetParameters().Length != 1 || bestExtension.SignatureMethod.GetParameters()[0].IsOptional {
+        extensionParameters := bestExtension.SignatureMethod.GetParameters()
+        if extensionParameters.Length != 1 || bestExtension.UsesParams || bestExtension.DefaultsUsed > 0 || extensionParameters[0].IsOptional || AnalyzerOverloadFacts.IsParamsParameter(extensionParameters[0]) {
             return false
         }
         typeArguments := new TypeInfo[](0)
@@ -560,11 +567,29 @@ class AwaitablePatternBinder {
                 continue
             }
             parameters := candidate.GetParameters()
-            if parameters.Length == 1 && !parameters[0].IsOptional {
+            if parameters.Length > 0 {
                 accepted.Add(candidate)
             }
         }
         return accepted.ToArray()
+    }
+
+    // C# binds the ordinary extension invocation before applying the await-specific restriction.
+    // Keep optional and params receivers in overload resolution so a more-specific invalid method
+    // cannot be hidden by a less-specific base overload, then reject the selected invocation here.
+    static func SourceGetAwaiterUsesOptionalOrExpandedReceiver(function: FunctionTypeInfo): bool {
+        if function == null || !function.SourceHasReceiverParameter || function.SourceParameterCount < 1 {
+            return false
+        }
+        declaration := function.SourceDeclaration
+        if declaration == null || declaration.Parameters.Count < 1 {
+            return false
+        }
+        receiver := declaration.Parameters[0]
+        if receiver.DefaultValue != null || receiver.Modifier == Ast.ParameterModifier.Params {
+            return true
+        }
+        return false
     }
 
     static func AwaiterHasApplicableInstanceCandidate(candidate: TypeInfo, call: CallExpression, receiver: TypeInfo, sourceOverloads: AnalyzerSyntheticCallWalk, reflectionArguments: AnalyzerReflectionArgumentBinder, clrConversion: AnalyzerClrTypeConversion): bool {

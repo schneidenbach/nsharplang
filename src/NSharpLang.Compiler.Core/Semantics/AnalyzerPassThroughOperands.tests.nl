@@ -189,11 +189,23 @@ class OperandOptionalExtensionGetAwaiterAwaitable {
 class OperandParamsExtensionGetAwaiterAwaitable {
 }
 
+class OperandOptionalReceiverBase {}
+
+class OperandOptionalReceiverDerived: OperandOptionalReceiverBase {}
+
 func GetAwaiter(this _value: OperandOptionalExtensionGetAwaiterAwaitable, _fallback: int = 0): OperandOptionalPatternAwaiter {
     return new OperandOptionalPatternAwaiter()
 }
 
 func GetAwaiter(this _value: OperandParamsExtensionGetAwaiterAwaitable, params _ignored: int[]): OperandOptionalPatternAwaiter {
+    return new OperandOptionalPatternAwaiter()
+}
+
+func GetAwaiter(this _value: OperandOptionalReceiverBase): OperandOptionalPatternAwaiter {
+    return new OperandOptionalPatternAwaiter()
+}
+
+func GetAwaiter(this _value: OperandOptionalReceiverDerived? = null): OperandOptionalPatternAwaiter {
     return new OperandOptionalPatternAwaiter()
 }
 
@@ -1343,6 +1355,17 @@ test "await rejects reflected extension GetAwaiter methods selected through opti
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
     OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandOptionalExtensionGetAwaiterAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("GetAwaiter()")
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await resolves a specific optional extension before rejecting the await pattern" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandOptionalReceiverDerived))))
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch

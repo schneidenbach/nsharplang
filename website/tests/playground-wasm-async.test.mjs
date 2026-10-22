@@ -878,6 +878,16 @@ async func main() {
 async func main() {
     print await new ReflectedOptionalExtensionBox()
 }
+        `,
+      },
+      {
+        name: 'a more specific optional reflected extension wins before await validation',
+        expectedDiagnosticText: 'awaiter pattern is incomplete',
+        source: `import NSharpLang.AsyncAwaitablePatternFixtures
+
+async func main() {
+    print await new ReflectedOptionalReceiverDerived()
+}
 `,
       },
     ];

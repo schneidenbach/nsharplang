@@ -30,6 +30,18 @@ func GetAwaiter(this _value: ReflectedOptionalExtensionBox? = null): ReflectedOp
     return new ReflectedOptionalExtensionAwaiter()
 }
 
+class ReflectedOptionalReceiverBase {}
+
+class ReflectedOptionalReceiverDerived: ReflectedOptionalReceiverBase {}
+
+func GetAwaiter(this _value: ReflectedOptionalReceiverBase): ReflectedOptionalExtensionAwaiter {
+    return new ReflectedOptionalExtensionAwaiter()
+}
+
+func GetAwaiter(this _value: ReflectedOptionalReceiverDerived? = null): ReflectedOptionalExtensionAwaiter {
+    return new ReflectedOptionalExtensionAwaiter()
+}
+
 class ReflectedCompletionBase: INotifyCompletion {
     Source: Task<int>
 
