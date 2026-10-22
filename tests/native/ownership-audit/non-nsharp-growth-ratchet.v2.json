@@ -4,7 +4,7 @@
   "codeEpochFileCount": 217,
   "codeEpochPathFingerprint": "pathset-v2:8753f45f767649bf",
   "codeEpochFactFingerprint": "epochfacts-v2:bbd44c5fc149a36c",
-  "reviewedHeadFingerprint": "head-v2:80988a134bd4b580",
+  "reviewedHeadFingerprint": "head-v2:963f1b61f3b5f71c",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":446,"currentNonBlankLines":391,"currentBytes":0,"currentFingerprint":"text-v1:c4fff4cafe6f3d2a"},
@@ -164,7 +164,7 @@
     {"path":"global.json","language":"json-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":6,"currentNonBlankLines":6,"currentBytes":0,"currentFingerprint":"text-v1:9f00d793a51ad71e"},
     {"path":"install-local.sh","language":"shell","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":8,"currentNonBlankLines":6,"currentBytes":0,"currentFingerprint":"text-v1:97e437ef854120d2"},
     {"path":"scripts/build-native-prerequisites.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":43,"currentNonBlankLines":38,"currentBytes":0,"currentFingerprint":"text-v1:a0830bd4829743a3"},
-    {"path":"scripts/build-playground-wasm.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":60,"currentNonBlankLines":52,"currentBytes":0,"currentFingerprint":"text-v1:553d5ff8316dab8c"},
+    {"path":"scripts/build-playground-wasm.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":75,"currentNonBlankLines":67,"currentBytes":0,"currentFingerprint":"text-v1:839986277e40d057"},
     {"path":"scripts/build-vscode-extension.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":30,"currentNonBlankLines":24,"currentBytes":0,"currentFingerprint":"text-v1:fa33c0fcded46d1d"},
     {"path":"scripts/ci-test-durations.json","language":"json-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":168,"currentNonBlankLines":168,"currentBytes":0,"currentFingerprint":"text-v1:45045ffc54de23a6"},
     {"path":"scripts/ci-test-shards.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":502,"currentNonBlankLines":441,"currentBytes":0,"currentFingerprint":"text-v1:3c3f5168a4976242"},
