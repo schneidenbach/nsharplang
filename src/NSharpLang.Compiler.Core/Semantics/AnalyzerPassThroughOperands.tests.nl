@@ -189,9 +189,11 @@ class OperandOptionalExtensionGetAwaiterAwaitable {
 class OperandParamsExtensionGetAwaiterAwaitable {
 }
 
-class OperandOptionalReceiverBase {}
+class OperandOptionalReceiverBase {
+}
 
-class OperandOptionalReceiverDerived: OperandOptionalReceiverBase {}
+class OperandOptionalReceiverDerived: OperandOptionalReceiverBase {
+}
 
 func GetAwaiter(this _value: OperandOptionalExtensionGetAwaiterAwaitable, _fallback: int = 0): OperandOptionalPatternAwaiter {
     return new OperandOptionalPatternAwaiter()
