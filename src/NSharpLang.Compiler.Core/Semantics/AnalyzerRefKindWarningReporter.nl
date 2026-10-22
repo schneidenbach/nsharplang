@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import NSharpLang.Compiler.Ast
 
-
 class AnalyzerRefKindWarningReporter {
     static func ReportIfNeeded(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, parameterModifier: Ast.ParameterModifier, argument: Argument, argumentIndex: int, requiresLocation: bool = false): bool {
         if diagnostics == null || spans == null || argument == null || RefKindCompatibilityFacts.Classify(parameterModifier, argument.Modifier, requiresLocation) != RefKindCompatibilityResult.RefEquivalentToIn {

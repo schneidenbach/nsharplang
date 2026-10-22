@@ -250,6 +250,7 @@ test "ordinary runtime direct calls select fixed byref and exclude generic param
 test "ordinary runtime direct calls select a by-reference overload when the argument is written by-ref" {
     facts := ColumnarDirectCallArgumentFacts.Empty(2)
     facts.IsByRefArgument[1] = true
+    facts.IsOutArgument[1] = true
 
     selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(int)), facts, true)
     assert selection.IsSelected
@@ -269,6 +270,7 @@ test "ordinary runtime direct calls select external six-argument out calls" {
     kernel := typeof(AnalyzerMemberResolution)
     facts := ColumnarDirectCallArgumentFacts.Empty(6)
     facts.IsByRefArgument[5] = true
+    facts.IsOutArgument[5] = true
     arguments := OrdinaryRuntimeArgumentTypes6(typeof(Type), typeof(string), typeof(bool), typeof(bool), typeof(InternalsVisibleToGrants), typeof(TypeInfo))
     selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(kernel, "TryResolveReflectionPropertyOrField", arguments, facts, true)
 
@@ -642,12 +644,12 @@ func RequireOrdinaryRuntimeDirectionSelection(owner: Type, memberName: string, w
     }
 }
 
-test "a reflected in parameter takes its argument bare or written in, and never written ref" {
+test "a reflected in parameter takes its argument bare, written in, or ref-equivalent to in" {
     owner := OrdinaryRuntimeDirectionOwner()
 
     RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", false, false, true, "An in parameter accepts a bare value.")
     RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", true, true, true, "An in parameter accepts a written in storage argument.")
-    RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", true, false, false, "An in parameter refuses written ref.")
+    RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", true, false, true, "C# 12 accepts written ref for an in parameter.")
 
     // A `ref` parameter is the opposite: it must be written `ref`, and neither a bare argument nor
     // an `in` stands in for the word.

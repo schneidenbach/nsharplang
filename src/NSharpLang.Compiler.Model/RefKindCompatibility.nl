@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
-
 enum RefKindCompatibilityResult {
     Incompatible,
     Compatible,

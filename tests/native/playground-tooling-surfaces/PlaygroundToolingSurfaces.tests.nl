@@ -1885,7 +1885,8 @@ test "chip playground union shorthand: the ONE-CHARACTER probe pair that isolate
 }
 
 test "chip playground union shorthand: EVERY shipped example that declares an ExpectedOutput now PRODUCES it — 8 of the 10, named, in corpus order" {
-    assert PgExpectedOutputCensus() == "01-hello-world=MATCH;02-values-functions=MATCH;03-types-visibility=MATCH;04-unions-patterns=MATCH;05-duck-typing=MATCH;06-collections-linq=MATCH;09-testing=MATCH;10-tooling-loop=MATCH;"
+    actual := PgExpectedOutputCensus()
+    assert actual == "01-hello-world=MATCH;02-values-functions=MATCH;03-types-visibility=MATCH;04-unions-patterns=MATCH;05-duck-typing=MATCH;06-collections-linq=MATCH;09-testing=MATCH;10-tooling-loop=MATCH;", actual
 }
 
 test "chip playground union shorthand NEGATIVE: a shorthand naming a property the case does not carry is REFUSED with the compiler's own NL503, at the compiler's own span — `nlc run` reports the identical sentence at 10:30+4 and exits 1" {

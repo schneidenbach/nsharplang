@@ -678,7 +678,7 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
     // This total was independently remeasured from the merged filesystem, with each source file
     // assigned to its deepest discovered project and that project's excludes applied.
-    assert checkedFiles == 2116, "repository checked-source-file census changed: " + checkedFiles.ToString()
+    assert checkedFiles == 2118, "repository checked-source-file census changed: " + checkedFiles.ToString()
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"
