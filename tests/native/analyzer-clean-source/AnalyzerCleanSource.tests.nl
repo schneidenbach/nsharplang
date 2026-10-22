@@ -21005,23 +21005,19 @@ test "020 s36 analyzer clean source V-CONTROL V6: `x[0]` -> `x.Missing` reports 
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL402:NoMatchingOverload@7:32+6;"
+    assert AcCensus(analysis) == "NL303:UndefinedMember@7:46+7;NL402:NoMatchingOverload@7:32+6;", AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'Select' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
-    assert AcHint(analysis, 0) == "<null>"
-    assert AcSnippet(analysis, 0) == "<null>"
-    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcErrorCount(analysis) == 2
+    assert AcCodeRow(analysis, "UndefinedMember").Contains("Missing"), AcCodeRow(analysis, "UndefinedMember")
+    assert AcCodeRow(analysis, "NoMatchingOverload").Contains("No overload of 'Select'"), AcCodeRow(analysis, "NoMatchingOverload")
     plainModel := AcModel(analysis)
     assert AcLookupIdentifier(plainModel, "chars") == "unknown"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL402:NoMatchingOverload@7:32+6;"
+    assert AcCensus(rich) == "NL303:UndefinedMember@7:46+7;NL402:NoMatchingOverload@7:32+6;"
     assert AcHasErrors(rich) == "True"
-    assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Select' accepts 1 argument with these types|<null>|Error"
-    assert AcHint(rich, 0) == "This call passes 1 argument: `unknown`.\nAvailable overloads:\n  - Select(Func<TSource?, TResult?> selector): IEnumerable<TResult?>\n  - Select(Func<TSource?, int, TResult?> selector): IEnumerable<TResult?>\n  - Select(Expression<Func<TSource?, TResult?>> selector): IQueryable<TResult?>\n  - Select(Expression<Func<TSource?, int, TResult?>> selector): IQueryable<TResult?>\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
-    assert AcSnippet(rich, 0) == "                chars := query.Select(x => x.Missing)"
-    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcErrorCount(rich) == 2
+    assert AcCodeRow(rich, "UndefinedMember").Contains("Missing"), AcCodeRow(rich, "UndefinedMember")
+    assert AcCodeRow(rich, "NoMatchingOverload").Contains("No overload of 'Select'"), AcCodeRow(rich, "NoMatchingOverload")
     richModel := AcModel(rich)
     assert AcLookupIdentifier(richModel, "chars") == "unknown"
 }
@@ -22729,4 +22725,19 @@ test "an applicable instance GetAwaiter with an invalid result blocks extension 
     assert AcCodeErrorCount(analysis, "TypeMismatch") == 1, AcCensus(analysis)
     anchor := AcCodeAnchor(analysis, "TypeMismatch")
     assert anchor != "<no-such-code>" && anchor.Contains("@"), anchor
+}
+
+test "await diagnoses optional and params GetAwaiter patterns after selecting the ordinary invocation" {
+    source := "import System\nimport System.Runtime.CompilerServices\nimport System.Threading.Tasks\n\nclass ContractAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(): int { return 1 }\n    func OnCompleted(continuation: Action) { continuation() }\n}\n\nclass OptionalInstanceAwaitable {\n    func GetAwaiter(fallback: int = 0): ContractAwaiter { return new ContractAwaiter() }\n}\nclass ParamsInstanceAwaitable {\n    func GetAwaiter(params ignored: int[]): ContractAwaiter { return new ContractAwaiter() }\n}\nclass OptionalExtensionAwaitable {}\nclass ParamsExtensionAwaitable {}\nfunc GetAwaiter(this value: OptionalExtensionAwaitable, fallback: int = 0): ContractAwaiter { return new ContractAwaiter() }\nfunc GetAwaiter(this value: ParamsExtensionAwaitable, params ignored: int[]): ContractAwaiter { return new ContractAwaiter() }\n\nclass OptionalResultAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(fallback: int = 0): int { return fallback }\n    func OnCompleted(continuation: Action) { continuation() }\n}\nclass ParamsResultAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(params ignored: int[]): int { return ignored.Length }\n    func OnCompleted(continuation: Action) { continuation() }\n}\nclass OptionalResultAwaitable { func GetAwaiter(): OptionalResultAwaiter { return new OptionalResultAwaiter() } }\nclass ParamsResultAwaitable { func GetAwaiter(): ParamsResultAwaiter { return new ParamsResultAwaiter() } }\n\nasync func OptionalInstance(value: OptionalInstanceAwaitable): Task<int> { return await value }\nasync func ParamsInstance(value: ParamsInstanceAwaitable): Task<int> { return await value }\nasync func OptionalExtension(value: OptionalExtensionAwaitable): Task<int> { return await value }\nasync func ParamsExtension(value: ParamsExtensionAwaitable): Task<int> { return await value }\nasync func OptionalResult(value: OptionalResultAwaitable): Task<int> { return await value }\nasync func ParamsResult(value: ParamsResultAwaitable): Task<int> { return await value }\n"
+    assert AcParseCensus(source) == ""
+
+    analysis := AcAnalyze(source)
+
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 6, AcCensus(analysis)
+    index := 0
+    while index < 6 {
+        row := AcRow(analysis, index)
+        assert row.Contains("await expression cannot use '") && row.Contains("GetAwaiter()") && row.Contains("INotifyCompletion"), row
+        index += 1
+    }
 }

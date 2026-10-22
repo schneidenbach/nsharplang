@@ -151,6 +151,7 @@ class CallAnalysisState {
     ReflectionCandidateIndex: int
     ReflectionLambdaErrorsBefore: int
     ReflectionLambdaPending: bool
+    ReflectionBestLambdaBodyDiagnostics: List<CompilerError>
 
     // WHETHER THE CANDIDATE RUN NOW UNDER WAY IS THE EXACT-MATCH ONE. A group whose call carries a
     // LAMBDA argument is walked twice: first demanding that every lambda's own type BE the delegate
@@ -219,6 +220,7 @@ class CallAnalysisState {
         ReflectionCandidateIndex = 0
         ReflectionLambdaErrorsBefore = 0
         ReflectionLambdaPending = false
+        ReflectionBestLambdaBodyDiagnostics = new List<CompilerError>()
         ReflectionRequireExactLambdaMatch = false
         ReflectionExtensionFallbackTried = false
         ReflectionErrorsBefore = 0
@@ -1560,6 +1562,10 @@ class AnalyzerCallAnalysis {
         }
 
         if diagnostics.ErrorCount > state.ReflectionErrorsBefore {
+            if state.ReflectionBestLambdaBodyDiagnostics.Count == 0 {
+                bestBodyErrors := diagnostics.CandidateDiagnosticsSince(state.ReflectionErrorsBefore)
+                state.ReflectionBestLambdaBodyDiagnostics.AddRange(bestBodyErrors)
+            }
             diagnostics.RollbackErrorsTo(state.ReflectionErrorsBefore)
         }
 
@@ -1609,6 +1615,12 @@ class AnalyzerCallAnalysis {
 
         if TryBeginReflectionExtensionFallback(state) {
             return null
+        }
+
+        for bodyError in state.ReflectionBestLambdaBodyDiagnostics {
+            if !diagnostics.HasReported(bodyError.Code, bodyError.Message, bodyError.Line, bodyError.Column) {
+                diagnostics.ReportBuilt(bodyError)
+            }
         }
 
         state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes, state.ReflectionReceiverClrType)

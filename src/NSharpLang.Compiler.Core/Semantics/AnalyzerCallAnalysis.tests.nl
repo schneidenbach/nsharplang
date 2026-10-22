@@ -1347,6 +1347,13 @@ test "only invocation binding errors from a target-typed lambda make a reflected
     sink.RollbackErrorsTo(mark)
     sink.Report(ErrorCode.NoMatchingOverload, "no inner overload", 4, 1, null, 0)
     assert sink.HasLambdaInvocationBindingFailureSince(mark)
+
+    sink.RollbackErrorsTo(mark)
+    sink.Report(ErrorCode.UndefinedFunction, "unknown name in lambda body", 5, 1, null, 0)
+    assert !sink.HasLambdaInvocationBindingFailureSince(mark)
+    bodyErrors := sink.CandidateDiagnosticsSince(mark)
+    assert bodyErrors.Count == 1
+    assert bodyErrors[0].Code == ErrorCode.UndefinedFunction
 }
 
 test "a rollback to the CURRENT mark withdraws nothing" {

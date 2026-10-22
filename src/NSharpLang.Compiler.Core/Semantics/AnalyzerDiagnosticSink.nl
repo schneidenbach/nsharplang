@@ -143,7 +143,7 @@ class AnalyzerDiagnosticSink {
             error := errorsValue[index]
             if error.Severity == ErrorSeverity.Error {
                 code := error.Code
-                if code == ErrorCode.WrongArgumentCount || code == ErrorCode.NoMatchingOverload || code == ErrorCode.UndefinedFunction || code == ErrorCode.MemberNotCallable || code == ErrorCode.AmbiguousCall || code == ErrorCode.TypeNotCallable {
+                if code == ErrorCode.WrongArgumentCount || code == ErrorCode.NoMatchingOverload || code == ErrorCode.MemberNotCallable || code == ErrorCode.AmbiguousCall || code == ErrorCode.TypeNotCallable {
                     return true
                 }
             }
@@ -151,6 +151,25 @@ class AnalyzerDiagnosticSink {
         }
 
         return false
+    }
+
+    // A reflected overload candidate can be withdrawn because its target-typed lambda body did not
+    // bind. Preserve that candidate's diagnostics before rollback so a later generic no-overload
+    // report cannot erase the unresolved name or the inner invocation that explains the failure.
+    func CandidateDiagnosticsSince(count: int): List<CompilerError> {
+        result := new List<CompilerError>()
+        index := count
+        if index < 0 {
+            index = 0
+        }
+        while index < errorsValue.Count {
+            error := errorsValue[index]
+            if error.Severity == ErrorSeverity.Error {
+                result.Add(error)
+            }
+            index += 1
+        }
+        return result
     }
 
     // HAS THIS EXACT REPORT ALREADY BEEN MADE? Identity is code + line + column + message, and

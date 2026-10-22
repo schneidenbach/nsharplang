@@ -3999,3 +3999,24 @@ test "source property emission retains the await binder's declaration origin" {
     position := ColumnarEmissionPlanner.PositionAt(sourceFile, property.SourceDeclarationStart)
     assert position.Line == 4 && position.Column == 5, "the source offset must identify the property declaration"
 }
+
+class ColumnarIteratorAsyncBuilderAwaitSignatureDecoy {
+    func AwaitOnCompleted<TAwaiter, TStateMachine>(awaiter: TAwaiter, stateMachine: TStateMachine): int {
+        return 1
+    }
+}
+
+test "async builder await lookup rejects same-name methods without exact byref and constraint shape" {
+    builderType := typeof(System.Runtime.CompilerServices.AsyncTaskMethodBuilder)
+    valid: MethodInfo? = null
+    for candidate in builderType.GetMethods(BindingFlags.Instance | BindingFlags.Public) {
+        if ColumnarIteratorBodyPlanner.IsExactAsyncBuilderAwaitMethod(candidate, "AwaitOnCompleted", false) {
+            valid = candidate
+            break
+        }
+    }
+    assert valid != null, "the framework builder's INotifyCompletion overload should match the exact await signature"
+
+    decoy := typeof(ColumnarIteratorAsyncBuilderAwaitSignatureDecoy).GetMethod("AwaitOnCompleted")
+    assert decoy != null && !ColumnarIteratorBodyPlanner.IsExactAsyncBuilderAwaitMethod(decoy, "AwaitOnCompleted", false)
+}

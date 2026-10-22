@@ -786,6 +786,27 @@ async func AwaitInheritedExplicitNotify(source: InheritedExplicitNotifyAwaitable
     return await source
 }
 
+interface SourceInterfaceAwaiter: INotifyCompletion {
+    IsCompleted: bool
+    func GetResult(): int
+}
+
+class SourceInterfaceAwaiterImplementation(source: Task<int>): SourceInterfaceAwaiter {
+    IsCompleted: bool { get { return source.IsCompleted } }
+    func GetResult(): int { return source.GetAwaiter().GetResult() }
+    func OnCompleted(continuation: Action) { source.GetAwaiter().OnCompleted(continuation) }
+}
+
+class SourceInterfaceAwaitable(source: Task<int>) {
+    func GetAwaiter(): SourceInterfaceAwaiter {
+        return new SourceInterfaceAwaiterImplementation(source)
+    }
+}
+
+async func AwaitSourceInterfaceAwaiter(source: SourceInterfaceAwaitable): Task<int> {
+    return await source
+}
+
 class GenericExtensionBox<T> {
     Value: T
 

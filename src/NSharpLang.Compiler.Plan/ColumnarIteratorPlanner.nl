@@ -8624,7 +8624,10 @@ class ColumnarIteratorBodyPlanner {
         }
         getResult: MethodInfo? = null
         if !TryResolveSelectedSourceInstanceMethod(emit, awaiterType, sourceAwaiter.GetResult, out getResult) {
-            return false
+            if !TryResolveSelectedSourceInterfaceMethod(emit, awaiterType, awaiterDefinition, sourceAwaiter.GetResult, out getResult) || getResult == null {
+                emit.Context.Decline("emit.iterator.async-await-pattern", "the selected source GetResult interface slot could not be mapped to its emitted declaration")
+                return false
+            }
         }
         completion := sourceAwaiter.CompletionSlot
         if getAwaiter == null || isCompleted == null || getResult == null || completion == null {
@@ -9008,6 +9011,38 @@ class ColumnarIteratorBodyPlanner {
         return false
     }
 
+    // Source interface method rows are emitted from ColumnarInterfaceInput and do not carry the
+    // concrete source span on ColumnarInstanceMethodDef. The analyzer already selected the exact
+    // interface declaration; map that declaration to its emitted slot by the full zero-argument
+    // signature and retain the interface MethodBuilder so the await uses callvirt on the slot.
+    static func TryResolveSelectedSourceInterfaceMethod(emit: ColumnarMoveNextEmit, ownerType: Type, definition: ColumnarStructDef, declaration: FunctionDeclaration?, out method: MethodInfo?): bool {
+        method = null
+        if emit == null || ownerType == null || definition == null || !definition.IsInterface || declaration == null || declaration.TypeParameters != null && declaration.TypeParameters.Count != 0 || declaration.Parameters.Count != 0 || declaration.ReturnType == null {
+            return false
+        }
+        selectedReturnInfo := BuiltInTypes.Unknown as TypeInfo
+        semanticModel := emit.Context.RequiredScope().Facts.SemanticModel
+        if semanticModel == null || !AwaitablePatternBinder.TryResolveSourceTypeReference(semanticModel, declaration.ReturnType, out selectedReturnInfo) {
+            return false
+        }
+        selectedReturnType: Type = null
+        if !TryResolveAwaitPatternType(emit, selectedReturnInfo, out selectedReturnType) || selectedReturnType == null {
+            return false
+        }
+        overloads: List<ColumnarInstanceMethodDef>? = null
+        if !definition.MethodOverloads.TryGetValue(declaration.Name, out overloads) || overloads == null {
+            return false
+        }
+        for candidate in overloads {
+            if candidate == null || candidate.Builder == null || candidate.ParamTypes.Length != 0 || !ColumnarTypeEquivalenceFacts.TypesEquivalent(candidate.ReturnType, selectedReturnType) {
+                continue
+            }
+            method = BindSourceMethodToConstructedOwner(ownerType, definition.Builder, candidate.Builder)
+            return method != null
+        }
+        return false
+    }
+
     static func TryResolveSelectedSourcePropertyGetter(ownerType: Type, definition: ColumnarStructDef, selection: AnalyzerMemberSelection, out getter: MethodInfo?): bool {
         getter = null
         if ownerType == null || definition == null || selection == null || selection.Member == null || selection.FilePath == null {
@@ -9017,6 +9052,13 @@ class ColumnarIteratorBodyPlanner {
         currentType := ownerType
         while current != null {
             property: ColumnarPropertyDef? = null
+            if current.IsInterface {
+                current.Properties.TryGetValue(selection.Member.Name, out property)
+                if property != null && property.PropertyType == typeof(bool) {
+                    getter = BindSourceMethodToConstructedOwner(currentType, current.Builder, property.Getter)
+                    return getter != null
+                }
+            }
             for candidate in current.Properties.Values {
                 if candidate != null && candidate.SourceFilePath != null && string.Equals(Path.GetFullPath(candidate.SourceFilePath), Path.GetFullPath(selection.FilePath), StringComparison.OrdinalIgnoreCase) && candidate.SourceLine == selection.Line && candidate.SourceColumn == selection.Column && candidate.PropertyType == typeof(bool) {
                     property = candidate
@@ -9181,14 +9223,40 @@ class ColumnarIteratorBodyPlanner {
         }
         name := useUnsafe ? "AwaitUnsafeOnCompleted" : "AwaitOnCompleted"
         for candidate in builderType.GetMethods(BindingFlags.Instance | BindingFlags.Public) {
-            if candidate.Name == name && candidate.IsGenericMethodDefinition && candidate.GetGenericArguments().Length == 2 && candidate.GetParameters().Length == 2 {
+            if IsExactAsyncBuilderAwaitMethod(candidate, name, useUnsafe) {
                 arguments := new Type[](2)
                 arguments[0] = awaiterType
                 arguments[1] = stateMachineType
-                return candidate.MakeGenericMethod(arguments)
+                closed := candidate.MakeGenericMethod(arguments)
+                // The definition was selected only after validating its two by-ref parameters
+                // against the corresponding method type parameters and their exact interface
+                // constraints. MakeGenericMethod substitutes those two arguments by definition;
+                // comparing the closed TypeBuilder parameter objects with `==` is not reliable
+                // while the async machine is still being emitted.
+                if closed != null {
+                    return closed
+                }
             }
         }
         throw new InvalidOperationException("The async builder '" + builderType.FullName + "' has no " + name + "<TAwaiter,TStateMachine> method.")
+    }
+
+    static func IsExactAsyncBuilderAwaitMethod(candidate: MethodInfo, name: string, useUnsafe: bool): bool {
+        if candidate == null || candidate.Name != name || candidate.IsStatic || !candidate.IsPublic || !candidate.IsGenericMethodDefinition || candidate.ReturnType != typeof(void) {
+            return false
+        }
+        genericParameters := candidate.GetGenericArguments()
+        parameters := candidate.GetParameters()
+        if genericParameters.Length != 2 || parameters.Length != 2 || !parameters[0].ParameterType.IsByRef || !parameters[1].ParameterType.IsByRef || parameters[0].ParameterType.GetElementType() != genericParameters[0] || parameters[1].ParameterType.GetElementType() != genericParameters[1] {
+            return false
+        }
+        if genericParameters[0].GenericParameterAttributes != GenericParameterAttributes.None || genericParameters[1].GenericParameterAttributes != GenericParameterAttributes.None {
+            return false
+        }
+        expectedAwaiterConstraint := useUnsafe ? typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion) : typeof(System.Runtime.CompilerServices.INotifyCompletion)
+        awaiterConstraints := genericParameters[0].GetGenericParameterConstraints()
+        stateMachineConstraints := genericParameters[1].GetGenericParameterConstraints()
+        return awaiterConstraints.Length == 1 && awaiterConstraints[0] == expectedAwaiterConstraint && stateMachineConstraints.Length == 1 && stateMachineConstraints[0] == typeof(System.Runtime.CompilerServices.IAsyncStateMachine)
     }
 
     static func AsyncBuilderSetExceptionMethod(context: ColumnarIteratorEmitContext): MethodInfo {

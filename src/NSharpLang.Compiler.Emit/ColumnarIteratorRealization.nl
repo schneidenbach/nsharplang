@@ -990,11 +990,48 @@ class ColumnarIteratorRealization {
 
     static func FindAsyncBuilderMethod(builderDefinition: Type, name: string, genericArity: int, parameterCount: int): MethodInfo {
         for candidate in builderDefinition.GetMethods(BindingFlags.Instance | BindingFlags.Public) {
-            if candidate.Name == name && candidate.IsGenericMethodDefinition && candidate.GetGenericArguments().Length == genericArity && candidate.GetParameters().Length == parameterCount {
+            if IsExactAsyncBuilderMethod(candidate, name, genericArity, parameterCount) {
                 return candidate
             }
         }
         throw new InvalidOperationException("the async builder has no " + name + " method with the expected generic signature")
+    }
+
+    static func IsExactAsyncBuilderMethod(candidate: MethodInfo, name: string, genericArity: int, parameterCount: int): bool {
+        if candidate == null || name == null || candidate.Name != name || candidate.IsStatic || !candidate.IsPublic || !candidate.IsGenericMethodDefinition || genericArity != parameterCount {
+            return false
+        }
+        genericParameters := candidate.GetGenericArguments()
+        parameters := candidate.GetParameters()
+        if genericParameters.Length != genericArity || parameters.Length != parameterCount || candidate.ReturnType != typeof(void) {
+            return false
+        }
+        index := 0
+        while index < parameterCount {
+            if genericParameters[index].GenericParameterAttributes != GenericParameterAttributes.None {
+                return false
+            }
+            parameterType := parameters[index].ParameterType
+            if !parameterType.IsByRef || parameterType.GetElementType() != genericParameters[index] {
+                return false
+            }
+            expectedConstraint: Type? = null
+            if name == "AwaitOnCompleted" && index == 0 {
+                expectedConstraint = typeof(System.Runtime.CompilerServices.INotifyCompletion)
+            } else if name == "AwaitUnsafeOnCompleted" && index == 0 {
+                expectedConstraint = typeof(System.Runtime.CompilerServices.ICriticalNotifyCompletion)
+            } else if name == "Start" && index == 0 || (name == "AwaitOnCompleted" || name == "AwaitUnsafeOnCompleted") && index == 1 {
+                expectedConstraint = typeof(System.Runtime.CompilerServices.IAsyncStateMachine)
+            } else {
+                return false
+            }
+            constraints := genericParameters[index].GetGenericParameterConstraints()
+            if constraints.Length != 1 || constraints[0] != expectedConstraint {
+                return false
+            }
+            index += 1
+        }
+        return true
     }
 
     static func FindAsyncBuilderResultMethod(builderDefinition: Type): MethodInfo {

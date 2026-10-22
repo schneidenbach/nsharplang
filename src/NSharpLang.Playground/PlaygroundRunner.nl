@@ -3,6 +3,7 @@ namespace NSharpLang.Playground
 import System
 import System.Collections.Generic
 import System.Globalization
+import System.IO
 import System.Linq
 import System.Reflection
 import System.Runtime.CompilerServices
@@ -390,7 +391,7 @@ internal sealed class PlaygroundRunner {
                 SetArrayElement(arguments, i, argumentValue)
                 i += 1
             }
-            created := EvaluateNewWithArguments(newExpression, arguments)
+        created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel)
             if newExpression.Initializer != null {
                 await ApplyAsyncInitializer(created, newExpression.Initializer, environment, depth)
             }
@@ -590,7 +591,7 @@ internal sealed class PlaygroundRunner {
             if sourceBinding == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await has no shared source awaitable binding"))
             }
-            return await AwaitSourceAwaitable(runtimeObject, sourceBinding)
+            return await AwaitSourceAwaitable(runtimeObject, sourceBinding, semanticModel)
         }
 
         awaitableType := value.GetType()
@@ -615,8 +616,12 @@ internal sealed class PlaygroundRunner {
         }
         pattern := semanticBinding.ReflectedAwaiter
         getAwaiter := pattern.GetAwaiter
-        if getAwaiter != null && !pattern.GetAwaiterIsExtension {
-            getAwaiter = SelectedRuntimeMethodFor(getAwaiter, value.GetType())
+        if getAwaiter != null {
+            if pattern.GetAwaiterIsExtension {
+                getAwaiter = SelectedRuntimeExtensionMethodFor(getAwaiter, semanticBinding.GetAwaiterTypeArguments)
+            } else {
+                getAwaiter = SelectedRuntimeMethodFor(getAwaiter, value.GetType())
+            }
         }
         isCompletedGetter := pattern.IsCompletedGetter
         if getAwaiter == null || isCompletedGetter == null {
@@ -664,6 +669,261 @@ internal sealed class PlaygroundRunner {
         // Never invoke a reference-assembly member from the analyzer's MetadataLoadContext. A
         // missing runtime mapping is surfaced to the playground's bounded-run path instead.
         return null
+    }
+
+    // The shared binder selected a reflected extension and retained its inferred generic arguments.
+    // Resolve that exact declaration on the executable assembly, then close it with those arguments;
+    // never invoke the analyzer's MetadataLoadContext method or redo extension overload selection.
+    private static func SelectedRuntimeExtensionMethodFor(selected: MethodInfo?, boundTypeArguments: NSharpLang.Compiler.TypeInfo[]): MethodInfo? {
+        if selected == null || !selected.IsStatic || selected.DeclaringType == null {
+            return null
+        }
+        selectedOwner := selected.DeclaringType
+        selectedAssemblyName := selectedOwner.Assembly.GetName().Name
+        selectedOwnerName := selectedOwner.FullName
+        if selectedAssemblyName == null || selectedOwnerName == null {
+            return null
+        }
+        runtimeOwner: Type? = null
+        runtimeAssemblies := AppDomain.CurrentDomain.GetAssemblies()
+        for runtimeAssembly in runtimeAssemblies {
+            if runtimeAssembly.GetName().Name != selectedAssemblyName {
+                continue
+            }
+            runtimeOwner = runtimeAssembly.GetType(selectedOwnerName)
+            if runtimeOwner != null {
+                break
+            }
+        }
+        if runtimeOwner == null {
+            runtimeAssemblyPath := Path.Combine(AppContext.BaseDirectory, selectedAssemblyName + ".dll")
+            if File.Exists(runtimeAssemblyPath) {
+                try {
+                    runtimeAssembly := Assembly.LoadFrom(runtimeAssemblyPath)
+                    runtimeOwner = runtimeAssembly.GetType(selectedOwnerName)
+                } catch loadFailure: Exception {
+                    return null
+                }
+            }
+        }
+        if runtimeOwner == null {
+            return null
+        }
+
+        selectedOpen := selected.IsGenericMethod ? selected.GetGenericMethodDefinition() : selected
+        for candidate in runtimeOwner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static) {
+            if !RuntimeMethodSignaturesMatch(selectedOpen, candidate) {
+                continue
+            }
+            if !selectedOpen.IsGenericMethodDefinition {
+                return candidate
+            }
+            if boundTypeArguments == null || boundTypeArguments.Length != selectedOpen.GetGenericArguments().Length {
+                return null
+            }
+            runtimeTypeArguments := new Type[boundTypeArguments.Length]
+            index := 0
+            while index < runtimeTypeArguments.Length {
+                runtimeTypeArgument: Type = null
+                if !TryResolvePlaygroundRuntimeType(boundTypeArguments[index], out runtimeTypeArgument) {
+                    return null
+                }
+                runtimeTypeArguments[index] = runtimeTypeArgument
+                index += 1
+            }
+            try {
+                return candidate.MakeGenericMethod(runtimeTypeArguments)
+            } catch failure: ArgumentException {
+                return null
+            }
+        }
+        return null
+    }
+
+    private static func TryResolvePlaygroundRuntimeType(typeInfo: NSharpLang.Compiler.TypeInfo, out runtimeType: Type): bool {
+        runtimeType = null
+        if typeInfo == null {
+            return false
+        }
+        reflected := typeInfo as ReflectionTypeInfo
+        if reflected != null {
+            return TryResolvePlaygroundRuntimeTypeFromMetadata(reflected.Type, out runtimeType)
+        }
+        constructed := typeInfo as GenericTypeInfo
+        if constructed != null {
+            definition := constructed.GenericDefinition as ReflectionTypeInfo
+            if definition == null || !TryResolvePlaygroundRuntimeTypeFromMetadata(definition.Type, out runtimeType) || !runtimeType.IsGenericTypeDefinition || constructed.TypeArguments.Count != runtimeType.GetGenericArguments().Length {
+                runtimeType = null
+                return false
+            }
+            arguments := new Type[constructed.TypeArguments.Count]
+            index := 0
+            while index < arguments.Length {
+                runtimeArgument: Type = null
+                if !TryResolvePlaygroundRuntimeType(constructed.TypeArguments[index], out runtimeArgument) {
+                    runtimeType = null
+                    return false
+                }
+                arguments[index] = runtimeArgument
+                index += 1
+            }
+            try {
+                runtimeType = runtimeType.MakeGenericType(arguments)
+                return true
+            } catch failure: ArgumentException {
+                runtimeType = null
+                return false
+            }
+        }
+        simpleType := typeInfo as SimpleTypeInfo
+        if simpleType != null {
+            if simpleType.Name == "bool" {
+                runtimeType = typeof(bool)
+                return true
+            }
+            if simpleType.Name == "byte" {
+                runtimeType = typeof(byte)
+                return true
+            }
+            if simpleType.Name == "sbyte" {
+                runtimeType = typeof(sbyte)
+                return true
+            }
+            if simpleType.Name == "short" {
+                runtimeType = typeof(short)
+                return true
+            }
+            if simpleType.Name == "ushort" {
+                runtimeType = typeof(ushort)
+                return true
+            }
+            if simpleType.Name == "int" {
+                runtimeType = typeof(int)
+                return true
+            }
+            if simpleType.Name == "uint" {
+                runtimeType = typeof(uint)
+                return true
+            }
+            if simpleType.Name == "long" {
+                runtimeType = typeof(long)
+                return true
+            }
+            if simpleType.Name == "ulong" {
+                runtimeType = typeof(ulong)
+                return true
+            }
+            if simpleType.Name == "float" {
+                runtimeType = typeof(float)
+                return true
+            }
+            if simpleType.Name == "double" {
+                runtimeType = typeof(double)
+                return true
+            }
+            if simpleType.Name == "decimal" {
+                runtimeType = typeof(decimal)
+                return true
+            }
+            if simpleType.Name == "char" {
+                runtimeType = typeof(char)
+                return true
+            }
+            if simpleType.Name == "string" {
+                runtimeType = typeof(string)
+                return true
+            }
+            if simpleType.Name == "object" {
+                runtimeType = typeof(object)
+                return true
+            }
+        }
+        rendered := typeInfo.ToString()
+        if rendered == null {
+            return false
+        }
+        resolved := Type.GetType(rendered)
+        if resolved == null {
+            return false
+        }
+        runtimeType = resolved
+        return true
+    }
+
+    private static func TryResolvePlaygroundRuntimeTypeFromMetadata(metadataType: Type, out runtimeType: Type): bool {
+        runtimeType = null
+        if metadataType == null || metadataType.IsGenericParameter || metadataType.FullName == null {
+            return false
+        }
+        if metadataType.IsArray {
+            elementType: Type = null
+            metadataElement := metadataType.GetElementType()
+            if metadataElement == null || !TryResolvePlaygroundRuntimeTypeFromMetadata(metadataElement, out elementType) {
+                return false
+            }
+            runtimeType = metadataType.GetArrayRank() == 1 ? elementType.MakeArrayType() : elementType.MakeArrayType(metadataType.GetArrayRank())
+            return true
+        }
+        if metadataType.IsGenericType && !metadataType.IsGenericTypeDefinition {
+            genericDefinition: Type = null
+            if !TryResolvePlaygroundRuntimeTypeFromMetadata(metadataType.GetGenericTypeDefinition(), out genericDefinition) {
+                return false
+            }
+            metadataArguments := metadataType.GetGenericArguments()
+            runtimeArguments := new Type[metadataArguments.Length]
+            index := 0
+            while index < metadataArguments.Length {
+                runtimeArgument: Type = null
+                if !TryResolvePlaygroundRuntimeTypeFromMetadata(metadataArguments[index], out runtimeArgument) {
+                    return false
+                }
+                runtimeArguments[index] = runtimeArgument
+                index += 1
+            }
+            try {
+                runtimeType = genericDefinition.MakeGenericType(runtimeArguments)
+                return true
+            } catch failure: ArgumentException {
+                return false
+            }
+        }
+        metadataName := metadataType.FullName
+        if metadataName == null {
+            return false
+        }
+        resolvedMetadataType := Type.GetType(metadataName)
+        if resolvedMetadataType != null {
+            runtimeType = resolvedMetadataType
+            return true
+        }
+        assemblyName := metadataType.Assembly.GetName().Name
+        if assemblyName == null {
+            return false
+        }
+        for runtimeAssembly in AppDomain.CurrentDomain.GetAssemblies() {
+            if runtimeAssembly.GetName().Name == assemblyName {
+                resolvedAssemblyType := runtimeAssembly.GetType(metadataName)
+                if resolvedAssemblyType != null {
+                    runtimeType = resolvedAssemblyType
+                    return true
+                }
+            }
+        }
+        runtimeAssemblyPath := Path.Combine(AppContext.BaseDirectory, assemblyName + ".dll")
+        if File.Exists(runtimeAssemblyPath) {
+            try {
+                runtimeAssembly := Assembly.LoadFrom(runtimeAssemblyPath)
+                resolvedAssemblyType := runtimeAssembly.GetType(metadataName)
+                if resolvedAssemblyType != null {
+                    runtimeType = resolvedAssemblyType
+                    return true
+                }
+            } catch loadFailure: Exception {
+                runtimeType = null
+                return false
+            }
+        }
+        return false
     }
 
     private static func SelectedRuntimeInterfaceMethodFor(selected: MethodInfo, selectedOwner: Type, runtimeOwner: Type): MethodInfo? {
@@ -838,7 +1098,7 @@ internal sealed class PlaygroundRunner {
         return null
     }
 
-    private async func AwaitSourceAwaitable(value: RuntimeObject, pattern: AnalyzerAwaitablePatternBinding): Task<object?> {
+    private async func AwaitSourceAwaitable(value: RuntimeObject, pattern: AnalyzerAwaitablePatternBinding, semanticModel: SemanticModel?): Task<object?> {
         getAwaiter := pattern.GetAwaiterDeclaration
         if getAwaiter == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared source awaitable binding has no GetAwaiter declaration"))
@@ -863,19 +1123,52 @@ internal sealed class PlaygroundRunner {
         if sourcePattern == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared source awaitable binding has no source awaiter pattern"))
         }
-        if sourcePattern.Completion == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter inherits its completion implementation from a CLR base type, which the playground interpreter cannot instantiate"))
-        }
-        isCompletedValue := ReadRuntimeProperty(awaiter, sourcePattern.IsCompleted, 0)
+        isCompletedValue := ReadRuntimeProperty(awaiter, sourcePattern.IsCompletedName, 0)
         if !Convert.ToBoolean(isCompletedValue) {
             completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
             continuation := CreateAwaiterContinuation(completion)
             completionArguments := new object?[](1)
             completionArguments[0] = continuation
-            InvokeFunction(sourcePattern.Completion, completionArguments, awaiter, 0)
+            completionFunction := sourcePattern.Completion
+            if completionFunction == null && semanticModel != null && awaiter.Declaration != null {
+                completionFunction = ResolveSourceCompletionImplementation(awaiter, sourcePattern, semanticModel)
+            }
+            if completionFunction == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no implementation for its selected completion interface slot"))
+            }
+            InvokeFunction(completionFunction, completionArguments, awaiter, 0)
             await completion.Task
         }
-        return InvokeFunction(sourcePattern.GetResult, new object?[](0), awaiter, 0)
+        getResultFunction := sourcePattern.GetResult
+        if getResultFunction.Body == null && getResultFunction.ExpressionBody == null && semanticModel != null && awaiter.Declaration != null {
+            mappedGetResult := ResolveSourceGetResultImplementation(awaiter, sourcePattern, pattern.AwaiterType, semanticModel)
+            if mappedGetResult != null {
+                getResultFunction = mappedGetResult
+            }
+        }
+        if getResultFunction.Body == null && getResultFunction.ExpressionBody == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no implementation for its selected GetResult interface slot"))
+        }
+        return InvokeFunction(getResultFunction, new object?[](0), awaiter, 0)
+    }
+
+    private static func ResolveSourceCompletionImplementation(awaiter: RuntimeObject, sourcePattern: SourceAwaiterPatternBinding, semanticModel: SemanticModel): FunctionDeclaration? {
+        if awaiter == null || awaiter.Declaration == null || sourcePattern == null || semanticModel == null {
+            return null
+        }
+        completionContract := sourcePattern.CompletionSlot.DeclaringType
+        contractType: NSharpLang.Compiler.TypeInfo? = null
+        if completionContract != null {
+            contractType = new ReflectionTypeInfo(completionContract)
+        }
+        return AwaitablePatternBinder.FindSourceInterfaceImplementationOnDeclaration(awaiter.Declaration, null, sourcePattern.CompletionSlot, contractType, semanticModel)
+    }
+
+    private static func ResolveSourceGetResultImplementation(awaiter: RuntimeObject, sourcePattern: SourceAwaiterPatternBinding, awaiterType: NSharpLang.Compiler.TypeInfo, semanticModel: SemanticModel): FunctionDeclaration? {
+        if awaiter == null || awaiter.Declaration == null || sourcePattern == null || awaiterType == null || semanticModel == null {
+            return null
+        }
+        return AwaitablePatternBinder.FindSourceInterfaceImplementationOnDeclaration(awaiter.Declaration, sourcePattern.GetResult, null, awaiterType, semanticModel)
     }
 
     private static func RethrowInvocationFailure(failure: TargetInvocationException) {
@@ -1670,7 +1963,7 @@ internal sealed class PlaygroundRunner {
             arguments[i] = Evaluate(newExpression.ConstructorArguments[i].Value, environment, depth)
             i = i + 1
         }
-        created := EvaluateNewWithArguments(newExpression, arguments)
+            created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel)
         if newExpression.Initializer != null {
             runtimeObject := created as RuntimeObject
             if runtimeObject == null {
@@ -1681,7 +1974,7 @@ internal sealed class PlaygroundRunner {
         return created
     }
 
-    private func EvaluateNewWithArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>): object {
+    private func EvaluateNewWithArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?): object {
         typeName := GetTypeName(newExpression.Type)
         if typeName == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
@@ -1728,6 +2021,10 @@ internal sealed class PlaygroundRunner {
         }
         declaration: Declaration? = null
         if !types.TryGetValue(typeName, out declaration) || declaration == null {
+            reflectedObject := TryCreateReflectedObject(newExpression, arguments, semanticModel)
+            if reflectedObject != null {
+                return reflectedObject
+            }
             throw Unsupported(PlaygroundRunFacts.UnknownConstructedType(typeName))
         }
         namespaceName: string? = null
@@ -1735,6 +2032,63 @@ internal sealed class PlaygroundRunner {
         runtimeObject := new RuntimeObject(declaration, new RuntimeEnvironment(null), namespaceName)
         ApplyPrimaryConstructorArguments(runtimeObject, arguments)
         return runtimeObject
+    }
+
+    private func TryCreateReflectedObject(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?): object? {
+        if newExpression == null || newExpression.Type == null || semanticModel == null {
+            return null
+        }
+        line := 0
+        column := 0
+        genericReference := newExpression.Type as GenericTypeReference
+        if genericReference != null {
+            line = genericReference.Line
+            column = genericReference.Column
+        } else {
+            simpleReference := newExpression.Type as SimpleTypeReference
+            if simpleReference == null {
+                return null
+            }
+            line = simpleReference.Line
+            column = simpleReference.Column
+        }
+        reflectedTypeInfo := semanticModel.LookupTypeReferenceAtPosition(line, column)
+        runtimeType: Type = null
+        if reflectedTypeInfo == null || !TryResolvePlaygroundRuntimeType(reflectedTypeInfo, out runtimeType) {
+            return null
+        }
+        for constructor in runtimeType.GetConstructors(BindingFlags.Public | BindingFlags.Instance) {
+            parameters := constructor.GetParameters()
+            if !RuntimeConstructorParametersMatch(parameters, arguments) {
+                continue
+            }
+            try {
+                return constructor.Invoke(ToInvocationArguments(arguments))
+            } catch invocationFailure: TargetInvocationException {
+                RethrowInvocationFailure(invocationFailure)
+            }
+        }
+        return null
+    }
+
+    private static func RuntimeConstructorParametersMatch(parameters: ParameterInfo[], arguments: IReadOnlyList<object?>): bool {
+        if parameters == null || arguments == null || parameters.Length != arguments.Count {
+            return false
+        }
+        index := 0
+        while index < parameters.Length {
+            argument := arguments[index]
+            parameterType := parameters[index].ParameterType
+            if argument == null {
+                if parameterType.IsValueType && Nullable.GetUnderlyingType(parameterType) == null {
+                    return false
+                }
+            } else if !parameterType.IsInstanceOfType(argument) {
+                return false
+            }
+            index += 1
+        }
+        return true
     }
 
     private async func ApplyAsyncInitializer(value: object, initializer: ObjectInitializerExpression, environment: RuntimeEnvironment, depth: int): Task {

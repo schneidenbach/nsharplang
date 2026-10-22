@@ -117,6 +117,60 @@ class OperandIncompleteAwaiter {
     }
 }
 
+class OperandOptionalPatternAwaiter: INotifyCompletion {
+    IsCompleted: bool { get { return true } }
+    func GetResult(): int { return 1 }
+    func OnCompleted(continuation: Action) { continuation() }
+}
+
+class OperandOptionalGetAwaiterAwaitable {
+    func GetAwaiter(fallback: int = 0): OperandOptionalPatternAwaiter {
+        return new OperandOptionalPatternAwaiter()
+    }
+}
+
+class OperandParamsGetAwaiterAwaitable {
+    func GetAwaiter(params ignored: int[]): OperandOptionalPatternAwaiter {
+        return new OperandOptionalPatternAwaiter()
+    }
+}
+
+class OperandOptionalGetResultAwaiter: INotifyCompletion {
+    IsCompleted: bool { get { return true } }
+    func GetResult(fallback: int = 0): int { return fallback }
+    func OnCompleted(continuation: Action) { continuation() }
+}
+
+class OperandOptionalGetResultAwaitable {
+    func GetAwaiter(): OperandOptionalGetResultAwaiter {
+        return new OperandOptionalGetResultAwaiter()
+    }
+}
+
+class OperandParamsGetResultAwaiter: INotifyCompletion {
+    IsCompleted: bool { get { return true } }
+    func GetResult(params ignored: int[]): int { return ignored.Length }
+    func OnCompleted(continuation: Action) { continuation() }
+}
+
+class OperandParamsGetResultAwaitable {
+    func GetAwaiter(): OperandParamsGetResultAwaiter {
+        return new OperandParamsGetResultAwaiter()
+    }
+}
+
+class OperandOptionalExtensionGetAwaiterAwaitable {}
+
+class OperandParamsExtensionGetAwaiterAwaitable {}
+
+func GetAwaiter(this value: OperandOptionalExtensionGetAwaiterAwaitable, fallback: int = 0): OperandOptionalPatternAwaiter {
+    return new OperandOptionalPatternAwaiter()
+}
+
+func GetAwaiter(this value: OperandParamsExtensionGetAwaiterAwaitable, params ignored: int[]): OperandOptionalPatternAwaiter {
+    return new OperandOptionalPatternAwaiter()
+}
+
 class OperandExplicitAwaitable {
     func GetAwaiter(): OperandExplicitAwaiter {
         return new OperandExplicitAwaiter()
@@ -268,7 +322,12 @@ func OperandHarnessWith(sourceText: string?): OperandHarness {
     callBinder := new AnalyzerSyntheticCallBinder(context, overloadScoring, assignability, clrConversion)
     callReporter := new AnalyzerSyntheticCallReporter(diagnostics, spans)
     callWalk := new AnalyzerSyntheticCallWalk(resolver, callBinder, callReporter, overloadScoring, assignability, spans, diagnostics)
-    extensions := new AnalyzerExtensionMethodResolution(resolver, assignability, context, functionTypes, clrConversion, new List<FunctionDeclaration>(), new List<string>(), assemblies)
+    extensionAssemblies := new List<Assembly>()
+    extensionAssemblies.AddRange(assemblies)
+    extensionAssemblies.Add(typeof(OperandOptionalExtensionGetAwaiterAwaitable).get_Assembly())
+    extensionNamespaces := new List<string>()
+    extensionNamespaces.Add("NSharpLang.Compiler")
+    extensions := new AnalyzerExtensionMethodResolution(resolver, assignability, context, functionTypes, clrConversion, new List<FunctionDeclaration>(), extensionNamespaces, extensionAssemblies)
     extensions.SetGenericCallBinder(callBinder)
     members := new AnalyzerMemberResolution(functionTypes, context, substitution, resolver, clrConversion, extensions, new List<string>())
     postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
@@ -1229,6 +1288,72 @@ test "await rejects an awaiter with only a generic GetResult at the operand" {
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await rejects reflected GetAwaiter methods selected through optional parameters" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandOptionalGetAwaiterAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("GetAwaiter()")
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await rejects reflected GetAwaiter methods selected by params expansion" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandParamsGetAwaiterAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("GetAwaiter()")
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await rejects reflected extension GetAwaiter methods selected through optional parameters" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandOptionalExtensionGetAwaiterAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("GetAwaiter()")
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await rejects reflected extension GetAwaiter methods selected by params expansion" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandParamsExtensionGetAwaiterAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("GetAwaiter()")
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await rejects reflected GetResult methods selected through optional parameters" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandOptionalGetResultAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("GetResult()")
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+}
+
+test "await rejects reflected GetResult methods selected by params expansion" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandParamsGetResultAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("GetResult()")
     assert OperandErrorText(harness, 0).Contains("6:15:")
 }
 

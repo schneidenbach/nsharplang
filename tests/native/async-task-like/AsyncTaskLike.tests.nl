@@ -398,6 +398,15 @@ test "an explicit base INotifyCompletion slot resolves through a source interfac
     assert pending.Result == 48
 }
 
+test "an interface-typed source awaiter resumes through its interface slots" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitSourceInterfaceAwaiter(new SourceInterfaceAwaitable(gate.Task))
+    assert !pending.IsCompleted
+
+    gate.SetResult(49)
+    assert pending.Result == 49
+}
+
 test "a receiver-inferred generic GetAwaiter extension is emitted and returns its closed value" {
     pending := AwaitGenericExtension(new GenericExtensionBox<int>(47))
     assert pending.Result == 47

@@ -21,6 +21,21 @@ fi
 echo "Publishing N# playground WASM host..."
 dotnet build "$CLI_PROJECT" -c Debug -v q
 dotnet "$CLI_DLL" build --project "$PLAYGROUND_PROJECT" --release --emit-reference-assembly
+ASYNC_PATTERN_FIXTURE="$REPO_ROOT/tests/fixtures/async-awaitable-patterns"
+dotnet "$CLI_DLL" build --project "$ASYNC_PATTERN_FIXTURE" --release --emit-reference-assembly
+ASYNC_PATTERN_FIXTURE_DLL="$ASYNC_PATTERN_FIXTURE/bin/Release/net10.0/NSharpLang.AsyncAwaitablePatternFixtures.dll"
+ASYNC_PATTERN_RUNTIME_DLL="$ASYNC_PATTERN_FIXTURE/bin/Release/net10.0/NSharpLang.Runtime.dll"
+SDK_BASE="$(dotnet --info | sed -n 's/^ Base Path:[[:space:]]*//p' | head -n 1)"
+DOTNET_ROOT="${SDK_BASE%/sdk/*}"
+RUNTIME_CORELIB="$(find "$DOTNET_ROOT/shared/Microsoft.NETCore.App" -name System.Private.CoreLib.dll -type f | sort -V | tail -n 1)"
+if [ ! -f "$ASYNC_PATTERN_FIXTURE_DLL" ] || [ ! -f "$ASYNC_PATTERN_RUNTIME_DLL" ] || [ ! -f "$RUNTIME_CORELIB" ]; then
+    echo "error: async awaitable pattern fixture assembly was not produced." >&2
+    exit 1
+fi
+mkdir -p "$ARTIFACT_ROOT"
+ASYNC_PATTERN_FIXTURE_ARCHIVE="$ARTIFACT_ROOT/async-awaitable-pattern-fixture.zip"
+rm -f "$ASYNC_PATTERN_FIXTURE_ARCHIVE"
+zip -q -9 -j -X "$ASYNC_PATTERN_FIXTURE_ARCHIVE" "$ASYNC_PATTERN_FIXTURE_DLL" "$ASYNC_PATTERN_RUNTIME_DLL" "$RUNTIME_CORELIB"
 cp "$PLAYGROUND_PROJECT/bin/Release/net10.0/NSharpLang.Playground.dll" "$PLAYGROUND_PROJECT/obj/Release/net10.0/NSharpLang.Playground.dll"
 for reference_directory in "$REPO_ROOT"/src/*/bin/Release/net10.0/nsharpref; do
     if [ ! -d "$reference_directory" ]; then

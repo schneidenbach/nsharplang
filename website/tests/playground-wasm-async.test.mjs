@@ -18,6 +18,8 @@ test('the WebAssembly playground executes async awaiter shapes with runtime sema
     assert.ok(wasm, 'the WASM module exports were initialized');
     const referenceArchive = await readFile(new URL('../static/playground/wasm/references.zip', import.meta.url));
     wasm.RegisterMetadataReferences(referenceArchive.toString('base64'));
+    const asyncFixtureArchive = await readFile(new URL('../../artifacts/playground-wasm/async-awaitable-pattern-fixture.zip', import.meta.url));
+    wasm.RegisterMetadataReferences(asyncFixtureArchive.toString('base64'));
 
     const pendingMatrixRows = [
       {id: 'task', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadTask(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(61)`, result: 61},
@@ -25,6 +27,8 @@ test('the WebAssembly playground executes async awaiter shapes with runtime sema
       {id: 'inherited', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadInherited(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(63)`, result: 63},
       {id: 'extension', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadExtension(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(64)`, result: 64},
       {id: 'genericExtension', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadConcreteGenericExtension(new CriticalBox<int>(${gate}.Task))`, completion: (gate) => `${gate}.SetResult(65)`, result: 65},
+      {id: 'reflectedGenericExtension', gateType: 'ReflectedGenericExtensionBox<int>', call: (gate) => `ReadReflectedGenericExtension(${gate})`, completion: (gate) => `${gate}.Complete(74)`, result: 74},
+      {id: 'interfaceAwaiter', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadInterfaceAwaiter(new InterfaceAwaitable(${gate}.Task))`, completion: (gate) => `${gate}.SetResult(75)`, result: 75},
       {id: 'implicitDecoy', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadImplicitDecoy(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(66)`, result: 66},
       {id: 'publicExplicit', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadPublicAndExplicit(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(67)`, result: 67},
       {id: 'configured', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadConfigured(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(68)`, result: 68},
@@ -64,6 +68,7 @@ async func main() {
         source: `import System
 import System.Runtime.CompilerServices
 import System.Threading.Tasks
+import NSharpLang.AsyncAwaitablePatternFixtures
 
 interface WrongCompletion {
     func OnCompleted(continuation: object)
@@ -75,6 +80,21 @@ interface EarlierCompletion {
 
 class DecoyAwaitable(source: Task<int>) {
     func GetAwaiter(): DecoyAwaiter { return new DecoyAwaiter(source) }
+}
+
+interface InterfaceAwaiter: INotifyCompletion {
+    IsCompleted: bool
+    func GetResult(): int
+}
+
+class InterfaceAwaiterImplementation(source: Task<int>): InterfaceAwaiter {
+    IsCompleted: bool { get { return source.IsCompleted } }
+    func GetResult(): int { return source.GetAwaiter().GetResult() }
+    func OnCompleted(continuation: Action) { source.GetAwaiter().OnCompleted(continuation) }
+}
+
+class InterfaceAwaitable(source: Task<int>) {
+    func GetAwaiter(): InterfaceAwaiter { return new InterfaceAwaiterImplementation(source) }
 }
 
 class DecoyAwaiter(source: Task<int>): EarlierCompletion, WrongCompletion, INotifyCompletion {
@@ -172,6 +192,8 @@ func GetAwaiter<T>(this value: CriticalBox<T>): CriticalAwaiter<T> {
 }
 
 async func ReadTask(source: Task<int>): Task<int> { return await source }
+async func ReadInterfaceAwaiter(source: InterfaceAwaitable): Task<int> { return await source }
+async func ReadReflectedGenericExtension(source: ReflectedGenericExtensionBox<int>): Task<int> { return await source }
 async func ReadDecoy(source: Task<int>): Task<int> { return await new DecoyAwaitable(source) }
 async func ReadInherited(source: Task<int>): Task<int> { return await new InheritedAwaitable(source) }
 async func ReadInheritedInterface(source: InheritedInterfaceAwaitable): Task<int> { return await source }

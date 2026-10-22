@@ -41,17 +41,52 @@ class ReflectedInheritedAwaitable {
 }
 
 class ReflectedGenericExtensionBox<T> {
-    Source: Task<int>
+    private continuation: Action?
+    private completed: bool
+    TaskSource: Task<int>?
+    Result: int
+
+    constructor() {
+        continuation = null
+        completed = false
+        TaskSource = null
+        Result = 0
+    }
 
     constructor(source: Task<int>) {
-        Source = source
+        continuation = null
+        completed = false
+        TaskSource = source
+        Result = 0
+    }
+
+    func Register(registered: Action) {
+        continuation = registered
+    }
+
+    func Complete(result: int) {
+        Result = result
+        completed = true
+        registered := continuation
+        if registered != null {
+            registered()
+        }
+    }
+
+    IsCompleted: bool {
+        get {
+            if TaskSource != null {
+                return TaskSource.IsCompleted
+            }
+            return completed
+        }
     }
 }
 
-class ReflectedGenericExtensionAwaiter: INotifyCompletion {
-    Source: Task<int>
+class ReflectedGenericExtensionAwaiter<T>: INotifyCompletion {
+    Source: ReflectedGenericExtensionBox<T>
 
-    constructor(source: Task<int>) {
+    constructor(source: ReflectedGenericExtensionBox<T>) {
         Source = source
     }
 
@@ -60,17 +95,24 @@ class ReflectedGenericExtensionAwaiter: INotifyCompletion {
     }
 
     func GetResult(): int {
-        return Source.GetAwaiter().GetResult()
+        if Source.TaskSource != null {
+            return Source.TaskSource.GetAwaiter().GetResult()
+        }
+        return Source.Result
     }
 
     func OnCompleted(continuation: Action) {
-        Source.GetAwaiter().OnCompleted(continuation)
+        if Source.TaskSource != null {
+            Source.TaskSource.GetAwaiter().OnCompleted(continuation)
+            return
+        }
+        Source.Register(continuation)
     }
 
 }
 
-func GetAwaiter<T>(this value: ReflectedGenericExtensionBox<T>): ReflectedGenericExtensionAwaiter {
-    return new ReflectedGenericExtensionAwaiter(value.Source)
+func GetAwaiter<T>(this value: ReflectedGenericExtensionBox<T>): ReflectedGenericExtensionAwaiter<T> {
+    return new ReflectedGenericExtensionAwaiter<T>(value)
 }
 
 class ReflectedDecoyAwaiterBase {
