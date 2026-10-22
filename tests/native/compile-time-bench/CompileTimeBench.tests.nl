@@ -540,11 +540,12 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // attributes on `test` blocks added tests/native/census-testrefs; 108 since lifted operators over a
 // nullable value type added tests/native/census-lifted-operators; 109 since `on`/`off` event
 // Wave 2's member-lookup, closure, and nullable/record projects and PR #271's generic-call
-// regression suites are included in this freshly measured merged-tree corpus. Historical project
+// regression suites are included in this freshly measured merged-tree corpus. The async state-machine
+// slice adds the await-pattern fixture and referenced extension-metadata project. Historical project
 // ordinals are branch-local and overlap, so the count below comes from walking the merged tree.
-test "compile-time bench: the merged tree has 219 project.yml projects under examples, tests and templates" {
+test "compile-time bench: the merged tree has 221 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 219
+    assert projects.Count == 221
     advancedFeatureProjects := 0
     templateProjects := 0
     i := 1
