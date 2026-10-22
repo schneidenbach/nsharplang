@@ -34,6 +34,9 @@
     <type fullname="NSharpLang.Playground.PlaygroundAwaiterCompletionSignal" preserve="nothing">
       <method name="Signal" />
     </type>
+    <type fullname="NSharpLang.Playground.RuntimeTaskRunResultSignal`1" preserve="nothing">
+      <method name="Signal" />
+    </type>
   </assembly>
   <assembly fullname="System.Private.CoreLib">
     <!-- The playground maps analyzer-selected framework members to runtime members by reflection.
