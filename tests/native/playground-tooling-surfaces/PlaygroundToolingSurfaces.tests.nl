@@ -1897,6 +1897,32 @@ test "playground completes source duck-interface dispatch maps after the whole d
     assert PgUnsupportedReason(response) == "<null>"
 }
 
+test "playground keeps closed generic duck-interface slots distinct in either declaration order" {
+    declarations := "package Tutorial\n\nduck interface IReader<T> {\n    func Read(value: T): T\n}\n\nclass Reader {\n    func Read(value: int): int {\n        return value + 1\n    }\n\n    func Read(value: string): string {\n        return value + \"!\"\n    }\n}\n\n"
+    readInt := "func ReadInt(reader: IReader<int>): int {\n    return reader.Read(1)\n}\n\n"
+    readString := "func ReadString(reader: IReader<string>): string {\n    return reader.Read(\"x\")\n}\n\n"
+    entry := "func main() {\n    print ReadInt(new Reader())\n    print ReadString(new Reader())\n}\n"
+    intFirst := PgRunFiles(declarations + readInt + readString + entry, "Program.nl")
+    stringFirst := PgRunFiles(declarations + readString + readInt + entry, "Program.nl")
+    assert PgOk(intFirst) == "True", PgUnsupportedReason(intFirst)
+    assert PgExitCode(intFirst) == "0"
+    assert PgStdout(intFirst) == "2\nx!\n"
+    assert PgStderr(intFirst) == "<null>"
+    assert PgUnsupportedReason(intFirst) == "<null>"
+    assert PgOk(stringFirst) == "True", PgUnsupportedReason(stringFirst)
+    assert PgExitCode(stringFirst) == "0"
+    assert PgStdout(stringFirst) == "2\nx!\n"
+    assert PgStderr(stringFirst) == "<null>"
+    assert PgUnsupportedReason(stringFirst) == "<null>"
+
+    wrongShape := "package Tutorial\n\nduck interface IReader<T> {\n    func Read(value: T): T\n}\n\nclass WrongReader {\n    func Read(value: string): string {\n        return value\n    }\n}\n\nfunc ReadInt(reader: IReader<int>): int {\n    return reader.Read(1)\n}\n\nfunc main() {\n    print ReadInt(new WrongReader())\n}"
+    negative := PgRunFiles(wrongShape, "Program.nl")
+    assert PgOk(negative) == "False"
+    assert PgExitCode(negative) == "1"
+    assert PgCensus(negative).StartsWith("NL202@")
+    assert PgRow(negative, 0).StartsWith("NL202|error|")
+}
+
 test "chip playground union shorthand: EVERY shipped example that declares an ExpectedOutput now PRODUCES it — 8 of the 10, named, in corpus order" {
     actual := PgExpectedOutputCensus()
     assert actual == "01-hello-world=MATCH;02-values-functions=MATCH;03-types-visibility=MATCH;04-unions-patterns=MATCH;05-duck-typing=MATCH;06-collections-linq=MATCH;09-testing=MATCH;10-tooling-loop=MATCH;", actual

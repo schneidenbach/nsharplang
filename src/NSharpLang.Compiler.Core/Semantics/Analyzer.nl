@@ -185,7 +185,7 @@ class Analyzer: IDisposable {
             BindingMap
         )
         TypeSubstitution = new AnalyzerTypeSubstitution(Scopes, DeclarationContext, TypeResolver)
-        StructuralAssignability = new AnalyzerStructuralAssignability(TypeResolver, ExternalTypeProbe)
+        StructuralAssignability = new AnalyzerStructuralAssignability(TypeResolver, ExternalTypeProbe, DeclarationContext, TypeSubstitution)
         FunctionTypeFactory = new AnalyzerFunctionTypeFactory(DeclarationContext, TypeSubstitution)
         PropertyPatternBinding = new AnalyzerPropertyPatternBinding(
             Diagnostics,

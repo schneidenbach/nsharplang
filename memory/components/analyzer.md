@@ -497,7 +497,10 @@ two types alone, and they are kept out of `AnalyzerAssignabilityFacts` so that c
   does satisfy it. Signature equality is by the RESOLVED type's display form, an absent return type
   means `void`, and the resolution ORDER is behaviour: parameters are resolved in pairs, left to
   right, and the first mismatch stops the walk, so a rejected candidate's later references are never
-  resolved and never recorded.
+  resolved and never recorded. Constructed generic duck targets resolve contract members under the
+  closed type-argument substitution before comparing the source signature; `IReader<int>` and
+  `IReader<string>` are distinct dispatch slots even though both originate at one `IReader<T>.Read`
+  declaration.
 - THE ACTIONRESULT ARM answers that ASP.NET Core's `ActionResult<T>` accepts whatever the
   non-generic `ActionResult` accepts. It refuses unless the target is a one-argument generic named
   `ActionResult` or `Microsoft.AspNetCore.Mvc.ActionResult`, the source is a CLR type, and the

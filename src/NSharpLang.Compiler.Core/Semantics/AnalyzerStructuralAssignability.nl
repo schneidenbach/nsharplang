@@ -33,14 +33,41 @@ namespace NSharpLang.Compiler
 class AnalyzerStructuralAssignability {
     typeResolverValue: AnalyzerTypeResolver
     externalTypeProbeValue: AnalyzerExternalTypeProbe
+    declarationContextValue: AnalyzerDeclarationContext?
+    typeSubstitutionValue: AnalyzerTypeSubstitution?
 
-    constructor(typeResolver: AnalyzerTypeResolver, externalTypeProbe: AnalyzerExternalTypeProbe) {
+    constructor(typeResolver: AnalyzerTypeResolver, externalTypeProbe: AnalyzerExternalTypeProbe, declarationContext: AnalyzerDeclarationContext? = null, typeSubstitution: AnalyzerTypeSubstitution? = null) {
         typeResolverValue = typeResolver
         externalTypeProbeValue = externalTypeProbe
+        declarationContextValue = declarationContext
+        typeSubstitutionValue = typeSubstitution
     }
 
     // True when `source` declares a matching function for every function the duck interface demands.
     func ImplementsDuckInterface(source: TypeInfo, duckInterface: InterfaceTypeInfo): bool {
+        return ImplementsDuckInterfaceWithOwner(source, duckInterface, null, null)
+    }
+
+    // A constructed source duck interface keeps the open declaration as its generic definition and
+    // carries the closed arguments separately. Resolve its contract members under that owner so
+    // `IReader<int>` requires `Read(int)` while `IReader<string>` requires `Read(string)`.
+    func ImplementsConstructedDuckInterface(source: TypeInfo, constructedInterface: GenericTypeInfo): bool {
+        context := declarationContextValue
+        substitutionFacts := typeSubstitutionValue
+        if context == null || substitutionFacts == null {
+            return false
+        }
+
+        definition := substitutionFacts.ResolveGenericDefinition(constructedInterface) as InterfaceTypeInfo
+        if definition == null || !definition.IsDuckInterface {
+            return false
+        }
+
+        substitution := context.CreateGenericSubstitution(definition, constructedInterface.TypeArguments)
+        return ImplementsDuckInterfaceWithOwner(source, definition, definition, substitution)
+    }
+
+    func ImplementsDuckInterfaceWithOwner(source: TypeInfo, duckInterface: InterfaceTypeInfo, interfaceOwner: TypeInfo?, substitution: Dictionary<string, TypeInfo>?): bool {
         sourceMembers := GetDeclaredMembers(source)
         if sourceMembers == null {
             return false
@@ -54,7 +81,7 @@ class AnalyzerStructuralAssignability {
                 while sourceIndex < sourceMembers.Length && !found {
                     sourceMember := sourceMembers[sourceIndex]
                     if sourceMember.Kind == DeclaredMemberKind.Function {
-                        if MethodSignaturesMatch(sourceMember, interfaceMember) {
+                        if MethodSignaturesMatchWithOwner(sourceMember, interfaceMember, interfaceOwner, substitution) {
                             found = true
                         }
                     }
@@ -74,6 +101,10 @@ class AnalyzerStructuralAssignability {
     // type's display form, and resolved in the original left-to-right order so the effects of the
     // resolution walk land exactly where they did before.
     func MethodSignaturesMatch(method1: DeclaredMemberInfo, method2: DeclaredMemberInfo): bool {
+        return MethodSignaturesMatchWithOwner(method1, method2, null, null)
+    }
+
+    func MethodSignaturesMatchWithOwner(method1: DeclaredMemberInfo, method2: DeclaredMemberInfo, interfaceOwner: TypeInfo?, substitution: Dictionary<string, TypeInfo>?): bool {
         if method1.Name != method2.Name {
             return false
         }
@@ -85,21 +116,45 @@ class AnalyzerStructuralAssignability {
         index := 0
         while index < method1.ParameterCount {
             type1 := typeResolverValue.ResolveType(method1.ParameterTypes[index])
-            type2 := typeResolverValue.ResolveType(method2.ParameterTypes[index])
             text1 := TypeDisplayText(type1)
-            text2 := TypeDisplayText(type2)
-            if text1 != text2 {
-                return false
+            if interfaceOwner == null {
+                type2 := typeResolverValue.ResolveType(method2.ParameterTypes[index])
+                if text1 != TypeDisplayText(type2) {
+                    return false
+                }
+            } else {
+                substitutionFacts := typeSubstitutionValue
+                if substitutionFacts == null {
+                    return false
+                }
+
+                type2 := substitutionFacts.ResolveTypeForSourceOwner(method2.ParameterTypes[index], interfaceOwner, substitution)
+                if text1 != TypeDisplayText(type2) {
+                    return false
+                }
             }
 
             index = index + 1
         }
 
         returnType1 := ResolveDeclaredReturnType(method1)
-        returnType2 := ResolveDeclaredReturnType(method2)
         returnText1 := TypeDisplayText(returnType1)
-        returnText2 := TypeDisplayText(returnType2)
-        return returnText1 == returnText2
+        if method2.ReturnType == null {
+            return returnText1 == TypeDisplayText(BuiltInTypes.Void)
+        }
+
+        if interfaceOwner == null {
+            returnType2 := typeResolverValue.ResolveType(method2.ReturnType)
+            return returnText1 == TypeDisplayText(returnType2)
+        }
+
+        substitutionFacts := typeSubstitutionValue
+        if substitutionFacts == null {
+            return false
+        }
+
+        returnType2 := substitutionFacts.ResolveTypeForSourceOwner(method2.ReturnType, interfaceOwner, substitution)
+        return returnText1 == TypeDisplayText(returnType2)
     }
 
     // ASP.NET Core's `ActionResult<T>` accepts any value the non-generic `ActionResult` accepts. The

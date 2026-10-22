@@ -758,6 +758,11 @@ class AnalyzerAssignability {
         }
 
         // Duck-interface structural typing.
+        constructedDuckTarget := resolvedTarget as GenericTypeInfo
+        if constructedDuckTarget != null && structuralAssignability.ImplementsConstructedDuckInterface(resolvedSource, constructedDuckTarget) {
+            return true
+        }
+
         interfaceTarget := resolvedTarget as InterfaceTypeInfo
         if interfaceTarget != null {
             if interfaceTarget.IsDuckInterface {

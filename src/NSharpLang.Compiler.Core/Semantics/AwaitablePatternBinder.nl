@@ -1519,7 +1519,7 @@ class AwaitablePatternBinder {
             }
             alreadyMapped := false
             for mapping in result {
-                if Object.ReferenceEquals(mapping.SlotDeclaration, functionSlot) {
+                if Object.ReferenceEquals(mapping.SlotDeclaration, functionSlot) && mapping.SlotOwnerType != null && TypeInfoIdentityFacts.AreEqual(mapping.SlotOwnerType, invocationBinding.SourceSlotOwnerType) {
                     alreadyMapped = true
                     break
                 }

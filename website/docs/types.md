@@ -1573,6 +1573,11 @@ function arguments, returns, fields, and generic APIs such as `List<IReader>.Add
 The source class does not declare `: IReader`; matching the required exported
 member signatures is the contract.
 
+For a constructed generic duck interface, its type arguments close the required
+signatures before the source type is checked. A class with `Read(int): int` can
+therefore satisfy `IReader<int>`, while the same class must also declare a
+matching `Read(string): string` to satisfy `IReader<string>`.
+
 ### Duck Interface Constraints
 
 ```n#
