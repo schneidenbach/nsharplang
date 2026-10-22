@@ -1568,6 +1568,37 @@ internal sealed class PlaygroundRunner {
         return null
     }
 
+    private async func InvokeLambdaAsync(runtimeLambda: RuntimeLambda, arguments: IReadOnlyList<object?>, depth: int): Task<object?> {
+        lambda := runtimeLambda.Declaration
+        if depth > PlaygroundRunFacts.MaxCallDepth() {
+            throw Unsupported(PlaygroundRunFacts.CallDepthExceeded())
+        }
+        if lambda.Parameters.Count != arguments.Count {
+            throw Unsupported(PlaygroundRunFacts.WrongArgumentCount("lambda", arguments.Count))
+        }
+        environment := new RuntimeEnvironment(runtimeLambda.Closure)
+        index := 0
+        while index < lambda.Parameters.Count {
+            environment.Declare(lambda.Parameters[index].Name, arguments[index])
+            index += 1
+        }
+        try {
+            if lambda.ExpressionBody != null {
+                return await EvaluateAsync(lambda.ExpressionBody, environment, depth + 1)
+            }
+            if lambda.BlockBody != null {
+                await ExecuteAsyncBlock(lambda.BlockBody, environment, depth + 1)
+            }
+        } catch caught: Exception {
+            signal := caught as ReturnSignal
+            if signal != null {
+                return signal.Value
+            }
+            throw caught
+        }
+        return null
+    }
+
     private func ExecuteBlock(block: BlockStatement, environment: RuntimeEnvironment, depth: int) {
         for statement in block.Statements {
             ExecuteStatement(statement, environment, depth)
@@ -2401,8 +2432,11 @@ internal sealed class PlaygroundRunner {
         }
         runtimeLambda := callback as RuntimeLambda
         if runtimeLambda != null {
-            if runtimeLambda.Declaration.Parameters.Count != 0 || runtimeLambda.Declaration.IsAsync {
-                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("Task.Run browser lambdas must take no arguments and use the synchronous lambda form"))
+            if runtimeLambda.Declaration.Parameters.Count != 0 {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("Task.Run source callables must take no arguments"))
+            }
+            if runtimeLambda.Declaration.IsAsync {
+                return InvokeLambdaAsync(runtimeLambda, emptyArguments, depth)
             }
             return InvokeLambda(runtimeLambda, emptyArguments, depth)
         }

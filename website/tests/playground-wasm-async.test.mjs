@@ -375,6 +375,101 @@ async func main(): Task {
         timeoutMs: 5000,
       },
       {
+        name: 'Task.Run adapts an async lambda to Func<Task<TResult>>',
+        source: `import System.Threading.Tasks
+
+async func main(): Task {
+    result := await Task.Run(async () => {
+        await Task.Yield()
+        return 42
+    })
+    print result
+}
+`,
+        stdout: '42\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run adapts an async lambda to Func<Task>',
+        source: `import System.Threading.Tasks
+
+async func main(): Task {
+    await Task.Run(async () => {
+        await Task.Yield()
+        print "async-lambda"
+    })
+    print "done"
+}
+`,
+        stdout: 'async-lambda\ndone\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run adapts an async lambda to Func<Task> with CancellationToken',
+        source: `import System.Threading
+import System.Threading.Tasks
+
+async func main(): Task {
+    await Task.Run(async () => {
+        await Task.Yield()
+        print "token-async-lambda"
+    }, new CancellationToken(false))
+    print "done"
+}
+`,
+        stdout: 'token-async-lambda\ndone\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run adapts an async lambda to Func<Task<TResult>> with CancellationToken',
+        source: `import System.Threading
+import System.Threading.Tasks
+
+async func main(): Task {
+    print await Task.Run(async () => {
+        await Task.Yield()
+        return 48
+    }, new CancellationToken(false))
+}
+`,
+        stdout: '48\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run async lambda waits for a genuinely pending gate',
+        source: `import System
+import System.Threading.Tasks
+
+async func main(): Task {
+    gate := new TaskCompletionSource<int>
+    started := new TaskCompletionSource
+    pending := Task.Run(async () => {
+        started.SetResult()
+        await gate.Task
+        return 47
+    })
+
+    await started.Task
+    if pending.IsCompleted { throw new Exception("Task.Run lambda did not suspend at its gate") }
+    gate.SetResult(47)
+    print await pending
+}
+`,
+        stdout: '47\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run keeps the synchronous lambda adapter working',
+        source: `import System.Threading.Tasks
+
+async func main(): Task {
+    print await Task.Run(() => 46)
+}
+`,
+        stdout: '46\n',
+        timeoutMs: 5000,
+      },
+      {
         name: 'Task.Run preserves the selected Action cancellation-token overload',
         source: `import System.Threading
 import System.Threading.Tasks
