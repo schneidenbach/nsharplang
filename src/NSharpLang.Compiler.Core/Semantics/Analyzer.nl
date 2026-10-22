@@ -1062,6 +1062,8 @@ class Analyzer: IDisposable {
             analysisDeclarationEnumerator.Dispose()
         }
 
+        Construction.FinalizeDuckInterfaceImplementationMaps(SemanticModel)
+
         PopScope()
         ReferenceLoadReport.Report(MetadataLoadSurface.ResolverFailureSnapshot())
 

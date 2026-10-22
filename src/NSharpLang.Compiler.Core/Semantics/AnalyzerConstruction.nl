@@ -311,6 +311,28 @@ class AnalyzerConstruction {
         syntheticCallWalkValue = syntheticCallWalk
     }
 
+    // Construction expressions are visited in source order, while a duck-interface slot can be
+    // selected by a later function body. Complete each source object's dispatch facts after the
+    // declaration walk, when all analyzer-selected slots are available.
+    func FinalizeDuckInterfaceImplementationMaps(semanticModel: SemanticModel) {
+        if semanticModel == null {
+            return
+        }
+        for binding in semanticModel.ConstructionBindings.Values {
+            if binding == null {
+                continue
+            }
+            sourceDefinition := declarationContextValue.ResolveDeclaredAlias(binding.ConstructedType)
+            constructedSource := sourceDefinition as GenericTypeInfo
+            if constructedSource != null && constructedSource.GenericDefinition != null {
+                sourceDefinition = constructedSource.GenericDefinition
+            }
+            if sourceDefinition as ClassTypeInfo != null || sourceDefinition as StructTypeInfo != null || sourceDefinition as RecordTypeInfo != null {
+                AwaitablePatternBinder.AddSelectedSourceDuckInterfaceImplementations(binding.ConstructedType, declarationContextValue, semanticModel, binding.InterfaceImplementations)
+            }
+        }
+    }
+
     // THE `new` DOOR.
     func Begin(expression: Expression): ConstructionState {
         node := expression as NewExpression

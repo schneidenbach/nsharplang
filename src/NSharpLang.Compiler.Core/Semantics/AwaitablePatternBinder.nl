@@ -1487,7 +1487,51 @@ class AwaitablePatternBinder {
                 }
             }
         }
+        AddSelectedSourceDuckInterfaceImplementations(ownerType, declarations, semanticModel, result)
         return result
+    }
+
+    // A duck conversion binds against a source interface contract but does not add that interface
+    // to the concrete type's nominal interface list. Use only duck slots already selected in the
+    // semantic model, then attach the exact source implementation to the constructed owner's
+    // dispatch facts. AnalyzerConstruction calls this again after the complete declaration walk so
+    // constructions that appear before the selected call in source order receive the same map.
+    static func AddSelectedSourceDuckInterfaceImplementations(ownerType: TypeInfo, declarations: AnalyzerDeclarationContext, semanticModel: SemanticModel, result: List<AnalyzerInterfaceSlotImplementation>) {
+        if ownerType == null || declarations == null || semanticModel == null || result == null {
+            return
+        }
+        for invocationBinding in semanticModel.InvocationBindings.Values {
+            if invocationBinding == null || invocationBinding.IsExtension || invocationBinding.SourceFunction == null || invocationBinding.SourceSlotOwnerType == null {
+                continue
+            }
+            functionSlot := invocationBinding.SourceFunction.SourceDeclaration
+            if functionSlot == null {
+                continue
+            }
+            slotOwner := declarations.ResolveDeclaredAlias(invocationBinding.SourceSlotOwnerType)
+            constructedSlotOwner := slotOwner as GenericTypeInfo
+            if constructedSlotOwner != null && constructedSlotOwner.GenericDefinition != null {
+                slotOwner = constructedSlotOwner.GenericDefinition
+            }
+            duckInterface := slotOwner as InterfaceTypeInfo
+            if duckInterface == null || !duckInterface.IsDuckInterface {
+                continue
+            }
+            alreadyMapped := false
+            for mapping in result {
+                if Object.ReferenceEquals(mapping.SlotDeclaration, functionSlot) {
+                    alreadyMapped = true
+                    break
+                }
+            }
+            if alreadyMapped {
+                continue
+            }
+            implementation := FindSourceInterfaceImplementationForConstructedOwner(ownerType, functionSlot, null, invocationBinding.SourceSlotOwnerType, declarations, semanticModel)
+            if implementation != null {
+                result.Add(new AnalyzerInterfaceSlotImplementation(functionSlot, null, invocationBinding.SourceSlotOwnerType, implementation))
+            }
+        }
     }
 
     // Preserve ordinary virtual dispatch for source objects in the playground with the same

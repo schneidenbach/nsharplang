@@ -1814,9 +1814,12 @@ func PgExpectedOutputCensus(): string {
         if entry != null {
             expected := PgText(entry, "ExpectedOutput")
             if expected != "<null>" {
+                response := PgRunFiles(PgExampleCode(index), "Program.nl")
                 verdict := "MISMATCH"
-                if PgStdout(PgRunFiles(PgExampleCode(index), "Program.nl")) == expected {
+                if PgStdout(response) == expected {
                     verdict = "MATCH"
+                } else {
+                    verdict = "MISMATCH[exit=" + PgExitCode(response) + ",stdout=" + PgStdout(response) + ",stderr=" + PgStderr(response) + ",reason=" + PgUnsupportedReason(response) + "]"
                 }
 
                 census = census + PgText(entry, "Id") + "=" + verdict + ";"
@@ -1882,6 +1885,16 @@ test "chip playground union shorthand: the ONE-CHARACTER probe pair that isolate
     assert PgExitCode(explicitResponse) == PgExitCode(shorthandResponse)
     assert PgOk(explicitResponse) == PgOk(shorthandResponse)
     assert PgCensus(explicitResponse) == PgCensus(shorthandResponse)
+}
+
+test "playground completes source duck-interface dispatch maps after the whole declaration walk" {
+    source := "package Tutorial\n\nduck interface IReader {\n    func Read(): int\n}\n\nclass SourceReader {\n    func Read(): int {\n        return 42\n    }\n}\n\nfunc main() {\n    print ReadValue(new SourceReader())\n}\n\nfunc ReadValue(reader: IReader): int {\n    return reader.Read()\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True", PgUnsupportedReason(response)
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "42\n"
+    assert PgStderr(response) == "<null>"
+    assert PgUnsupportedReason(response) == "<null>"
 }
 
 test "chip playground union shorthand: EVERY shipped example that declares an ExpectedOutput now PRODUCES it — 8 of the 10, named, in corpus order" {
