@@ -17410,6 +17410,22 @@ test "020 s34 analyzer clean source: `AspNetCore_ActionResult_Generic` is analys
     assert AcCensus(AcAnalyze(source)) == ""
 }
 
+test "a same-named source ActionResult<T> does not receive MVC's special conversion" {
+    source := "import Microsoft.AspNetCore.Mvc\n\nclass ActionResult<T> {}\n\nfunc Need(value: ActionResult<int>): void {}\n\nfunc main() {\n    Need(new ContentResult())\n}"
+    analysis := AcAnalyzeWithSourceAndConfig(source, "Microsoft.NET.Sdk.Web", "net10.0")
+    assert AcHasErrors(analysis) == "True", AcCensus(analysis)
+    assert AcCodeCount(analysis, "TypeMismatch") == 1, AcCensus(analysis)
+    assert AcCensus(analysis).Contains("NL202:TypeMismatch@"), AcCensus(analysis)
+}
+
+test "a generic duck implementation cannot satisfy a non-generic method slot" {
+    source := "duck interface IReader {\n    func Read(value: int): int\n}\n\nclass WrongReader {\n    func Read<T>(value: int): int { return value }\n}\n\nfunc Use(reader: IReader): int { return reader.Read(42) }\n\nfunc main() {\n    print Use(new WrongReader())\n}"
+    analysis := AcAnalyzeWithSource(source)
+    assert AcHasErrors(analysis) == "True", AcCensus(analysis)
+    assert AcCodeCount(analysis, "TypeMismatch") == 1, AcCensus(analysis)
+    assert AcCensus(analysis).Contains("NL202:TypeMismatch@"), AcCensus(analysis)
+}
+
 test "020 s34 analyzer clean source: `AspNetCore_BadRequest_WithAnonymousObject` is analysed THROUGH `LoadFromProjectConfig` with `Sdk = Microsoft.NET.Sdk.Web` — it parses to 1 class behind 1 import, BOTH routes report an EMPTY census, and the config changes NOTHING here: the config-FREE route is silent over the same source (was AnalyzerTests.AspNetCore_BadRequest_WithAnonymousObject)" {
     source := "\n            import Microsoft.AspNetCore.Mvc\n\n            class EmployeesController : ControllerBase {\n                func Validate(): IActionResult {\n                    errors := [\"Error 1\", \"Error 2\"]\n                    return BadRequest(new { errors: errors })\n                }\n            }\n        "
     assert AcParseCensus(source) == ""

@@ -28,7 +28,9 @@ func StructuralScopes(): AnalyzerScopeStack {
     return scopes
 }
 
-func StructuralResolver(scopes: AnalyzerScopeStack, model: SemanticModel): AnalyzerTypeResolver {
+func StructuralOwnerWith(probe: AnalyzerExternalTypeProbe, model: SemanticModel): AnalyzerStructuralAssignability {
+    scopes := new AnalyzerScopeStack()
+    scopes.Push(model, new Scope(ScopeKind.Global), 1, 1)
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
     provider := new AnalyzerProjectSourceProvider()
@@ -38,8 +40,7 @@ func StructuralResolver(scopes: AnalyzerScopeStack, model: SemanticModel): Analy
         new List<string>(),
         new Dictionary<string, string>(StringComparer.Ordinal)
     )
-    probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
-    return new AnalyzerTypeResolver(
+    resolver := new AnalyzerTypeResolver(
         scopes,
         context,
         discovery,
@@ -51,10 +52,8 @@ func StructuralResolver(scopes: AnalyzerScopeStack, model: SemanticModel): Analy
         model,
         new BindingMap()
     )
-}
-
-func StructuralOwnerWith(probe: AnalyzerExternalTypeProbe, model: SemanticModel): AnalyzerStructuralAssignability {
-    return new AnalyzerStructuralAssignability(StructuralResolver(StructuralScopes(), model), probe)
+    substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
+    return new AnalyzerStructuralAssignability(resolver, probe, context, substitution)
 }
 
 func StructuralOwner(model: SemanticModel): AnalyzerStructuralAssignability {
@@ -67,8 +66,10 @@ func StructuralMember(
     kind: DeclaredMemberKind,
     name: string,
     parameterTypes: TypeReference[],
-    returnType: TypeReference?
+    returnType: TypeReference?,
+    typeParameters: TypeParameter[]? = null
 ): DeclaredMemberInfo {
+    actualTypeParameters := typeParameters ?? new TypeParameter[](0)
     return new DeclaredMemberInfo(
         name,
         "Owner",
@@ -87,8 +88,8 @@ func StructuralMember(
         false,
         false,
         returnType,
-        0,
-        new TypeParameter[](0),
+        actualTypeParameters.Length,
+        actualTypeParameters,
         new GenericConstraint[](0),
         0,
         false,
@@ -321,6 +322,53 @@ test "signature equality is by name, arity, parameter types and return type" {
         StructuralOneParameter("string"),
         null
     ))
+}
+
+test "generic duck slots compare method arity and bind method type parameters by position" {
+    owner := StructuralOwner(new SemanticModel())
+    intReference := new SimpleTypeReference("int", 0, 0)
+    tReference := new SimpleTypeReference("T", 0, 0)
+    uReference := new SimpleTypeReference("U", 0, 0)
+
+    genericSlot := StructuralMember(
+        DeclaredMemberKind.Function,
+        "Read",
+        [tReference],
+        tReference,
+        [new TypeParameter("T")]
+    )
+    sameArityDifferentName := StructuralMember(
+        DeclaredMemberKind.Function,
+        "Read",
+        [uReference],
+        uReference,
+        [new TypeParameter("U")]
+    )
+    nonGenericLookalike := StructuralMember(
+        DeclaredMemberKind.Function,
+        "Read",
+        [intReference],
+        intReference
+    )
+
+    assert owner.MethodSignaturesMatch(genericSlot, sameArityDifferentName), "alpha-renamed method parameters should bind by position"
+    assert !owner.MethodSignaturesMatch(nonGenericLookalike, genericSlot), "a generic slot and non-generic method have different CLR arity"
+
+    twoParameterSlot := StructuralMember(
+        DeclaredMemberKind.Function,
+        "Map",
+        [tReference, uReference],
+        tReference,
+        [new TypeParameter("T"), new TypeParameter("U")]
+    )
+    swappedPositions := StructuralMember(
+        DeclaredMemberKind.Function,
+        "Map",
+        [uReference, tReference],
+        uReference,
+        [new TypeParameter("T"), new TypeParameter("U")]
+    )
+    assert !owner.MethodSignaturesMatch(twoParameterSlot, swappedPositions), "method parameter positions must remain distinct through nested signatures"
 }
 
 test "an ABSENT return type is `void`, not unknown — so it matches a declared `void` and nothing else" {
