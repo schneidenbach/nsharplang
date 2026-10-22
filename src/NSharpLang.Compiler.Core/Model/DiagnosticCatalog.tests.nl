@@ -154,6 +154,15 @@ test "NL353 is a build-blocking semantic diagnostic for await outside async" {
     assert descriptor.BlocksBuildByDefault
 }
 
+test "NL904 is a non-blocking function warning for ref applied to an in parameter" {
+    descriptor := DiagnosticCatalog.EmptyDescriptor()
+    assert DiagnosticCatalog.TryGetDescriptor("NL904", out descriptor)
+    assert descriptor.Source == DiagnosticSource.Compiler
+    assert descriptor.Category == DiagnosticCategory.Function
+    assert descriptor.DefaultSeverity == DiagnosticSeverity.Warning
+    assert !descriptor.BlocksBuildByDefault
+}
+
 // ── the docs URL, on BOTH its arms ────────────────────────────────────────────────────────────
 
 test "DocsUrlFor SYNTHESIZES a public docs URL, and it is the ONLY thing it does" {
@@ -182,7 +191,7 @@ test "NO descriptor stores a docs URL, so the deleted stored-URL arm cannot come
 
 test "EVERY code is distinct, and the catalog is exactly its two builders" {
     codes := DctCodes()
-    // 119 active diagnostics remain after NL354/NL355 became reachable through generic-owner lowering.
+    // 120 active diagnostics remain, including NL904's C# 12 ref-to-in warning.
     // NL111 (an expression nested past what the toolchain reads), NL413 (a member that
     // must be called or passed as a delegate), NL414 (a call two overloads match equally well), NL415
     // (a type named bare before `(`, where N# wants `new`), NL328
@@ -205,8 +214,8 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     // outside its AttributeUsage targets), NL934 (an attribute repeated without AllowMultiple) and
     // NL935 (an attribute at a position N# has none — a target prefix) and NL936 (a project with no
     // non-test source file to build).
-    if codes.Count != 119 {
-        throw new InvalidOperationException("Expected 119 catalog codes, found " + codes.Count.ToString())
+    if codes.Count != 120 {
+        throw new InvalidOperationException("Expected 120 catalog codes, found " + codes.Count.ToString())
     }
 
     duplicates := 0
@@ -227,7 +236,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert duplicates == 0
 
     // The builders, counted where they are OBSERVABLE: the linter rows are the ones sourced to the
-    // linter, the rest are the compiler's. 109 + 10 = 119, so nothing is uncounted or double-counted.
+    // linter, the rest are the compiler's. 110 + 10 = 120, so nothing is uncounted or double-counted.
     //
     // The performance and AOT categories are asserted at ZERO, not omitted. A row in either one is
     // a row for a rule this compiler does not produce - that is exactly how NL950-954 and NL960-963
@@ -236,7 +245,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     performanceRows := DctCountByCategory(DiagnosticCategory.Performance)
     aotRows := DctCountByCategory(DiagnosticCategory.Aot)
     compilerRows := DctCountBySource(DiagnosticSource.Compiler)
-    if linterRows != 10 || performanceRows != 0 || aotRows != 0 || compilerRows != 109 || compilerRows + linterRows != codes.Count {
+    if linterRows != 10 || performanceRows != 0 || aotRows != 0 || compilerRows != 110 || compilerRows + linterRows != codes.Count {
         throw new InvalidOperationException("Catalog ownership counts were compiler=" + compilerRows.ToString() + ", linter=" + linterRows.ToString() + ", performance=" + performanceRows.ToString() + ", aot=" + aotRows.ToString() + ", total=" + codes.Count.ToString())
     }
 }

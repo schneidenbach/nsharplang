@@ -26,6 +26,14 @@ test "in works beside other parameters and in any position" {
 
 test "an in parameter of a primitive type works too" {
     assert InParameters.CallDoubled() == 42
+    assert InParameters.CallDoubledViaRef() == 42
+}
+
+test "ref arguments for source and referenced in methods and constructors preserve runtime values" {
+    assert InArgumentDrivers.SourceConstructorViaRef() == 41
+    assert InArgumentDrivers.SourceMethodViaRef() == 42
+    assert InArgumentDrivers.ReferencedConstructorViaRef() == 43
+    assert InArgumentDrivers.ReferencedMethodViaRef() == 44
 }
 
 test "an in parameter forwards to another in parameter" {

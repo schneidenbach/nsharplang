@@ -1490,6 +1490,107 @@ class AwaitablePatternBinder {
         return result
     }
 
+    // Preserve ordinary virtual dispatch for source objects in the playground with the same
+    // analyzer-selected slot identity used for interface dispatch. The runner receives this map
+    // from the constructed owner; it never selects an override by name or arity at execution time.
+    static func BuildSourceVirtualImplementationMap(ownerType: TypeInfo, declarations: AnalyzerDeclarationContext, semanticModel: SemanticModel): List<AnalyzerInterfaceSlotImplementation> {
+        result := new List<AnalyzerInterfaceSlotImplementation>()
+        if ownerType == null || declarations == null || semanticModel == null {
+            return result
+        }
+        chain := SourceVirtualTypeChain(ownerType, declarations)
+        ownerIndex := 0
+        while ownerIndex < chain.Count {
+            slotOwnerType := chain[ownerIndex]
+            shape := SourceShapeForType(slotOwnerType, declarations)
+            if shape != null {
+                for slotMember in shape.DeclaredMembers {
+                    slot := slotMember.SourceDeclaration as FunctionDeclaration
+                    if slot == null || !slotMember.IsOverridable {
+                        continue
+                    }
+                    implementation: FunctionDeclaration? = null
+                    implementationIndex := 0
+                    while implementationIndex <= ownerIndex && implementation == null {
+                        implementationShape := SourceShapeForType(chain[implementationIndex], declarations)
+                        if implementationShape != null {
+                            for candidateMember in implementationShape.DeclaredMembers {
+                                candidate := candidateMember.SourceDeclaration as FunctionDeclaration
+                                isOverride := candidate != null && AnalyzerAmbientContext.HasModifier(candidate, Modifiers.Override)
+                                if candidate == null || candidate.Name != slot.Name || !Object.ReferenceEquals(candidate, slot) && !isOverride {
+                                    continue
+                                }
+                                if Object.ReferenceEquals(candidate, slot) || SourceFunctionParameterSignatureMatches(candidate, slot, slotOwnerType, semanticModel, chain[implementationIndex]) {
+                                    implementation = candidate
+                                    break
+                                }
+                            }
+                        }
+                        implementationIndex += 1
+                    }
+                    if implementation != null {
+                        result.Add(new AnalyzerInterfaceSlotImplementation(slot, null, slotOwnerType, implementation))
+                    }
+                }
+            }
+            ownerIndex += 1
+        }
+        return result
+    }
+
+    // Override dispatch is selected by the parameter signature; covariant return types do not
+    // create a different virtual slot. The ordinary override validator checks the return contract.
+    static func SourceFunctionParameterSignatureMatches(function: FunctionDeclaration, sourceSlot: FunctionDeclaration, slotOwnerType: TypeInfo, semanticModel: SemanticModel, implementationOwnerType: TypeInfo): bool {
+        if function == null || sourceSlot == null || slotOwnerType == null || implementationOwnerType == null || semanticModel == null || function.TypeParameters != null && function.TypeParameters.Count != 0 || function.Parameters.Count != sourceSlot.Parameters.Count {
+            return false
+        }
+        slotSubstitution := AnalyzerSourceAwaitSubstitution(slotOwnerType)
+        implementationSubstitution := AnalyzerSourceAwaitSubstitution(implementationOwnerType)
+        index := 0
+        while index < function.Parameters.Count {
+            actualReference := function.Parameters[index].Type
+            expectedReference := sourceSlot.Parameters[index].Type
+            if actualReference == null || expectedReference == null || function.Parameters[index].Modifier != sourceSlot.Parameters[index].Modifier {
+                return false
+            }
+            actual: TypeInfo = BuiltInTypes.Unknown
+            expected: TypeInfo = BuiltInTypes.Unknown
+            if !TryResolveSourceTypeReference(semanticModel, actualReference, out actual) || !TryResolveSourceTypeReference(semanticModel, expectedReference, out expected) {
+                return false
+            }
+            actual = AnalyzerSyntheticCallFacts.ApplyGenericBindings(actual, implementationSubstitution)
+            expected = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expected, slotSubstitution)
+            if !SourceInterfaceSlotTypesMatch(actual, expected) {
+                return false
+            }
+            index += 1
+        }
+        return true
+    }
+
+    static func IsVirtualSourceFunction(function: FunctionDeclaration): bool {
+        return function != null && (AnalyzerAmbientContext.HasModifier(function, Modifiers.Virtual) || AnalyzerAmbientContext.HasModifier(function, Modifiers.Abstract) || AnalyzerAmbientContext.HasModifier(function, Modifiers.Override))
+    }
+
+    static func SourceVirtualTypeChain(ownerType: TypeInfo, declarations: AnalyzerDeclarationContext): List<TypeInfo> {
+        chain := new List<TypeInfo>()
+        current := declarations.ResolveDeclaredAlias(ownerType)
+        depth := 0
+        while current != null && depth < 32 {
+            shape := SourceShapeForType(current, declarations)
+            if shape == null {
+                break
+            }
+            chain.Add(current)
+            if shape.BaseType == null {
+                break
+            }
+            current = shape.BaseType
+            depth += 1
+        }
+        return chain
+    }
+
     static func CollectSourceInterfaceClosure(typeInfo: TypeInfo, declarations: AnalyzerDeclarationContext, semanticModel: SemanticModel, interfaces: List<TypeInfo>, depth: int) {
         if typeInfo == null || declarations == null || semanticModel == null || interfaces == null || depth > 32 {
             return

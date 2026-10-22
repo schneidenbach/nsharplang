@@ -81,11 +81,15 @@ class AnalyzerInvocationBinding {
     SourceFunction: FunctionTypeInfo?
     ReflectedMethod: MethodInfo?
     IsExtension: bool
+    ParameterIndexByArgument: int[]
+    SourceSlotOwnerType: TypeInfo?
 
-    constructor(sourceFunction: FunctionTypeInfo?, reflectedMethod: MethodInfo?, isExtension: bool) {
+    constructor(sourceFunction: FunctionTypeInfo?, reflectedMethod: MethodInfo?, isExtension: bool, parameterIndexByArgument: int[], sourceSlotOwnerType: TypeInfo?) {
         SourceFunction = sourceFunction
         ReflectedMethod = reflectedMethod
         IsExtension = isExtension
+        ParameterIndexByArgument = parameterIndexByArgument
+        SourceSlotOwnerType = sourceSlotOwnerType
     }
 }
 
@@ -112,6 +116,7 @@ class CallAnalysisState {
     BoundFunction: FunctionTypeInfo?
     SelectedSourceFunction: FunctionTypeInfo?
     SelectedReflectedMethod: MethodInfo?
+    SelectedReflectedParameterIndexByArgument: int[]?
     SelectedInvocationIsExtension: bool
     ReceiverType: TypeInfo?
     SourceInstanceExtensionFallbackTried: bool
@@ -213,6 +218,7 @@ class CallAnalysisState {
         BoundFunction = null
         SelectedSourceFunction = null
         SelectedReflectedMethod = null
+        SelectedReflectedParameterIndexByArgument = null
         SelectedInvocationIsExtension = false
         ReceiverType = null
         SourceInstanceExtensionFallbackTried = false
@@ -343,15 +349,29 @@ class AnalyzerCallAnalysis {
         return new CallAnalysisState(call)
     }
 
-    func CreateInvocationBinding(state: CallAnalysisState): AnalyzerInvocationBinding? {
+    func CreateInvocationBinding(state: CallAnalysisState, sourceSlotOwnerType: TypeInfo?): AnalyzerInvocationBinding? {
         if state == null {
             return null
         }
         if state.SelectedSourceFunction != null {
-            return new AnalyzerInvocationBinding(state.SelectedSourceFunction, null, state.SelectedInvocationIsExtension)
+            functionType := state.SelectedSourceFunction
+            functionName := AnalyzerSyntheticCallFacts.GetCallTargetName(state.Call) ?? functionType.SourceName ?? ""
+            parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, state.Call)
+            placement := AnalyzerSyntheticCallFacts.BindFunctionArguments(functionType, functionName, state.Call, parameterStartIndex)
+            selectedSlotOwner := sourceSlotOwnerType ?? state.ReceiverType
+            return new AnalyzerInvocationBinding(functionType, null, state.SelectedInvocationIsExtension, placement.ParameterIndexByArgument, selectedSlotOwner)
         }
         if state.SelectedReflectedMethod != null {
-            return new AnalyzerInvocationBinding(null, state.SelectedReflectedMethod, state.SelectedInvocationIsExtension)
+            parameterIndices := state.SelectedReflectedParameterIndexByArgument
+            if parameterIndices == null {
+                parameterIndices = new int[](state.Call.Arguments.Count)
+                index := 0
+                while index < parameterIndices.Length {
+                    parameterIndices[index] = -1
+                    index += 1
+                }
+            }
+            return new AnalyzerInvocationBinding(null, state.SelectedReflectedMethod, state.SelectedInvocationIsExtension, parameterIndices, sourceSlotOwnerType ?? state.ReceiverType)
         }
         return null
     }
@@ -1550,6 +1570,45 @@ class AnalyzerCallAnalysis {
         }
     }
 
+    func ReportReflectionRefKindWarnings(call: CallExpression, finalizeState: ReflectionCallFinalizeState) {
+        for supplied in finalizeState.SuppliedArguments {
+            if supplied.ArgumentIndex < 0 || supplied.ArgumentIndex >= call.Arguments.Count || supplied.ParameterIndex < 0 || supplied.ParameterIndex >= finalizeState.OpenParameters.Length {
+                continue
+            }
+
+            parameter := finalizeState.OpenParameters[supplied.ParameterIndex]
+            AnalyzerRefKindWarningReporter.ReportIfNeeded(
+                diagnostics,
+                spans,
+                AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameter),
+                call.Arguments[supplied.ArgumentIndex],
+                supplied.ArgumentIndex,
+                ReflectedParameterDirection.IsReadOnlyLocation(parameter)
+            )
+        }
+    }
+
+    static func ReflectionParameterIndices(finalizeState: ReflectionCallFinalizeState, argumentCount: int): int[] {
+        result := new int[](argumentCount)
+        index := 0
+        while index < result.Length {
+            result[index] = -1
+            index += 1
+        }
+
+        if finalizeState == null {
+            return result
+        }
+
+        for supplied in finalizeState.SuppliedArguments {
+            if supplied.ArgumentIndex >= 0 && supplied.ArgumentIndex < result.Length {
+                result[supplied.ArgumentIndex] = supplied.ParameterIndex
+            }
+        }
+
+        return result
+    }
+
     func AdvanceFinalizeReflectionCall(state: CallAnalysisState): CallAnalysisRequest? {
         finalizeState := state.FinalizeState
         if finalizeState == null {
@@ -1591,6 +1650,7 @@ class AnalyzerCallAnalysis {
         acceptedPostconditions := finalizeState.Postconditions
         state.FinalizeState = null
         if bound != null {
+            state.SelectedReflectedParameterIndexByArgument = ReflectionParameterIndices(finalizeState, state.Call.Arguments.Count)
             // FINALIZER REFUSAL FOLLOWS THE SELECTED METHOD, not the unresolved group. A legal
             // overload may share the name with object.Finalize, and only ordinary overload binding
             // can establish which member this call names.
@@ -1601,6 +1661,7 @@ class AnalyzerCallAnalysis {
             // A maybe-null argument the chosen signature states not-null is the NL202 the same call
             // reports against the same declaration in source (see `RefusesMaybeNullArgument`).
             ReportReflectionNullabilityMismatches(state.Call, finalizeState)
+            ReportReflectionRefKindWarnings(state.Call, finalizeState)
 
             // The candidate is the call's now, so its postconditions become the flow's. A candidate
             // that failed has already had its diagnostics withdrawn and leaves nothing behind.

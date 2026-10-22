@@ -504,12 +504,10 @@ internal sealed class PlaygroundRunner {
                     return InvokeFunction(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
                 }
             }
-            function: FunctionDeclaration? = null
-            if functions.TryGetValue(identifier.Name, out function) {
-                if AnalyzerAmbientContext.HasModifier(function, Modifiers.Async) {
-                    return InvokeAsyncFunctionValue(function, arguments, null, depth)
-                }
-                return InvokeFunction(function, arguments, null, depth)
+            selectedBinding: AnalyzerInvocationBinding? = null
+            semanticModel := environment.SemanticModel
+            if semanticModel != null && semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) && selectedBinding != null {
+                return InvokeBoundInvocation(selectedBinding, BoundInvocationReceiver(selectedBinding, null, environment), arguments, depth, call)
             }
             throw Unsupported(PlaygroundRunFacts.UnknownFunction(identifier.Name))
         }
@@ -550,41 +548,24 @@ internal sealed class PlaygroundRunner {
             if semanticModel == null || !semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) || selectedBinding == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("ConfigureAwait has no analyzer-selected invocation binding"))
             }
-            return InvokeBoundConfigureAwait(selectedBinding, target, arguments, depth)
+            return InvokeBoundConfigureAwait(selectedBinding, target, arguments, depth, call)
         }
         selectedBinding: AnalyzerInvocationBinding? = null
         semanticModel := environment.SemanticModel
         if semanticModel != null && semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) && selectedBinding != null {
-            return InvokeBoundInvocation(selectedBinding, target, arguments, depth)
+            return InvokeBoundInvocation(selectedBinding, target, arguments, depth, call)
         }
-        runtimeObject := target as RuntimeObject
-        if runtimeObject != null {
-            method := FindMethod(runtimeObject.Declaration, member.MemberName, arguments.Length, false)
-            if method == null {
-                throw Unsupported(PlaygroundRunFacts.MethodNotFound(member.MemberName))
-            }
-            if AnalyzerAmbientContext.HasModifier(method, Modifiers.Async) {
-                return InvokeAsyncFunctionValue(method, arguments, runtimeObject, depth)
-            }
-            return InvokeFunction(method, arguments, runtimeObject, depth)
+        if member.MemberName == "GetAwaiter" {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("GetAwaiter call lacks an analyzer binding"))
         }
-
-        runtimeType := target as RuntimeType
-        if runtimeType != null {
-            method := FindMethod(runtimeType.Declaration, member.MemberName, arguments.Length, true)
-            if method == null {
-                throw Unsupported(PlaygroundRunFacts.StaticMethodNotFound(member.MemberName))
-            }
-            if AnalyzerAmbientContext.HasModifier(method, Modifiers.Async) {
-                return InvokeAsyncFunctionValue(method, arguments, null, depth)
-            }
-            return InvokeFunction(method, arguments, null, depth)
-        }
-
         return CallClrLikeMember(target, member.MemberName, arguments)
     }
 
-    private func InvokeBoundConfigureAwait(binding: AnalyzerInvocationBinding, target: object?, arguments: object?[], depth: int): object? {
+    private func InvokeBoundConfigureAwait(binding: AnalyzerInvocationBinding, target: object?, arguments: object?[], depth: int, call: CallExpression): object? {
+        if !BoundInvocationRefKindsAreCompatible(binding, call) {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected ConfigureAwait binding has incompatible argument directions"))
+        }
+
         sourceFunctionType := binding.SourceFunction
         if sourceFunctionType != null {
             function := sourceFunctionType.SourceDeclaration
@@ -1909,17 +1890,12 @@ internal sealed class PlaygroundRunner {
                     return InvokeFunction(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
                 }
             }
-            receiverValue: object? = null
-            if environment.TryGet(PlaygroundRunFacts.ReceiverBindingName(), out receiverValue) {
-                receiver := receiverValue as RuntimeObject
-                if receiver != null {
-                    instanceMethod := FindMethod(receiver.Declaration, identifier.Name, arguments.Length, false)
-                    if instanceMethod != null {
-                        return InvokeFunction(instanceMethod, arguments, receiver, depth)
-                    }
-                }
+            selectedBinding: AnalyzerInvocationBinding? = null
+            semanticModel := environment.SemanticModel
+            if semanticModel != null && semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) && selectedBinding != null {
+                return InvokeBoundInvocation(selectedBinding, BoundInvocationReceiver(selectedBinding, null, environment), arguments, depth, call)
             }
-            return CallIdentifier(identifier.Name, arguments, depth)
+            throw Unsupported(PlaygroundRunFacts.UnknownFunction(identifier.Name))
         }
         member := call.Callee as MemberAccessExpression
         if member != null {
@@ -1928,42 +1904,80 @@ internal sealed class PlaygroundRunner {
         throw Unsupported(PlaygroundRunFacts.UnsupportedCallee())
     }
 
-    private func CallIdentifier(name: string, arguments: IReadOnlyList<object?>, depth: int): object? {
-        function: FunctionDeclaration? = null
-        if functions.TryGetValue(name, out function) {
-            return InvokeFunction(function, arguments, null, depth)
-        }
-        throw Unsupported(PlaygroundRunFacts.UnknownFunction(name))
-    }
-
     private func CallMember(member: MemberAccessExpression, arguments: IReadOnlyList<object?>, environment: RuntimeEnvironment, depth: int, call: CallExpression): object? {
         target := Evaluate(member.Object, environment, depth)
         selectedBinding: AnalyzerInvocationBinding? = null
         semanticModel := environment.SemanticModel
         if semanticModel != null && semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) && selectedBinding != null {
-            return InvokeBoundInvocation(selectedBinding, target, arguments, depth)
+            return InvokeBoundInvocation(selectedBinding, target, arguments, depth, call)
         }
-        runtimeObject := target as RuntimeObject
-        if runtimeObject != null {
-            method := FindMethod(runtimeObject.Declaration, member.MemberName, arguments.Count, false)
-            if method == null {
-                throw Unsupported(PlaygroundRunFacts.MethodNotFound(member.MemberName))
-            }
-            return InvokeFunction(method, arguments, runtimeObject, depth)
-        }
-        runtimeType := target as RuntimeType
-        if runtimeType != null {
-            method := FindMethod(runtimeType.Declaration, member.MemberName, arguments.Count, true)
-            if method == null {
-                throw Unsupported(PlaygroundRunFacts.StaticMethodNotFound(member.MemberName))
-            }
-            return InvokeFunction(method, arguments, null, depth)
+        if member.MemberName == "GetAwaiter" {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("GetAwaiter call lacks an analyzer binding"))
         }
         return CallClrLikeMember(target, member.MemberName, arguments)
     }
 
-    private func InvokeBoundInvocation(binding: AnalyzerInvocationBinding, target: object?, arguments: IReadOnlyList<object?>, depth: int): object? {
-        if binding == null || arguments == null {
+    private func BoundInvocationReceiver(binding: AnalyzerInvocationBinding, explicitReceiver: object?, environment: RuntimeEnvironment): object? {
+        if explicitReceiver != null || binding == null || binding.IsExtension || binding.SourceFunction == null || binding.SourceFunction.SourceIsStatic || string.IsNullOrEmpty(binding.SourceFunction.SourceContainingType) {
+            return explicitReceiver
+        }
+        receiverValue: object? = null
+        if environment != null && environment.TryGet(PlaygroundRunFacts.ReceiverBindingName(), out receiverValue) {
+            return receiverValue
+        }
+        return explicitReceiver
+    }
+
+    // The analyzer binding owns both overload selection and argument placement. The playground only
+    // checks the selected parameter's direction through the same shared C# ref-kind rule before it
+    // invokes that bound member.
+    private func BoundInvocationRefKindsAreCompatible(binding: AnalyzerInvocationBinding, call: CallExpression): bool {
+        if binding == null || call == null || binding.ParameterIndexByArgument == null || binding.ParameterIndexByArgument.Length != call.Arguments.Count {
+            return false
+        }
+
+        sourceFunction := binding.SourceFunction
+        sourceModifiers := sourceFunction == null ? null : sourceFunction.ParameterModifiers
+        reflectedParameters: ParameterInfo[]? = null
+        if sourceFunction == null {
+            reflectedMethod := binding.ReflectedMethod
+            if reflectedMethod == null {
+                return false
+            }
+            reflectedParameters = reflectedMethod.GetParameters()
+        }
+
+        argumentIndex := 0
+        while argumentIndex < call.Arguments.Count {
+            parameterIndex := binding.ParameterIndexByArgument[argumentIndex]
+            if parameterIndex < 0 {
+                return false
+            }
+
+            argumentModifier := call.Arguments[argumentIndex].Modifier
+            if sourceFunction != null {
+                parameterModifier := NSharpLang.Compiler.Ast.ParameterModifier.None
+                if sourceModifiers != null && parameterIndex < sourceModifiers.Count {
+                    parameterModifier = sourceModifiers[parameterIndex]
+                }
+                if RefKindCompatibilityFacts.Classify(parameterModifier, argumentModifier) == RefKindCompatibilityResult.Incompatible {
+                    return false
+                }
+            } else {
+                parameters := reflectedParameters
+                if parameters == null || parameterIndex >= parameters.Length || RefKindCompatibilityFacts.ClassifyReflectedParameter(parameters[parameterIndex], argumentModifier) == RefKindCompatibilityResult.Incompatible {
+                    return false
+                }
+            }
+
+            argumentIndex += 1
+        }
+
+        return true
+    }
+
+    private func InvokeBoundInvocation(binding: AnalyzerInvocationBinding, target: object?, arguments: IReadOnlyList<object?>, depth: int, call: CallExpression): object? {
+        if binding == null || arguments == null || !BoundInvocationRefKindsAreCompatible(binding, call) {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected invocation could not be executed"))
         }
         runtimeArguments := new object?[](arguments.Count)
@@ -1981,18 +1995,33 @@ internal sealed class PlaygroundRunner {
             }
             executionFunction := function
             executionReceiver := target as RuntimeObject
-            // An interface call binds to its declared slot, while the runtime receiver supplies
-            // that slot's source implementation. Keep the analyzer's selected slot, then dispatch
-            // it on the concrete source object the same way a CLR callvirt does.
-            if !binding.IsExtension && executionReceiver != null && function.Body == null {
-                implementation := FindMethod(executionReceiver.Declaration, function.Name, function.Parameters.Count, false)
+            if !binding.IsExtension && executionReceiver != null && executionReceiver.ConstructionBinding != null && AwaitablePatternBinder.IsVirtualSourceFunction(function) {
+                implementation := executionReceiver.ConstructionBinding.FindVirtualImplementation(function) as FunctionDeclaration
+                if implementation == null {
+                    throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected source virtual slot has no implementation mapping"))
+                }
                 if implementation != null && implementation.Body != null {
                     executionFunction = implementation
                 }
             }
+            // An interface call binds to its declared slot, while the runtime receiver supplies
+            // that slot's source implementation. Keep the analyzer's selected slot, then dispatch
+            // it on the concrete source object the same way a CLR callvirt does.
+            if !binding.IsExtension && executionReceiver != null && function.Body == null {
+                constructionBinding := executionReceiver.ConstructionBinding
+                if constructionBinding != null {
+                    implementation := constructionBinding.FindInterfaceImplementation(function, null, binding.SourceSlotOwnerType) as FunctionDeclaration
+                    if implementation != null && implementation.Body != null {
+                        executionFunction = implementation
+                    }
+                }
+                if Object.ReferenceEquals(executionFunction, function) {
+                    throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected source interface slot has no implementation mapping"))
+                }
+            }
             invocationArguments := binding.IsExtension ? PrependRuntimeArgument(target, runtimeArguments) : runtimeArguments
             receiver := binding.IsExtension ? null : executionReceiver
-            if !binding.IsExtension && !sourceFunctionType.SourceIsStatic && receiver == null {
+            if !binding.IsExtension && !sourceFunctionType.SourceIsStatic && !string.IsNullOrEmpty(sourceFunctionType.SourceContainingType) && receiver == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected source method has no runtime receiver"))
             }
             if AnalyzerAmbientContext.HasModifier(executionFunction, Modifiers.Async) {
@@ -2124,42 +2153,6 @@ internal sealed class PlaygroundRunner {
             throw Unsupported(PlaygroundRunFacts.UnsupportedNumericMember(memberName))
         }
 
-        if target != null {
-            methods := target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            for method in methods {
-                if method.Name != memberName || method.IsGenericMethodDefinition {
-                    continue
-                }
-                parameters := method.GetParameters()
-                if parameters.Length != arguments.Count {
-                    continue
-                }
-                invocationArguments := ToInvocationArguments(arguments)
-                matches := true
-                parameterIndex := 0
-                while parameterIndex < parameters.Length {
-                    argument := invocationArguments[parameterIndex]
-                    parameterType := parameters[parameterIndex].ParameterType
-                    if argument == null {
-                        if parameterType.IsValueType && Nullable.GetUnderlyingType(parameterType) == null {
-                            matches = false
-                            break
-                        }
-                    } else if !parameterType.IsInstanceOfType(argument) {
-                        matches = false
-                        break
-                    }
-                    parameterIndex += 1
-                }
-                if matches {
-                    try {
-                        return method.Invoke(target, invocationArguments)
-                    } catch invocationFailure: TargetInvocationException {
-                        RethrowInvocationFailure(invocationFailure)
-                    }
-                }
-            }
-        }
         throw Unsupported(PlaygroundRunFacts.UnsupportedReceiverMember(memberName))
     }
 
@@ -2174,10 +2167,6 @@ internal sealed class PlaygroundRunner {
             property := FindProperty(runtimeObject.Declaration, member.MemberName)
             if property != null {
                 return ReadRuntimeProperty(runtimeObject, property, depth)
-            }
-            method := FindMethod(runtimeObject.Declaration, member.MemberName, null, false)
-            if method != null {
-                return new RuntimeFunction(method, runtimeObject)
             }
         }
 
@@ -2198,10 +2187,6 @@ internal sealed class PlaygroundRunner {
             runtimeUnion := runtimeType.Declaration as UnionDeclaration
             if runtimeUnion != null && FindUnionCase(runtimeUnion, member.MemberName) != null {
                 return new RuntimeUnionCase(runtimeUnion, member.MemberName)
-            }
-            method := FindMethod(runtimeType.Declaration, member.MemberName, null, true)
-            if method != null {
-                return new RuntimeFunction(method, null)
             }
         }
         if target != null {
@@ -2262,6 +2247,10 @@ internal sealed class PlaygroundRunner {
 
     private func ReadRuntimeProperty(runtimeObject: RuntimeObject, property: PropertyDeclaration, depth: int): object? {
         environment := new RuntimeEnvironment(runtimeObject.Environment)
+        semanticModel: SemanticModel? = null
+        if semanticModelsByDeclaration.TryGetValue(property, out semanticModel) && semanticModel != null {
+            environment.SetSemanticModel(semanticModel)
+        }
         environment.Declare(PlaygroundRunFacts.ReceiverBindingName(), runtimeObject)
         try {
             if property.ExpressionBody != null {
@@ -3054,49 +3043,6 @@ internal sealed class PlaygroundRunner {
         for candidate in unionDeclaration.Cases {
             if PlaygroundRunFacts.UnionCaseNamesMatch(candidate.Name, caseName) {
                 return candidate
-            }
-        }
-        return null
-    }
-
-    private func FindMethod(declaration: Declaration?, name: string, argumentCount: int?, requireStatic: bool): FunctionDeclaration? {
-        if declaration == null {
-            return null
-        }
-        members: List<Declaration>? = null
-        classDeclaration := declaration as ClassDeclaration
-        if classDeclaration != null {
-            members = classDeclaration.Members
-        } else {
-            structDeclaration := declaration as StructDeclaration
-            if structDeclaration != null {
-                members = structDeclaration.Members
-            } else {
-                recordDeclaration := declaration as RecordDeclaration
-                if recordDeclaration != null {
-                    members = recordDeclaration.Members
-                } else {
-                    interfaceDeclaration := declaration as InterfaceDeclaration
-                    if interfaceDeclaration != null {
-                        members = interfaceDeclaration.Members
-                    }
-                }
-            }
-        }
-        if members == null {
-            return null
-        }
-        for member in members {
-            function := member as FunctionDeclaration
-            if function != null && string.Equals(function.Name, name, StringComparison.Ordinal) {
-                matchesArity := argumentCount == null || function.Parameters.Count == argumentCount.Value
-                if matchesArity {
-                    modifierValue := Convert.ToInt32(function.Modifiers)
-                    isStatic := (modifierValue & Convert.ToInt32(Modifiers.Static)) != 0
-                    if isStatic == requireStatic {
-                        return function
-                    }
-                }
             }
         }
         return null

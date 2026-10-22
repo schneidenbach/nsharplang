@@ -161,14 +161,16 @@ class AnalyzerConstructionBinding {
     ParameterCount: int
     ArgumentBindings: List<AnalyzerConstructionArgumentBinding>
     InterfaceImplementations: List<AnalyzerInterfaceSlotImplementation>
+    VirtualImplementations: List<AnalyzerInterfaceSlotImplementation>
 
-    constructor(reflectedConstructor: ConstructorInfo?, sourceConstructor: Declaration?, constructedType: TypeInfo, parameterCount: int, argumentBindings: List<AnalyzerConstructionArgumentBinding>, interfaceImplementations: List<AnalyzerInterfaceSlotImplementation>) {
+    constructor(reflectedConstructor: ConstructorInfo?, sourceConstructor: Declaration?, constructedType: TypeInfo, parameterCount: int, argumentBindings: List<AnalyzerConstructionArgumentBinding>, interfaceImplementations: List<AnalyzerInterfaceSlotImplementation>, virtualImplementations: List<AnalyzerInterfaceSlotImplementation>) {
         ReflectedConstructor = reflectedConstructor
         SourceConstructor = sourceConstructor
         ConstructedType = constructedType
         ParameterCount = parameterCount
         ArgumentBindings = argumentBindings
         InterfaceImplementations = interfaceImplementations
+        VirtualImplementations = virtualImplementations
     }
 
     func FindInterfaceImplementation(slotDeclaration: Declaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo?): Declaration? {
@@ -183,6 +185,18 @@ class AnalyzerConstructionBinding {
             // MethodInfo wrappers through different interface-closure paths, so object equality
             // alone is not a reliable key.
             if runtimeSlot != null && mapping.RuntimeSlot != null && RuntimeInterfaceSlotsMatch(mapping.RuntimeSlot, runtimeSlot) {
+                return mapping.Implementation
+            }
+        }
+        return null
+    }
+
+    func FindVirtualImplementation(slotDeclaration: Declaration?): Declaration? {
+        if slotDeclaration == null {
+            return null
+        }
+        for mapping in VirtualImplementations {
+            if Object.ReferenceEquals(mapping.SlotDeclaration, slotDeclaration) {
                 return mapping.Implementation
             }
         }
@@ -488,15 +502,17 @@ class AnalyzerConstruction {
 
         sourceConstructor := state.SelectedSourceConstructor == null ? null : state.SelectedSourceConstructor.SourceConstructor
         interfaceMap := new List<AnalyzerInterfaceSlotImplementation>()
+        virtualMap := new List<AnalyzerInterfaceSlotImplementation>()
         sourceDefinition := declarationContextValue.ResolveDeclaredAlias(state.ConstructedType)
         constructedSource := sourceDefinition as GenericTypeInfo
         if constructedSource != null && constructedSource.GenericDefinition != null {
             sourceDefinition = constructedSource.GenericDefinition
         }
-        if declarationContextValue.ContainsSourceType(sourceDefinition) {
+        if sourceDefinition as ClassTypeInfo != null || sourceDefinition as StructTypeInfo != null || sourceDefinition as RecordTypeInfo != null {
             interfaceMap = AwaitablePatternBinder.BuildSourceInterfaceImplementationMap(state.ConstructedType, declarationContextValue, semanticModel)
+            virtualMap = AwaitablePatternBinder.BuildSourceVirtualImplementationMap(state.ConstructedType, declarationContextValue, semanticModel)
         }
-        return new AnalyzerConstructionBinding(state.SelectedReflectedConstructor, sourceConstructor, state.ConstructedType, parameterCount, argumentBindings, interfaceMap)
+        return new AnalyzerConstructionBinding(state.SelectedReflectedConstructor, sourceConstructor, state.ConstructedType, parameterCount, argumentBindings, interfaceMap, virtualMap)
     }
 
     static func ConstructionParamsElementType(parameterType: TypeInfo): TypeInfo? {
@@ -584,7 +600,27 @@ class AnalyzerConstruction {
 
         state.ConstructorSelectionDone = true
         SelectConstructor(state, node)
+        ReportRefArgumentToInConstructorWarnings(state, node)
         ReportMissingRequiredMembersIfNeeded(state, node)
+    }
+
+    func ReportRefArgumentToInConstructorWarnings(state: ConstructionState, node: NewExpression) {
+        signature := state.SelectedConstructorSignature
+        if signature == null || signature.ParameterTypes == null {
+            return
+        }
+
+        call := ConstructorCall(node)
+        placement := AnalyzerSyntheticCallFacts.BindFunctionArguments(signature, ".ctor", call, 0)
+        index := 0
+        while index < node.ConstructorArguments.Count {
+            parameterIndex := placement.ParameterIndexByArgument[index]
+            if parameterIndex >= 0 && parameterIndex < signature.ParameterTypes.Count {
+                parameterModifier := AnalyzerOverloadFacts.SyntheticParameterModifier(signature, parameterIndex)
+                AnalyzerRefKindWarningReporter.ReportIfNeeded(diagnosticsValue, spansValue, parameterModifier, node.ConstructorArguments[index], index)
+            }
+            index += 1
+        }
     }
 
     func ReportMissingRequiredMembersIfNeeded(state: ConstructionState, node: NewExpression) {

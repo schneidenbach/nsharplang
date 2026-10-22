@@ -40,6 +40,22 @@ class ReferencedInOnlyConstructor {
     }
 }
 
+class ReferencedInArgumentShapes {
+    Value: int
+
+    constructor(in value: int) {
+        this.Value = value
+    }
+
+    func Read(in value: int): int {
+        return value
+    }
+
+    func GetValue(): int {
+        return this.Value
+    }
+}
+
 class ReflectedLongBox {
     constructor(value: long) {
         if value != 1 {

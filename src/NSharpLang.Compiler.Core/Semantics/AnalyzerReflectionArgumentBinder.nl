@@ -338,24 +338,16 @@ class AnalyzerReflectionArgumentBinder {
     func TryScoreReflectionSuppliedArgument(supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, analyzedNonLambdaArguments: TypeInfo?[], expectsParamsElement: bool, out score: int): bool {
         score = 0
 
-        expectsByRef := !expectsParamsElement && IsWrittenThroughParameter(parameter)
         argumentModifier := supplied.Argument.Modifier
-        if !expectsParamsElement && ReflectedParameterDirection.IsReadOnlyReference(parameter) {
-            // A READ-ONLY REFERENCE: `in` takes its argument bare or spelled `in`, as a source `in`
-            // does; `ref readonly` asks for a location, spelled `ref` or `in`. Neither takes `out`.
-            if ReflectedParameterDirection.IsReadOnlyLocation(parameter) {
-                if argumentModifier != ArgumentModifier.Ref && argumentModifier != ArgumentModifier.In {
-                    return false
-                }
-            } else if argumentModifier == ArgumentModifier.Out || argumentModifier == ArgumentModifier.Ref {
-                return false
-            }
-        } else if !expectsParamsElement && !AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(
-            AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameter),
-            argumentModifier
-        ) {
+        refKindCompatibility := RefKindCompatibilityFacts.ClassifyReflectedParameter(parameter, argumentModifier)
+        if !expectsParamsElement && refKindCompatibility == RefKindCompatibilityResult.Incompatible {
             return false
         }
+
+        // `ref x` applied to a selected `in` parameter still names the caller's exact storage. It
+        // therefore participates in identity inference like `ref`, while ordinary `in` arguments
+        // can use the normal input conversion path.
+        expectsByRef := !expectsParamsElement && (IsWrittenThroughParameter(parameter) || refKindCompatibility == RefKindCompatibilityResult.RefEquivalentToIn)
 
         openParameterType := supplied.OpenParameterType
         argumentValue := supplied.Argument.Value

@@ -30757,7 +30757,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         writtenModifierKind := 0
-        if (!ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget(_nodes, _source, argNode, out targetNode, out writtenModifierKind) || !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(parameterModifierKind, writtenModifierKind)) {
+        if (!ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget(_nodes, _source, argNode, out targetNode, out writtenModifierKind) || !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(parameterModifierKind, writtenModifierKind, expectedByRefType.IsByRef)) {
             targetNode = -1
             return false
         }

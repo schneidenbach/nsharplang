@@ -167,7 +167,7 @@ sealed class PlaygroundCompiler {
                         semanticModel: SemanticModel? = null
                         if analysis.Snapshot.get_SemanticModels().TryGetValue(path, out semanticModel) && semanticModel != null {
                             for declaration in unit.Declarations {
-                                semanticModelsByDeclaration[declaration] = semanticModel
+                                RecordSemanticModelForDeclaration(declaration, semanticModel, semanticModelsByDeclaration)
                             }
                         }
                     }
@@ -178,6 +178,38 @@ sealed class PlaygroundCompiler {
             return new PlaygroundRunResponse(schemaVersion, run.ExitCode == 0, normalizedActiveFile, run.ExitCode, run.Stdout, run.Stderr, null, diagnostics, summary)
         } catch caught: Exception {
             return BuildRunExceptionResponse(caught, diagnostics, normalizedActiveFile)
+        }
+    }
+
+    private static func RecordSemanticModelForDeclaration(declaration: Declaration, semanticModel: SemanticModel, models: Dictionary<object, SemanticModel>) {
+        if declaration == null || semanticModel == null || models == null {
+            return
+        }
+        models[declaration] = semanticModel
+        members: List<Declaration>? = null
+        classDeclaration := declaration as ClassDeclaration
+        if classDeclaration != null {
+            members = classDeclaration.Members
+        } else {
+            structDeclaration := declaration as StructDeclaration
+            if structDeclaration != null {
+                members = structDeclaration.Members
+            } else {
+                recordDeclaration := declaration as RecordDeclaration
+                if recordDeclaration != null {
+                    members = recordDeclaration.Members
+                } else {
+                    interfaceDeclaration := declaration as InterfaceDeclaration
+                    if interfaceDeclaration != null {
+                        members = interfaceDeclaration.Members
+                    }
+                }
+            }
+        }
+        if members != null {
+            for member in members {
+                RecordSemanticModelForDeclaration(member, semanticModel, models)
+            }
         }
     }
 

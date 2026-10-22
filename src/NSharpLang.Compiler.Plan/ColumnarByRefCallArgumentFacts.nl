@@ -1,5 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
+import NSharpLang.Compiler
+
 // Syntax facts shared by the direct-call planner and the runtime emitter. A written direction word
 // always requires storage; only an unmodified argument may be materialized for a read-only reference.
 class ColumnarByRefCallArgumentFacts {
@@ -48,26 +50,7 @@ class ColumnarByRefCallArgumentFacts {
         return candidate >= 0 && nodes.Kind(candidate) != ColumnarExpressionNodeKind.RefOutArgument
     }
 
-    static func DirectionAllowsArgument(parameterModifierKind: int, writtenModifierKind: int): bool {
-        if parameterModifierKind == 0 {
-            // A source `&T` parameter has no separate direction fact; preserve its addressable caller forms.
-            return true
-        }
-        if writtenModifierKind == 0 {
-            return parameterModifierKind == 5
-        }
-        if parameterModifierKind == 5 {
-            return writtenModifierKind == 5
-        }
-        if parameterModifierKind == 6 {
-            return writtenModifierKind == 1 || writtenModifierKind == 5
-        }
-        if parameterModifierKind == 1 {
-            return writtenModifierKind == 1
-        }
-        if parameterModifierKind == 2 {
-            return writtenModifierKind == 2
-        }
-        return false
+    static func DirectionAllowsArgument(parameterModifierKind: int, writtenModifierKind: int, parameterIsByRef: bool): bool {
+        return RefKindCompatibilityFacts.ClassifyColumnarDirection(parameterModifierKind, writtenModifierKind, parameterIsByRef) != RefKindCompatibilityResult.Incompatible
     }
 }

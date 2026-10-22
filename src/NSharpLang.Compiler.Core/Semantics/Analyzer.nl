@@ -2196,7 +2196,12 @@ class Analyzer: IDisposable {
             CallAnalysis.SupplyCallStep(state, answer, handled)
             step = CallAnalysis.NextCallStep(state)
         }
-        invocationBinding := CallAnalysis.CreateInvocationBinding(state)
+        sourceSlotOwnerType := state.ReceiverType
+        memberAccess := call.Callee as MemberAccessExpression
+        if sourceSlotOwnerType == null && memberAccess != null {
+            sourceSlotOwnerType = SemanticModel.LookupTypeAtPosition(memberAccess.Object.Line, memberAccess.Object.Column)
+        }
+        invocationBinding := CallAnalysis.CreateInvocationBinding(state, sourceSlotOwnerType)
         if invocationBinding != null {
             SemanticModel.RecordInvocationBinding(call.Line, call.Column, invocationBinding)
         }

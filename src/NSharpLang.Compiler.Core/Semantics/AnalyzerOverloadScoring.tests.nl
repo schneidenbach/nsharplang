@@ -801,7 +801,10 @@ test "synthetic input directions share applicability and argument-value shaping"
     assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.In, ArgumentModifier.None)
     assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.In, ArgumentModifier.In)
     assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.In, ArgumentModifier.Ref)
+    assert RefKindCompatibilityFacts.Classify(Ast.ParameterModifier.In, ArgumentModifier.Ref) == RefKindCompatibilityResult.RefEquivalentToIn
     assert !AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.None, ArgumentModifier.In)
+    assert RefKindCompatibilityFacts.Classify(Ast.ParameterModifier.None, ArgumentModifier.Ref) == RefKindCompatibilityResult.Incompatible
+    assert RefKindCompatibilityFacts.Classify(Ast.ParameterModifier.None, ArgumentModifier.Out) == RefKindCompatibilityResult.Incompatible
     assert !AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.Ref, ArgumentModifier.In)
     assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.Ref, ArgumentModifier.Ref)
     assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.Out, ArgumentModifier.Out)
@@ -810,6 +813,7 @@ test "synthetic input directions share applicability and argument-value shaping"
     assert AnalyzerOverloadFacts.CompareInputParameterPreference(Ast.ParameterModifier.In, Ast.ParameterModifier.None, ArgumentModifier.None) == AnalyzerOverloadSpecificity.RightIsBetter
     assert AnalyzerOverloadFacts.CompareInputParameterPreference(Ast.ParameterModifier.None, Ast.ParameterModifier.In, ArgumentModifier.None) == AnalyzerOverloadSpecificity.LeftIsBetter
     assert AnalyzerOverloadFacts.CompareInputParameterPreference(Ast.ParameterModifier.In, Ast.ParameterModifier.None, ArgumentModifier.In) == AnalyzerOverloadSpecificity.NeitherIsBetter
+    assert AnalyzerOverloadFacts.CompareInputParameterPreference(Ast.ParameterModifier.In, Ast.ParameterModifier.Ref, ArgumentModifier.Ref) == AnalyzerOverloadSpecificity.NeitherIsBetter
 
     inExpected := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(inSignature, 0, intType)
     assert Object.ReferenceEquals(inExpected, intType)

@@ -122,6 +122,35 @@ func main() {
         stdout: 'Result: 5\n',
       },
       {
+        name: 'pending async call dispatches the analyzer-selected source interface slot',
+        source: `import System
+import System.Threading.Tasks
+
+interface IReader {
+    func Read(value: int): int
+}
+
+class Reader: IReader {
+    func Read(_value: string): int { return 99 }
+    func Read(_value: int): int { return 42 }
+}
+
+async func ReadAfterPending(reader: IReader, gate: Task<int>): Task<int> {
+    await gate
+    return reader.Read(1)
+}
+
+async func main() {
+    gate := new TaskCompletionSource<int>
+    pending := ReadAfterPending(new Reader(), gate.Task)
+    if pending.IsCompleted { throw new Exception("the gate should be pending before interface dispatch") }
+    gate.SetResult(0)
+    print await pending
+}
+`,
+        stdout: '42\n',
+      },
+      {
         name: 'Task and Task<T>',
         source: `import System.Threading.Tasks
 

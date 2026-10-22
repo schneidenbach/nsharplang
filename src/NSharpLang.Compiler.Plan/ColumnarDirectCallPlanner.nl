@@ -6,6 +6,7 @@ import System.Reflection
 import System.Reflection.Emit
 import System.Threading.Tasks
 import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 
 enum ColumnarDirectCallOwnership {
     NotOwned,
@@ -612,6 +613,7 @@ class ColumnarDirectCallPlanner {
         targetFacts.IsNullLiteral[targetIndex] = sourceFacts.IsNullLiteral[sourceIndex]
         targetFacts.IsByRefArgument[targetIndex] = sourceFacts.IsByRefArgument[sourceIndex]
         targetFacts.IsInArgument[targetIndex] = sourceFacts.IsInArgument[sourceIndex]
+        targetFacts.IsOutArgument[targetIndex] = sourceFacts.IsOutArgument[sourceIndex]
         targetFacts.IsIntegerConstantArrayLiteral[targetIndex] = sourceFacts.IsIntegerConstantArrayLiteral[sourceIndex]
         targetFacts.ArrayLiteralMinimumValues[targetIndex] = sourceFacts.ArrayLiteralMinimumValues[sourceIndex]
         targetFacts.ArrayLiteralMaximumValues[targetIndex] = sourceFacts.ArrayLiteralMaximumValues[sourceIndex]
@@ -697,6 +699,7 @@ class ColumnarDirectCallPlanner {
         copy.IsNullLiteral[0] = sourceFacts.IsNullLiteral[index]
         copy.IsByRefArgument[0] = sourceFacts.IsByRefArgument[index]
         copy.IsInArgument[0] = sourceFacts.IsInArgument[index]
+        copy.IsOutArgument[0] = sourceFacts.IsOutArgument[index]
         copy.IsIntegerConstantArrayLiteral[0] = sourceFacts.IsIntegerConstantArrayLiteral[index]
         copy.ArrayLiteralMinimumValues[0] = sourceFacts.ArrayLiteralMinimumValues[index]
         copy.ArrayLiteralMaximumValues[0] = sourceFacts.ArrayLiteralMaximumValues[index]
@@ -4478,39 +4481,33 @@ class ColumnarDirectCallPlanner {
                 // written somewhere else in the list, and `ref`/`out` is matched against the parameter
                 // it binds to, not the position it was typed at.
                 argumentNode := argumentFacts.ArgumentNodes[index]
-                if ReflectedParameterDirection.IsReadOnlyReference(parameters[index]) {
-                    // A READ-ONLY REFERENCE: an `in` takes its argument bare or spelled `in`, as a source
-                    // `in` does; a `ref readonly` asks for a location spelled `ref` or `in`.
-                    // `AppendArgumentSlot` passes the storage's address every way. `out` names a
-                    // direction neither callee has.
-                    candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
-                    if candidate < 0 {
-                        return false
-                    }
-                    readOnlyLocation := ReflectedParameterDirection.IsReadOnlyLocation(parameters[index])
-                    if nodes.Kind(candidate) == ColumnarExpressionNodeKind.RefOutArgument {
-                        modifier := nodes.ChildCount(candidate) == 1 ? nodes.Text(source, candidate) : ""
-                        if modifier != "in" && !(modifier == "ref" && readOnlyLocation) {
-                            return false
-                        }
-                    } else if readOnlyLocation {
-                        return false
-                    }
-                } else if parameters[index].ParameterType.IsByRef {
-                    candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
-                    if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.RefOutArgument || nodes.ChildCount(candidate) != 1 {
-                        return false
-                    }
+                candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
+                if candidate < 0 {
+                    return false
+                }
 
-                    modifier := nodes.Text(source, candidate)
-                    if parameters[index].IsOut {
-                        if modifier != "out" {
-                            return false
-                        }
-                    } else if modifier != "ref" {
+                modifier := ArgumentModifier.None
+                if nodes.Kind(candidate) == ColumnarExpressionNodeKind.RefOutArgument {
+                    if nodes.ChildCount(candidate) != 1 {
                         return false
                     }
-                } else if ByRefArgumentTarget(nodes, source, argumentNode) >= 0 {
+                    modifierText := nodes.Text(source, candidate)
+                    if modifierText == "ref" {
+                        modifier = ArgumentModifier.Ref
+                    } else if modifierText == "out" {
+                        modifier = ArgumentModifier.Out
+                    } else if modifierText == "in" {
+                        modifier = ArgumentModifier.In
+                    } else {
+                        return false
+                    }
+                }
+
+                if RefKindCompatibilityFacts.ClassifyReflectedParameter(parameters[index], modifier) == RefKindCompatibilityResult.Incompatible {
+                    return false
+                }
+
+                if !parameters[index].ParameterType.IsByRef && ByRefArgumentTarget(nodes, source, argumentNode) >= 0 {
                     return false
                 }
 
@@ -5052,7 +5049,7 @@ class ColumnarDirectCallPlanner {
             syntacticStorage := ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget(nodes, source, argumentNode, out byRefTarget, out writtenModifierKind)
             byRefElement := typeof(int)
             addressCheckpoint := plan.CreateCheckpoint()
-            mayPassAddress := ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(parameterModifierKind, writtenModifierKind)
+            mayPassAddress := ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(parameterModifierKind, writtenModifierKind, parameterTypes[index].IsByRef)
             hasAddress := syntacticStorage && mayPassAddress && parameterTypes[index].IsByRef && ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement)
             expectedElement := parameterTypes[index].IsByRef ? parameterTypes[index].GetElementType() : null
             if hasAddress && expectedElement != null && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedElement, byRefElement) {
@@ -5666,6 +5663,7 @@ class ColumnarDirectCallPlanner {
                 argumentTypes[index] = byRefStorageType
                 argumentFacts.IsByRefArgument[index] = true
                 argumentFacts.IsInArgument[index] = IsInArgumentNode(nodes, source, argumentNode)
+                argumentFacts.IsOutArgument[index] = IsOutArgumentNode(nodes, source, argumentNode)
                 index += 1
                 continue
             }
@@ -5705,9 +5703,8 @@ class ColumnarDirectCallPlanner {
     // THE NAME UNDER A `ref x` / `out x` ARGUMENT, or -1 when the argument is not one.
     //
     // Kind 54 is the argument-modifier node: the keyword lives in its value span and it has exactly
-    // one child, the storage being passed. `in` is NOT answered here — it is a read-only reference
-    // with its own overload-resolution rules, and admitting it through the `ref`/`out` door would bind
-    // the wrong overload.
+    // one child, the storage being passed. `ref`, `out` and `in` all identify the same storage shape;
+    // their applicability is carried separately to the shared ref-kind compatibility rule.
     static func ByRefArgumentTarget(nodes: ColumnarNodeTable, source: string, argumentNode: int): int {
         targetNode := -1
         modifierKind := 0
@@ -5718,13 +5715,18 @@ class ColumnarDirectCallPlanner {
         return -1
     }
 
-    // Whether the modifier word on a by-reference argument is `in`. Asked beside `ByRefArgumentTarget`
-    // rather than folded into it, because the two answer different questions: one is "is there storage
-    // here", the other is "which direction did the caller ask for".
+    // Whether the modifier word on a by-reference argument is `in`. Direction is kept separately from
+    // the storage target and is interpreted with the selected parameter by the shared rule.
     static func IsInArgumentNode(nodes: ColumnarNodeTable, source: string, argumentNode: int): bool {
         targetNode := -1
         modifierKind := 0
         return ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget(nodes, source, argumentNode, out targetNode, out modifierKind) && modifierKind == 5
+    }
+
+    static func IsOutArgumentNode(nodes: ColumnarNodeTable, source: string, argumentNode: int): bool {
+        targetNode := -1
+        modifierKind := 0
+        return ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget(nodes, source, argumentNode, out targetNode, out modifierKind) && modifierKind == 2
     }
 
     static func TryGetTargetTypedIntegerArgumentValue(nodes: ColumnarNodeTable, source: string, node: int, out value: long, out isNegative: bool): bool {

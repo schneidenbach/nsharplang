@@ -195,6 +195,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.ConstructorError)
 
         AddCompiler(descriptors, ErrorCode.VisibilityConventionWarning)
+        AddCompiler(descriptors, ErrorCode.RefArgumentForInWarning)
         AddCompiler(descriptors, ErrorCode.PossibleNullAccess)
         AddCompiler(descriptors, ErrorCode.NullabilityWarning)
         AddCompiler(descriptors, ErrorCode.ReferenceLoadFailure)
@@ -214,7 +215,7 @@ class DiagnosticCatalog {
         // NL907 is advice about a keyword that does no work — a redundant `must`, a `.Value` that can
         // throw. Both describe programs that are CORRECT, and flow state is not visible from a
         // declaration, so neither may refuse a build.
-        if code == ErrorCode.ReferenceLoadFailure || code == ErrorCode.NullabilityWarning {
+        if code == ErrorCode.ReferenceLoadFailure || code == ErrorCode.NullabilityWarning || code == ErrorCode.RefArgumentForInWarning {
             severity = DiagnosticSeverity.Warning
         }
 
@@ -239,7 +240,7 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Semantic
         }
 
-        if value >= Convert.ToInt32(ErrorCode.WrongArgumentCount) && value <= Convert.ToInt32(ErrorCode.TypeNotCallable) {
+        if value >= Convert.ToInt32(ErrorCode.WrongArgumentCount) && value <= Convert.ToInt32(ErrorCode.TypeNotCallable) || code == ErrorCode.RefArgumentForInWarning {
             return DiagnosticCategory.Function
         }
 

@@ -1,5 +1,7 @@
 namespace NSharpLang.CensusInParameters.Tests
 
+import NSharpLang.AsyncAwaitablePatternFixtures
+
 
 // CENSUS — `in` PARAMETERS: READ-ONLY BY REFERENCE.
 //
@@ -15,10 +17,9 @@ namespace NSharpLang.CensusInParameters.Tests
 // answers the new value. That row is what distinguishes this feature from an ordinary parameter with
 // a promise attached, and it is why the by-value control sits beside it.
 //
-// The call site may write `in` or leave it out: the signature already said the argument is passed by
-// reference, so there is nothing for the word to warn a reader about. `ref` and `out` are NOT
-// interchangeable with it in either direction; that is a compile-time refusal and the estate's
-// overload rows own it.
+// The call site may write `in` or leave it out. Since C# 12, `ref` is also accepted for an `in`
+// parameter and reports NL904, matching CS9191; the address still reaches a read-only parameter.
+// `out` remains incompatible in either direction, and `in` still cannot target a by-value parameter.
 //
 // AN INTERFACE SLOT DECLARING A BY-REFERENCE PARAMETER IS NOT COVERED HERE, AND THE REASON IS NOT
 // `in`. `interface I { func M(ref v: T) }` with a matching class declines at
@@ -115,6 +116,11 @@ class InParameters {
         return Doubled(n)
     }
 
+    static func CallDoubledViaRef(): long {
+        n: long = 21
+        return Doubled(ref n)
+    }
+
     // An `in` parameter forwarded to another `in` parameter: the address travels, and neither callee
     // may write through it.
     static func Forwarded(in value: Big): long {
@@ -130,12 +136,7 @@ class InParameters {
 // An INSTANCE method takes `in` exactly as a static one does, so the modifier is a property of a
 // PARAMETER rather than of one declaration form.
 //
-// A CONSTRUCTOR is NOT covered, and it is a measured gap rather than an oversight. `constructor(in
-// seed: Big)` with `new Holder(seed)` — and with `new Holder(in seed)` — declines on this tip, while
-// the `ref` control `constructor(ref seed: Big)` called `new Holder(ref seed)` emits. Constructor
-// SELECTION was taught the direction column (`ColumnarConstructionPlanner.ProjectedModifierKinds`), so
-// the remaining gap is in the construction path's argument append rather than in overload resolution.
-// It is recorded here so the next reader does not re-derive it.
+// An `in` constructor also accepts a `ref` argument under the same shared compatibility rule.
 class Holder {
     total: long
 
@@ -147,6 +148,44 @@ class Holder {
 
     func AddFrom(in value: Big): long {
         return total + value.C
+    }
+}
+
+class SourceInArgumentHolder {
+    Value: int
+
+    constructor(in value: int) {
+        this.Value = value
+    }
+
+    func Read(in value: int): int {
+        return value
+    }
+}
+
+class InArgumentDrivers {
+    static func SourceConstructorViaRef(): int {
+        value := 41
+        holder := new SourceInArgumentHolder(ref value)
+        return holder.Value
+    }
+
+    static func SourceMethodViaRef(): int {
+        value := 42
+        holder := new SourceInArgumentHolder(value)
+        return holder.Read(ref value)
+    }
+
+    static func ReferencedConstructorViaRef(): int {
+        value := 43
+        holder := new ReferencedInArgumentShapes(ref value)
+        return holder.GetValue()
+    }
+
+    static func ReferencedMethodViaRef(): int {
+        holder := new ReferencedInArgumentShapes(0)
+        value := 44
+        return holder.Read(ref value)
     }
 }
 

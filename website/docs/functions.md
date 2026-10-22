@@ -420,12 +420,16 @@ Three rules follow from "read-only":
 
 `in` is not interchangeable with `out`, and it does not make a `ref` parameter optional: `ref` and
 `out` must be written, and omitting either is refused. A `ref` argument can also bind to an `in`
-parameter; the callee still sees it as read-only. What `in` adds is that *omitting* it is fine — there
-is nothing for the word to warn a reader about, because the callee cannot change what they passed.
+parameter; the callee still sees it as read-only. N# reports [NL904](./errors/NL904.md), the same
+advice as C# 12's CS9191, because writing `in` better describes the selected parameter. What `in` adds
+is that *omitting* the modifier is fine — there is nothing for the word to warn a reader about,
+because the callee cannot change what they passed.
 
 When a call omits the modifier and both `Pick(value: T)` and `Pick(in value: T)` apply, the by-value
 overload is better. Writing `in` selects the `in` overload and does not apply to a by-value parameter.
-Constructors follow the same applicability and better-member rules as methods:
+Writing `ref` makes an `in` overload applicable; when compared with a `ref` overload of the same
+parameter type, both have the same effective ref-kind for better-function comparison. Constructors
+follow the same applicability and better-member rules as methods:
 
 ```n#
 class Choice {
@@ -2588,8 +2592,9 @@ candidate beats one that needs optional parameters filled.
 
 For an unmodified argument, otherwise-identical by-value and `in` parameters are separated by a
 by-value preference. An explicit `in` argument is applicable to an `in` parameter; it is not
-applicable to a by-value parameter. The same rules select constructors and methods, for source types
-and referenced types.
+applicable to a by-value parameter. An explicit `ref` argument is also applicable to an `in`
+parameter and reports NL904 after selection. It is not applicable to a by-value parameter. The same
+rules select constructors and methods, for source types and referenced types.
 
 For example, given `Pick(value: string)` and `Pick(value: string, suffix: string = "")`,
 `Pick("x")` selects the exact-arity overload because the supplied conversions tie and only the other

@@ -309,16 +309,26 @@ class AnalyzerSyntheticCallValidator {
             }
 
             argument := call.Arguments[currentArgument]
-            if argument.Modifier == ArgumentModifier.In && !ExpectsInArgument(functionType, parameterIndex) {
+            parameterModifier := AnalyzerOverloadFacts.SyntheticParameterModifier(functionType, parameterIndex)
+            refKindCompatibility := RefKindCompatibilityFacts.Classify(parameterModifier, argument.Modifier)
+            if refKindCompatibility == RefKindCompatibilityResult.Incompatible && argument.Modifier == ArgumentModifier.In && !ExpectsInArgument(functionType, parameterIndex) {
                 span := spans.GetInArgumentModifierDiagnosticSpan(argument)
                 parameterName := ParameterNameForDirectionError(functionType, parameterIndex)
                 diagnostics.Report(ErrorCode.NoMatchingOverload, "Argument uses `in`, but parameter '" + parameterName + "' of '" + functionName + "' is passed by value", span.Line, span.Column, "Remove `in`, or declare the parameter as `in`.", span.Length)
                 continue
             }
 
+            AnalyzerRefKindWarningReporter.ReportIfNeeded(diagnostics, spans, parameterModifier, argument, currentArgument)
+
             expectedType := declarationContext.ResolveDeclaredAlias(AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints))))
             expectedType = ApplyParameterInputNullability(functionType, parameterIndex, expectedType)
             argType := declarationContext.ResolveDeclaredAlias(argTypes[currentArgument])
+            if refKindCompatibility == RefKindCompatibilityResult.RefEquivalentToIn {
+                referencedArgumentType := argType as ByRefTypeInfo
+                if referencedArgumentType != null {
+                    argType = declarationContext.ResolveDeclaredAlias(referencedArgumentType.InnerType)
+                }
+            }
             if hasParamsParameter && parameterIndex == paramsParameterIndex {
                 paramsType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[paramsParameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)))
                 paramsArrayType := paramsType as ArrayTypeInfo
@@ -368,8 +378,8 @@ class AnalyzerSyntheticCallValidator {
         RecordCallPostconditions(functionType, call, parameterIndexByArgument, genericBindings, expectedCount)
     }
 
-    // `in` is a call-site spelling only for an `in` parameter. A by-value parameter may read the
-    // same value, but accepting the modifier leaves emission with a direction it cannot honor.
+    // Explicit `in` remains a call-site spelling only for an `in` parameter. `ref` is accepted for
+    // `in` by the shared C# 12 compatibility rule above.
     static func ExpectsInArgument(functionType: FunctionTypeInfo, parameterIndex: int): bool {
         modifiers := functionType.ParameterModifiers
         return modifiers != null && parameterIndex >= 0 && parameterIndex < modifiers.Count && modifiers[parameterIndex] == Ast.ParameterModifier.In

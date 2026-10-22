@@ -96,6 +96,10 @@ class ErrorSuggestions {
             return "Use PascalCase for public members or camelCase for private members"
         }
 
+        if code == ErrorCode.RefArgumentForInWarning {
+            return "Write `in` instead to show that the callee receives a read-only reference"
+        }
+
         if code == ErrorCode.ImportCollision {
             return "Use 'import ... as Alias' to resolve naming conflicts"
         }

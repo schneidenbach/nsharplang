@@ -59,27 +59,7 @@ class AnalyzerOverloadFacts {
     // constructors, and reflected signatures. An omitted modifier can bind to `in`; an explicit
     // modifier must be compatible with the selected parameter direction.
     static func IsSyntheticArgumentModifierApplicable(parameterModifier: Ast.ParameterModifier, argumentModifier: ArgumentModifier): bool {
-        if parameterModifier == Ast.ParameterModifier.Params {
-            parameterModifier = Ast.ParameterModifier.None
-        }
-
-        if argumentModifier == ArgumentModifier.None {
-            return parameterModifier == Ast.ParameterModifier.None || parameterModifier == Ast.ParameterModifier.In
-        }
-
-        if argumentModifier == ArgumentModifier.In {
-            return parameterModifier == Ast.ParameterModifier.In
-        }
-
-        if argumentModifier == ArgumentModifier.Ref {
-            return parameterModifier == Ast.ParameterModifier.Ref || parameterModifier == Ast.ParameterModifier.In
-        }
-
-        if argumentModifier == ArgumentModifier.Out {
-            return parameterModifier == Ast.ParameterModifier.Out
-        }
-
-        return false
+        return RefKindCompatibilityFacts.IsApplicable(parameterModifier, argumentModifier)
     }
 
     static func SyntheticParameterModifier(functionType: FunctionTypeInfo, parameterIndex: int): Ast.ParameterModifier {
@@ -92,7 +72,9 @@ class AnalyzerOverloadFacts {
     }
 
     // With no call-site modifier, a value parameter is preferred over an otherwise identical `in`
-    // parameter. Explicit `in` removes the value candidate during applicability instead.
+    // parameter. With `ref`, the applicable `ref` and `in` candidates have the same effective ref
+    // kind under C# 12; neither receives a ref-kind preference, and the selected `in` candidate later
+    // reports CS9191-equivalent advice.
     static func CompareInputParameterPreference(left: Ast.ParameterModifier, right: Ast.ParameterModifier, argument: ArgumentModifier): int {
         if argument != ArgumentModifier.None {
             return AnalyzerOverloadSpecificity.NeitherIsBetter

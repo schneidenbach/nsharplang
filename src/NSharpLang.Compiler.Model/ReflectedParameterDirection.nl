@@ -8,12 +8,11 @@ import System.Reflection
 //
 // `ref`, `out`, `in` and `ref readonly` are all `&T` in a signature. Metadata tells `out` apart with
 // `[Out]`, and marks BOTH read-only directions with `[In]`; only `RequiresLocationAttribute` separates
-// `ref readonly` from `in`, and the two take different arguments. An `in` parameter takes its argument
-// bare or written `in`, as the same declaration in source does -- a written `ref` asks for a writable
-// alias the callee does not offer. A `ref readonly` parameter (`Volatile.Read(ref readonly bool)`) asks
-// for a LOCATION, and takes it written `ref` or `in`; a bare value is refused, as it would need a
-// temporary where the callee asked for the caller's own storage (C# only warns). Neither is written
-// through by the callee.
+// `ref readonly` from `in`, and the two take different arguments. Since C# 12, an `in` parameter takes
+// its argument bare, written `in`, or written `ref`; the latter is applicable but the analyzer reports
+// CS9191-equivalent advice. A `ref readonly` parameter (`Volatile.Read(ref readonly bool)`) asks for a
+// LOCATION and takes it written `ref` or `in`; a bare value is refused because it would need a temporary
+// where the callee asked for the caller's own storage. Neither read-only direction is written through.
 class ReflectedParameterDirection {
 
     // A read-only by-reference parameter of either spelling: the callee reads the location and never

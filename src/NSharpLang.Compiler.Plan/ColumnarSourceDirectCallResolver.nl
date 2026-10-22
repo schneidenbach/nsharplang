@@ -44,20 +44,16 @@ class ColumnarDirectCallArgumentFacts {
     IntegerLiteralValues: long[]
     IsNullLiteral: bool[]
 
-    // WHETHER THE ARGUMENT WAS WRITTEN `ref x` / `out x`. It is a SYNTAX fact like the others here,
-    // and it has to be one: `f(x)` and `f(ref x)` are different calls even when `x` has the same type,
-    // and only the second may bind a `ref` parameter. The recorded `argumentTypes` entry stays the
-    // ELEMENT type (the storage's own type), because that is what the parameter's element type is
-    // compared against.
+    // WHETHER THE ARGUMENT WAS WRITTEN WITH `ref`, `out` OR `in`. It is a SYNTAX fact like the others
+    // here: the recorded `argumentTypes` entry stays the ELEMENT type (the storage's own type), because
+    // that is what a selected by-reference parameter's element type is compared against.
     IsByRefArgument: bool[]
 
     // WHETHER THAT WORD WAS `in`. It is a separate column because the three directions are not
-    // interchangeable at a call site: `ref` and `out` must be written and must match, while `in` may be
-    // written or omitted and may NOT be substituted for either of the other two. A single bool cannot
-    // say which of three words was used, and getting that wrong would let `f(ref x)` bind an `in`
-    // parameter — which C# refuses (CS1615) for a reason: the callee promised not to write, and the
-    // caller wrote a word that says it expects a write.
+    // interchangeable at a call site. `IsOutArgument` keeps the third spelling distinct so the shared
+    // `RefKindCompatibilityFacts` rule can classify each parameter/argument pair.
     IsInArgument: bool[]
+    IsOutArgument: bool[]
 
     // AN ARRAY LITERAL WHOSE ELEMENTS ARE ALL UNSUFFIXED INTEGER CONSTANTS, and the widest constant it
     // wrote in each direction. `[0]` has the provisional type `int[]` and no element of its own that a
@@ -114,6 +110,7 @@ class ColumnarDirectCallArgumentFacts {
         IsNullLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
         IsByRefArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
         IsInArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
+        IsOutArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
         IsIntegerConstantArrayLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
         ArrayLiteralMinimumValues = new long[](isUnsuffixedIntegerLiteral.Length)
         ArrayLiteralMaximumValues = new long[](isUnsuffixedIntegerLiteral.Length)
@@ -1218,12 +1215,26 @@ class ColumnarSourceDirectCallResolver {
                 continue
             }
 
+            parameterModifierKind := index < expectedModifierKinds.Length ? expectedModifierKinds[index] : (expected[index].IsByRef ? 1 : 0)
+            argumentModifierKind := 0
+            if argumentFacts.IsByRefArgument[index] {
+                argumentModifierKind = 1
+                if argumentFacts.IsInArgument[index] {
+                    argumentModifierKind = 5
+                } else if argumentFacts.IsOutArgument[index] {
+                    argumentModifierKind = 2
+                }
+            }
+            if RefKindCompatibilityFacts.ClassifyColumnarDirection(parameterModifierKind, argumentModifierKind, expected[index].IsByRef) == RefKindCompatibilityResult.Incompatible {
+                return -1
+            }
+
             // A BY-REFERENCE POSITION ON EITHER SIDE MAKES THIS A BY-REFERENCE MATCH. The argument
             // aliases the caller's storage, so there is no conversion to make: the parameter's element
             // type has to BE the storage's type. A `ref`/`out`/`in` ARGUMENT never binds a by-value
             // parameter — `f(ref x)` may not bind an ordinary one — and the three directions' own
             // call-site rules are read immediately below, because they are not the same rule.
-            expectsReadOnlyByRef := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 5
+            expectsReadOnlyByRef := parameterModifierKind == 5
             if expected[index].IsByRef && expectsReadOnlyByRef && !argumentFacts.IsByRefArgument[index] {
                 // Bare `in` arguments are values first. An exact storage location can be passed
                 // directly, while every other expression converts to the parameter element and is
@@ -1259,43 +1270,13 @@ class ColumnarSourceDirectCallResolver {
                     return -1
                 }
 
-                // THE THREE DIRECTIONS, EACH WITH ITS OWN CALL-SITE RULE.
-                //
-                // `in` is the one by-reference position the caller need not spell: the reference is
-                // read-only, so the caller is not being told its storage may change and there is
-                // nothing for a word to warn about. It may be written `in`, or omitted.
-                //
-                // `ref` and `out` must be written, and `in` may NOT stand in for either — nor either
-                // for `in`. A caller that writes `ref` is asking for a writable alias, and an `in`
-                // parameter is not one; C# refuses the pair for exactly that reason.
-                //
-                // `ref readonly` (6, reflected only) asks for a LOCATION and takes it written `ref` or
-                // `in` -- never bare, which would need a temporary where the callee asked for storage.
-                // `out` is not separated from `ref` by the argument facts; the ordinary runtime gate
-                // refuses it by its written word.
-                expectsReadOnlyLocation := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 6
-                if expectsReadOnlyByRef {
-                    if argumentFacts.IsByRefArgument[index] && !argumentFacts.IsInArgument[index] {
-                        return -1
-                    }
-                } else if expectsReadOnlyLocation {
-                    if !argumentFacts.IsByRefArgument[index] {
-                        return -1
-                    }
-                } else {
-                    if !argumentFacts.IsByRefArgument[index] || argumentFacts.IsInArgument[index] {
-                        return -1
-                    }
-                }
-
                 byRefElement := expected[index].GetElementType()
                 if byRefElement == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(byRefElement, actual[index]) {
                     return -1
                 }
 
-                // A WRITTEN `in` OUTSCORES AN OMITTED ONE, so a call that says what it means is never
-                // ambiguous with one that does not, and a BY-VALUE overload still beats an omitted
-                // `in` — passing by value is what an unadorned argument asks for.
+                // A WRITTEN by-reference argument receives the exact address. A bare argument to
+                // `in` remains the lower-ranked temporary/address case above.
                 if argumentFacts.IsByRefArgument[index] {
                     score += 8
                 } else {
@@ -1379,7 +1360,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.IsContextualGenericUnionConstruction == null || argumentFacts.ContextualGenericUnionBases == null || argumentFacts.IsContextualLambda == null || argumentFacts.ContextualLambdaParameterCounts == null || argumentFacts.ContextualLambdaReturnsVoid == null || argumentFacts.ContextualLambdaParameterTypes == null || argumentFacts.ContextualLambdaInvocationArities == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length || argumentFacts.IsContextualGenericUnionConstruction.Length != argumentTypes.Length || argumentFacts.ContextualGenericUnionBases.Length != argumentTypes.Length || argumentFacts.IsContextualLambda.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != argumentTypes.Length || argumentFacts.ContextualLambdaReturnsVoid.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterTypes.Length != argumentTypes.Length || argumentFacts.ContextualLambdaInvocationArities.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsOutArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.IsContextualGenericUnionConstruction == null || argumentFacts.ContextualGenericUnionBases == null || argumentFacts.IsContextualLambda == null || argumentFacts.ContextualLambdaParameterCounts == null || argumentFacts.ContextualLambdaReturnsVoid == null || argumentFacts.ContextualLambdaParameterTypes == null || argumentFacts.ContextualLambdaInvocationArities == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsOutArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length || argumentFacts.IsContextualGenericUnionConstruction.Length != argumentTypes.Length || argumentFacts.ContextualGenericUnionBases.Length != argumentTypes.Length || argumentFacts.IsContextualLambda.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != argumentTypes.Length || argumentFacts.ContextualLambdaReturnsVoid.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterTypes.Length != argumentTypes.Length || argumentFacts.ContextualLambdaInvocationArities.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 

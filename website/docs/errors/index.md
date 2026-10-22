@@ -198,6 +198,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | Code | Rule |
 |---|---|
 | [`NL903`](./NL903.md) | A name whose casing contradicts N#'s visibility convention. |
+| [`NL904`](./NL904.md) | `ref` was used for an `in` parameter; `in` makes the read-only reference explicit. **Warning** — the call is valid. |
 | [`NL905`](./NL905.md) | A nullable value dereferenced, indexed or called without a guard. |
 | [`NL907`](./NL907.md) | A nullable unwrap that can fail, or was not needed (warning). |
 | [`NL923`](./NL923.md) | A referenced assembly failed to load, and names went unresolved because of it. **Advisory warning** — the one code in this range that never blocks a build. |

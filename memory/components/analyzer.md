@@ -4,6 +4,7 @@
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerDeclarationContext.nl`,
 `src/NSharpLang.Compiler.Model/TypeInfoIdentityFacts.nl`,
 `src/NSharpLang.Compiler.Model/AnalyzerConversionFacts.nl`,
+`src/NSharpLang.Compiler.Model/RefKindCompatibility.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerCallableReferenceFacts.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerWellKnownTypes.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerWellKnownTypeFacts.nl`,
@@ -1143,8 +1144,8 @@ meet. Putting the flag on the argument's type is what makes overload scoring, th
 and the reflected binder agree without three copies of the rule.
 
 ONLY A REFERENCE ANNOTATION IS DROPPED (`WithoutReferenceNullability`): `int?` is `Nullable<int>` and
-`int` is not, so an `int?` variable is still not an `out int` argument. N# has no `in` modifier, so
-that third C# case does not arise.
+`int` is not, so an `int?` variable is still not an `out int` argument. `in` arguments use a separate
+read-only-reference rule described below.
 
 A TARGET THAT IS ALREADY A REFERENCE IS PASSED ON, NOT RE-REFERENCED (2026-09-27). A `p: &T` parameter
 reads as `&T`, so `CompleteArgument` wrapping `ref p`'s answer typed it `&&T` and refused it NL202 —
@@ -1190,6 +1191,21 @@ Ref RETURNS (`func F(): &int`) were never emittable (`emit.declaration.function-
 `return v` for `v: &int` being refused NL202 there regresses nothing. Pinned by
 `AnalyzerBindingFacts.tests.nl` (both spellings side by side), `Linter.tests.nl` (NL012) and
 `tests/native/census-by-ref-forwarding/ValuePosition`.
+
+### C# 12 `ref` arguments for `in` parameters
+
+`RefKindCompatibilityFacts.Classify` is the shared direction rule for source signatures, reflected
+signatures, overload applicability, synthetic validation, direct-call planning and playground
+invocation. It returns `RefEquivalentToIn` for `ref x` matched to an `in` parameter so the selected
+call can receive the argument's storage and the analyzer can report NL904 after overload selection.
+The warning has CS9191's wording and recommendation. In better-function comparison, that pair has
+the effective `ref` kind; an unmodified argument still prefers an otherwise-identical by-value
+parameter over `in`.
+
+`in x` applies only to an `in` parameter. `ref x` and `out x` do not apply to by-value parameters,
+and `out` does not apply to `in`. `ClassifyReflectedParameter` translates reflection metadata into
+the same result, including `ref readonly` location requirements. The emitter and playground consume
+the shared result rather than maintaining their own direction tables.
 
 ### A referenced type's object initializer and member writes (2026-09-27, carving prep)
 

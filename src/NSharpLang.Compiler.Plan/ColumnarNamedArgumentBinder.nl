@@ -243,6 +243,7 @@ class ColumnarNamedArgumentBinder {
         movedNull := new bool[](count)
         movedByRef := new bool[](count)
         movedIn := new bool[](count)
+        movedOut := new bool[](count)
         movedArrayLiteral := new bool[](count)
         movedArrayMinimums := new long[](count)
         movedArrayMaximums := new long[](count)
@@ -275,6 +276,7 @@ class ColumnarNamedArgumentBinder {
             movedNull[slot] = facts.IsNullLiteral[written]
             movedByRef[slot] = facts.IsByRefArgument[written]
             movedIn[slot] = facts.IsInArgument[written]
+            movedOut[slot] = facts.IsOutArgument[written]
             movedArrayLiteral[slot] = facts.IsIntegerConstantArrayLiteral[written]
             movedArrayMinimums[slot] = facts.ArrayLiteralMinimumValues[written]
             movedArrayMaximums[slot] = facts.ArrayLiteralMaximumValues[written]
@@ -298,6 +300,7 @@ class ColumnarNamedArgumentBinder {
             facts.IsNullLiteral[copy] = movedNull[copy]
             facts.IsByRefArgument[copy] = movedByRef[copy]
             facts.IsInArgument[copy] = movedIn[copy]
+            facts.IsOutArgument[copy] = movedOut[copy]
             facts.IsIntegerConstantArrayLiteral[copy] = movedArrayLiteral[copy]
             facts.ArrayLiteralMinimumValues[copy] = movedArrayMinimums[copy]
             facts.ArrayLiteralMaximumValues[copy] = movedArrayMaximums[copy]

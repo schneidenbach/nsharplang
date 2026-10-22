@@ -22755,3 +22755,14 @@ test "await diagnoses optional and params GetAwaiter patterns after selecting th
         index += 1
     }
 }
+
+test "C# 12 accepts ref for in and reports the NL904 warning at the modifier" {
+    source := "func Read(in value: int): int { return value }\n\nfunc Run(): int {\n    value := 41\n    return Read(ref value)\n}\n"
+    assert AcParseCensus(source) == ""
+
+    analysis := AcAnalyze(source)
+
+    assert AcHasErrors(analysis) == "False"
+    assert AcCensus(analysis) == "NL904:RefArgumentForInWarning@5:17+3;", AcCensus(analysis)
+    assert AcRow(analysis, 0) == "RefArgumentForInWarning|The 'ref' modifier for argument 1 corresponding to 'in' parameter is equivalent to 'in'. Consider using 'in' instead.|Write 'in' instead to show that the callee receives a read-only reference.|Warning"
+}
