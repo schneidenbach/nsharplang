@@ -11,6 +11,29 @@ import System.Threading
 import System.Threading.Tasks
 import NSharpLang.AsyncAwaitablePatternFixtures
 
+test "in overload resolution matches constructors and methods for source and referenced types" {
+    value := 23
+
+    sourceByValue := new SourceInOverloadShapes(value)
+    sourceByIn := new SourceInOverloadShapes(in value)
+    assert sourceByValue.GetConstructorChoice() == 123
+    assert sourceByIn.GetConstructorChoice() == 223
+    assert sourceByValue.Pick(value) == 323
+    assert sourceByIn.Pick(in value) == 423
+
+    referencedByValue := new ReferencedInOverloadShapes(value)
+    referencedByIn := new ReferencedInOverloadShapes(in value)
+    assert referencedByValue.GetConstructorChoice() == 123
+    assert referencedByIn.GetConstructorChoice() == 223
+    assert referencedByValue.Pick(value) == 323
+    assert referencedByIn.Pick(in value) == 423
+
+    sourceInOnly := new SourceInOnlyConstructor(value)
+    referencedInOnly := new ReferencedInOnlyConstructor(value)
+    assert sourceInOnly.GetValue() == 23
+    assert referencedInOnly.GetValue() == 23
+}
+
 func AsyncMethodContainsGetResult(method: MethodInfo): bool {
     body := method.GetMethodBody()
     if body == null {

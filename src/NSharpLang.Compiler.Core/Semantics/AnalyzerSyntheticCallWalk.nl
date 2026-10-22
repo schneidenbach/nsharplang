@@ -189,6 +189,11 @@ class AnalyzerSyntheticCallWalk {
             return AnalyzerOverloadSpecificity.RightIsBetter
         }
 
+        leftParameterIndexByArgument: int[] = new int[0]
+        rightParameterIndexByArgument: int[] = new int[0]
+        TryGetScoringPlacement(left, call, argTypes, out leftParameterIndexByArgument)
+        TryGetScoringPlacement(right, call, argTypes, out rightParameterIndexByArgument)
+
         verdicts := new List<int>()
         index := 0
         while index < leftComparisons.Length && index < rightComparisons.Length {
@@ -226,6 +231,19 @@ class AnalyzerSyntheticCallWalk {
                 assignability.IsAssignable(rightExpected, leftExpected),
                 assignability.IsAssignable(leftExpected, rightExpected)
             ))
+
+            if currentIndex < call.Arguments.Count && TypeInfoIdentityFacts.AreEqual(leftExpected, rightExpected) {
+                leftParameterIndex := leftParameterIndexByArgument[currentIndex]
+                rightParameterIndex := rightParameterIndexByArgument[currentIndex]
+                directionPreference := AnalyzerOverloadFacts.CompareInputParameterPreference(
+                    AnalyzerOverloadFacts.SyntheticParameterModifier(left, leftParameterIndex),
+                    AnalyzerOverloadFacts.SyntheticParameterModifier(right, rightParameterIndex),
+                    call.Arguments[currentIndex].Modifier
+                )
+                if directionPreference != AnalyzerOverloadSpecificity.NeitherIsBetter {
+                    verdicts.Add(directionPreference)
+                }
+            }
         }
 
         // A receiver-style invocation supplies its receiver as argument zero for overload
@@ -384,6 +402,13 @@ class AnalyzerSyntheticCallWalk {
             parameterIndex := parameterIndexByArgument[currentArgument]
             if parameterIndex < 0 || parameterIndex >= expectedCount {
                 continue
+            }
+
+            if !AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(
+                AnalyzerOverloadFacts.SyntheticParameterModifier(functionType, parameterIndex),
+                call.Arguments[currentArgument].Modifier
+            ) {
+                return -1
             }
 
             comparison := binder.GetArgumentComparisonTypes(functionType, call, argTypes, currentArgument, parameterIndex, paramsParameterIndex, parameterStartIndex, genericBindings)

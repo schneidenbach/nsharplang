@@ -216,6 +216,27 @@ test "overload signature facts compare source parameter signatures" {
     assert AnalyzerOverloadSignatureFacts.HasDistinctParameterSignature(different, SigFactsFunctions1(first))
 }
 
+test "an in parameter has a distinct declaration signature from a by-value parameter" {
+    byValue := SigFactsFunctionWith1(new SimpleTypeReference("int"))
+    inParameter := SigFactsFunctionWith1(new SimpleTypeReference("int"))
+    inModifiers := new List<Ast.ParameterModifier>()
+    inModifiers.Add(Ast.ParameterModifier.In)
+    inParameter.ParameterModifiers = inModifiers
+
+    refParameter := SigFactsFunctionWith1(new SimpleTypeReference("int"))
+    refModifiers := new List<Ast.ParameterModifier>()
+    refModifiers.Add(Ast.ParameterModifier.Ref)
+    refParameter.ParameterModifiers = refModifiers
+
+    outParameter := SigFactsFunctionWith1(new SimpleTypeReference("int"))
+    outModifiers := new List<Ast.ParameterModifier>()
+    outModifiers.Add(Ast.ParameterModifier.Out)
+    outParameter.ParameterModifiers = outModifiers
+
+    assert !AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch(byValue, inParameter)
+    assert AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch(refParameter, outParameter)
+}
+
 // NOT IN THE DELETED FILE. An absent signature is not a match — not even against another absent
 // one — and an EMPTY signature is a real signature that matches itself.
 test "overload signature facts refuse to match an absent signature" {

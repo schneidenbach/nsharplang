@@ -938,7 +938,7 @@ class AnalyzerCallAnalysis {
             column := 0
             while column < count {
                 if row != column {
-                    comparisons[row * count + column] = CompareReflectionCandidates(candidates[row], candidates[column], parameterTypesByCandidate[row], parameterTypesByCandidate[column], openParameterTypesByCandidate[row], openParameterTypesByCandidate[column], argumentClrTypes, argumentTypeInfos, argumentIsAnonymousFunction)
+                    comparisons[row * count + column] = CompareReflectionCandidates(candidates[row], candidates[column], parameterTypesByCandidate[row], parameterTypesByCandidate[column], openParameterTypesByCandidate[row], openParameterTypesByCandidate[column], argumentClrTypes, argumentTypeInfos, argumentIsAnonymousFunction, state.Call)
                 }
 
                 column = column + 1
@@ -1233,7 +1233,7 @@ class AnalyzerCallAnalysis {
     // clause, reached here by the second. An argument that has no type for a different reason (an
     // anonymous object, which types as `unknown`) is NOT asked, because for it the parameter-type
     // comparison would be a guess dressed as a rule.
-    func CompareReflectionCandidates(left: ReflectionPreBoundCandidate, right: ReflectionPreBoundCandidate, leftParameterTypes: Type?[], rightParameterTypes: Type?[], leftOpenParameterTypes: Type?[], rightOpenParameterTypes: Type?[], argumentClrTypes: Type?[], argumentTypeInfos: TypeInfo?[], argumentIsAnonymousFunction: bool[]): int {
+    func CompareReflectionCandidates(left: ReflectionPreBoundCandidate, right: ReflectionPreBoundCandidate, leftParameterTypes: Type?[], rightParameterTypes: Type?[], leftOpenParameterTypes: Type?[], rightOpenParameterTypes: Type?[], argumentClrTypes: Type?[], argumentTypeInfos: TypeInfo?[], argumentIsAnonymousFunction: bool[], call: CallExpression? = null): int {
         if left.Score != right.Score {
             if left.Score > right.Score {
                 return AnalyzerOverloadSpecificity.LeftIsBetter
@@ -1314,6 +1314,18 @@ class AnalyzerCallAnalysis {
                 HasImplicitReflectionConversion(leftParameterType, rightParameterType),
                 HasImplicitReflectionConversion(rightParameterType, leftParameterType)
             ))
+
+            argumentIndex := currentIndex - 1
+            if call != null && argumentIndex >= 0 && argumentIndex < call.Arguments.Count && call.Arguments[argumentIndex].Modifier == ArgumentModifier.None && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(leftParameterType, rightParameterType) {
+                preference := AnalyzerOverloadFacts.CompareInputParameterPreference(
+                    ReflectionParameterModifierForArgument(left, argumentIndex),
+                    ReflectionParameterModifierForArgument(right, argumentIndex),
+                    call.Arguments[argumentIndex].Modifier
+                )
+                if preference != AnalyzerOverloadSpecificity.NeitherIsBetter {
+                    verdicts.Add(preference)
+                }
+            }
         }
 
         conversionVerdict := AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
@@ -1338,6 +1350,27 @@ class AnalyzerCallAnalysis {
             right.DefaultsUsed,
             AnalyzerOpenTypeSpecificity.CompareReflectionParameterLists(leftOpenParameterTypes, rightOpenParameterTypes)
         )
+    }
+
+    static func ReflectionParameterModifierForArgument(candidate: ReflectionPreBoundCandidate, argumentIndex: int): Ast.ParameterModifier {
+        parameters := candidate.SignatureMethod.GetParameters()
+        for boundArgument in candidate.BoundArguments {
+            supplied := boundArgument as SuppliedReflectionBoundArgument
+            if supplied != null && supplied.ArgumentIndex == argumentIndex && supplied.ParameterIndex >= 0 && supplied.ParameterIndex < parameters.Length {
+                return AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameters[supplied.ParameterIndex])
+            }
+
+            expanded := boundArgument as ParamsReflectionBoundArgument
+            if expanded != null {
+                for element in expanded.Arguments {
+                    if element.ArgumentIndex == argumentIndex && element.ParameterIndex >= 0 && element.ParameterIndex < parameters.Length {
+                        return AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameters[element.ParameterIndex])
+                    }
+                }
+            }
+        }
+
+        return Ast.ParameterModifier.None
     }
 
     // A MEMBER DECLARED ON A MORE DERIVED TYPE HIDES THE ONE IT SHADOWS (§12.6.4.4), and the two are

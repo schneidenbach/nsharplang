@@ -3388,8 +3388,11 @@ position.
 its construction state. Required-member analysis consumes that identity directly when it checks
 `[SetsRequiredMembers]`; it does not rescan constructors by arity. This matters when same-arity
 overloads differ by reference or numeric specificity, named placement, defaults, `params`, or
-`ref`/`out`: only the constructor ordinary overload resolution selected may exempt the creation.
-An unknown argument suppresses the exemption and does not add a secondary ambiguity diagnostic.
+`ref`/`out`/`in`: only the constructor ordinary overload resolution selected may exempt the creation.
+The shared synthetic-call binder applies the same argument-modifier applicability and better-member
+rules to constructors and methods. A bare argument can bind to `in`, with a matching by-value
+parameter preferred; an explicit `in` argument selects an `in` parameter. An unknown argument
+suppresses the exemption and does not add a secondary ambiguity diagnostic.
 
 An `init` setter is identified in CLR metadata by `modreq(IsExternalInit)` on its return position.
 Reflection.Emit drops custom modifiers when it creates a `MemberRef` for a method on a constructed

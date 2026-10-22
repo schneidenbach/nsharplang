@@ -340,7 +340,6 @@ class AnalyzerReflectionArgumentBinder {
 
         expectsByRef := !expectsParamsElement && IsWrittenThroughParameter(parameter)
         argumentModifier := supplied.Argument.Modifier
-        suppliedByRef := argumentModifier == ArgumentModifier.Ref || argumentModifier == ArgumentModifier.Out
         if !expectsParamsElement && ReflectedParameterDirection.IsReadOnlyReference(parameter) {
             // A READ-ONLY REFERENCE: `in` takes its argument bare or spelled `in`, as a source `in`
             // does; `ref readonly` asks for a location, spelled `ref` or `in`. Neither takes `out`.
@@ -351,7 +350,10 @@ class AnalyzerReflectionArgumentBinder {
             } else if argumentModifier == ArgumentModifier.Out || argumentModifier == ArgumentModifier.Ref {
                 return false
             }
-        } else if argumentModifier == ArgumentModifier.In || expectsByRef != suppliedByRef {
+        } else if !expectsParamsElement && !AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(
+            AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameter),
+            argumentModifier
+        ) {
             return false
         }
 

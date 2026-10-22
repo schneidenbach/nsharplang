@@ -418,10 +418,30 @@ Three rules follow from "read-only":
 - **It may not be captured** by a lambda or a local function, for the reason every by-reference
   parameter cannot be: the closure outlives the frame the reference points into.
 
-`in` is not interchangeable with `ref` or `out` at a call site, in either direction. `ref` and `out`
-must be written; writing `ref` where the parameter is `in` is refused, and omitting the word where the
-parameter is `ref` is refused too. What `in` adds is that *omitting* it is fine — there is nothing for
-the word to warn a reader about, because the callee cannot change what they passed.
+`in` is not interchangeable with `out`, and it does not make a `ref` parameter optional: `ref` and
+`out` must be written, and omitting either is refused. A `ref` argument can also bind to an `in`
+parameter; the callee still sees it as read-only. What `in` adds is that *omitting* it is fine — there
+is nothing for the word to warn a reader about, because the callee cannot change what they passed.
+
+When a call omits the modifier and both `Pick(value: T)` and `Pick(in value: T)` apply, the by-value
+overload is better. Writing `in` selects the `in` overload and does not apply to a by-value parameter.
+Constructors follow the same applicability and better-member rules as methods:
+
+```n#
+class Choice {
+    constructor(value: int) { }
+    constructor(in value: int) { }
+}
+
+func Pick(value: int): int { return 1 }
+func Pick(in value: int): int { return 2 }
+
+value := 7
+byValue := new Choice(value)    // constructor(value: int)
+byIn := new Choice(in value)    // constructor(in value: int)
+ordinary := Pick(value)         // Pick(value: int)
+explicit := Pick(in value)      // Pick(in value: int)
+```
 
 In CLR metadata an `in` parameter is `&T` carrying `ParameterAttributes.In` and
 `[IsReadOnlyAttribute]` — exactly what C# writes, so C# and F# consumers see an `in` parameter and not
@@ -2565,6 +2585,11 @@ Only when the conversions cannot separate two candidates do the remaining rules 
 **non-generic** signature beats a generic one whose supplied parameter types are identical after
 substitution, a call in **normal form** beats one that had to expand a `params` tail, and an exact-arity
 candidate beats one that needs optional parameters filled.
+
+For an unmodified argument, otherwise-identical by-value and `in` parameters are separated by a
+by-value preference. An explicit `in` argument is applicable to an `in` parameter; it is not
+applicable to a by-value parameter. The same rules select constructors and methods, for source types
+and referenced types.
 
 For example, given `Pick(value: string)` and `Pick(value: string, suffix: string = "")`,
 `Pick("x")` selects the exact-arity overload because the supplied conversions tie and only the other

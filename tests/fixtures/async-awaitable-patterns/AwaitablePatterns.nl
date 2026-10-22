@@ -4,6 +4,42 @@ import System
 import System.Runtime.CompilerServices
 import System.Threading.Tasks
 
+class ReferencedInOverloadShapes {
+    ConstructorChoice: int
+
+    constructor(value: int) {
+        this.ConstructorChoice = value + 100
+    }
+
+    constructor(in value: int) {
+        this.ConstructorChoice = value + 200
+    }
+
+    func GetConstructorChoice(): int {
+        return this.ConstructorChoice
+    }
+
+    func Pick(value: int): int {
+        return value + 300
+    }
+
+    func Pick(in value: int): int {
+        return value + 400
+    }
+}
+
+class ReferencedInOnlyConstructor {
+    Value: int
+
+    constructor(in value: int) {
+        this.Value = value
+    }
+
+    func GetValue(): int {
+        return this.Value
+    }
+}
+
 class ReflectedLongBox {
     constructor(value: long) {
         if value != 1 {

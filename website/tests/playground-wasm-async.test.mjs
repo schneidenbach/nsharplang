@@ -55,6 +55,53 @@ test('the WebAssembly playground executes async awaiter shapes with runtime sema
 
     const cases = [
       {
+        name: 'source and referenced constructors and methods share in overload resolution',
+        source: `import NSharpLang.AsyncAwaitablePatternFixtures
+
+class SourceInOverloadShapes {
+    ConstructorChoice: int
+
+    constructor(value: int) { this.ConstructorChoice = value + 100 }
+    constructor(in value: int) { this.ConstructorChoice = value + 200 }
+
+    func GetConstructorChoice(): int { return this.ConstructorChoice }
+
+    func Pick(value: int): int { return value + 300 }
+    func Pick(in value: int): int { return value + 400 }
+}
+
+class SourceInOnlyConstructor {
+    Value: int
+    constructor(in value: int) { this.Value = value }
+    func GetValue(): int { return this.Value }
+}
+
+func main() {
+    value := 23
+
+    sourceByValue := new SourceInOverloadShapes(value)
+    sourceByIn := new SourceInOverloadShapes(in value)
+    print sourceByValue.GetConstructorChoice()
+    print sourceByIn.GetConstructorChoice()
+    print sourceByValue.Pick(value)
+    print sourceByIn.Pick(in value)
+
+    referencedByValue := new ReferencedInOverloadShapes(value)
+    referencedByIn := new ReferencedInOverloadShapes(in value)
+    print referencedByValue.GetConstructorChoice()
+    print referencedByIn.GetConstructorChoice()
+    print referencedByValue.Pick(value)
+    print referencedByIn.Pick(in value)
+
+    sourceInOnly := new SourceInOnlyConstructor(value)
+    referencedInOnly := new ReferencedInOnlyConstructor(value)
+    print sourceInOnly.GetValue()
+    print referencedInOnly.GetValue()
+}
+`,
+        stdout: '123\n223\n323\n423\n123\n223\n323\n423\n23\n23\n',
+      },
+      {
         name: 'non-async main executes the documented error-capture deconstruction form',
         source: `import System
 

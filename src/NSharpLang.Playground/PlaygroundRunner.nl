@@ -300,6 +300,11 @@ internal sealed class PlaygroundRunner {
     async func EvaluateAsync(expression: Expression, environment: RuntimeEnvironment, depth: int): Task<object?> {
         Step(expression)
 
+        thisExpression := expression as ThisExpression
+        if thisExpression != null {
+            return ResolveIdentifier(PlaygroundRunFacts.ReceiverBindingName(), environment)
+        }
+
         awaited := expression as AwaitExpression
         if awaited != null {
             try {
@@ -425,7 +430,7 @@ internal sealed class PlaygroundRunner {
                 }
                 i += 1
             }
-            created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel, environment)
+            created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel, environment, depth)
             if newExpression.Initializer != null {
                 await ApplyAsyncInitializer(created, newExpression.Initializer, environment, depth)
             }
@@ -546,6 +551,11 @@ internal sealed class PlaygroundRunner {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("ConfigureAwait has no analyzer-selected invocation binding"))
             }
             return InvokeBoundConfigureAwait(selectedBinding, target, arguments, depth)
+        }
+        selectedBinding: AnalyzerInvocationBinding? = null
+        semanticModel := environment.SemanticModel
+        if semanticModel != null && semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) && selectedBinding != null {
+            return InvokeBoundInvocation(selectedBinding, target, arguments, depth)
         }
         runtimeObject := target as RuntimeObject
         if runtimeObject != null {
@@ -1630,6 +1640,11 @@ internal sealed class PlaygroundRunner {
     private func Evaluate(expression: Expression, environment: RuntimeEnvironment, depth: int): object? {
         Step(expression)
 
+        thisExpression := expression as ThisExpression
+        if thisExpression != null {
+            return ResolveIdentifier(PlaygroundRunFacts.ReceiverBindingName(), environment)
+        }
+
         literal := expression as IntLiteralExpression
         if literal != null {
             return int.Parse(literal.Value)
@@ -1908,7 +1923,7 @@ internal sealed class PlaygroundRunner {
         }
         member := call.Callee as MemberAccessExpression
         if member != null {
-            return CallMember(member, arguments, environment, depth)
+            return CallMember(member, arguments, environment, depth, call)
         }
         throw Unsupported(PlaygroundRunFacts.UnsupportedCallee())
     }
@@ -1921,8 +1936,13 @@ internal sealed class PlaygroundRunner {
         throw Unsupported(PlaygroundRunFacts.UnknownFunction(name))
     }
 
-    private func CallMember(member: MemberAccessExpression, arguments: IReadOnlyList<object?>, environment: RuntimeEnvironment, depth: int): object? {
+    private func CallMember(member: MemberAccessExpression, arguments: IReadOnlyList<object?>, environment: RuntimeEnvironment, depth: int, call: CallExpression): object? {
         target := Evaluate(member.Object, environment, depth)
+        selectedBinding: AnalyzerInvocationBinding? = null
+        semanticModel := environment.SemanticModel
+        if semanticModel != null && semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) && selectedBinding != null {
+            return InvokeBoundInvocation(selectedBinding, target, arguments, depth)
+        }
         runtimeObject := target as RuntimeObject
         if runtimeObject != null {
             method := FindMethod(runtimeObject.Declaration, member.MemberName, arguments.Count, false)
@@ -1940,6 +1960,59 @@ internal sealed class PlaygroundRunner {
             return InvokeFunction(method, arguments, null, depth)
         }
         return CallClrLikeMember(target, member.MemberName, arguments)
+    }
+
+    private func InvokeBoundInvocation(binding: AnalyzerInvocationBinding, target: object?, arguments: IReadOnlyList<object?>, depth: int): object? {
+        if binding == null || arguments == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected invocation could not be executed"))
+        }
+        runtimeArguments := new object?[](arguments.Count)
+        index := 0
+        while index < arguments.Count {
+            runtimeArguments[index] = arguments[index]
+            index += 1
+        }
+
+        sourceFunctionType := binding.SourceFunction
+        if sourceFunctionType != null {
+            function := sourceFunctionType.SourceDeclaration
+            if function == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected source method has no declaration"))
+            }
+            invocationArguments := binding.IsExtension ? PrependRuntimeArgument(target, runtimeArguments) : runtimeArguments
+            receiver := binding.IsExtension ? null : target as RuntimeObject
+            if !binding.IsExtension && !sourceFunctionType.SourceIsStatic && receiver == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected source method has no runtime receiver"))
+            }
+            if AnalyzerAmbientContext.HasModifier(function, Modifiers.Async) {
+                return InvokeAsyncFunctionValue(function, invocationArguments, receiver, depth)
+            }
+            return InvokeFunction(function, invocationArguments, receiver, depth)
+        }
+
+        selectedMethod := binding.ReflectedMethod
+        if selectedMethod == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected reflected method is unavailable"))
+        }
+        runtimeMethod: MethodInfo? = null
+        invocationReceiver: object? = target
+        invocationArguments := runtimeArguments
+        if binding.IsExtension {
+            runtimeMethod = SelectedRuntimeClosedExtensionMethodFor(selectedMethod)
+            invocationReceiver = null
+            invocationArguments = PrependRuntimeArgument(target, runtimeArguments)
+        } else if target != null {
+            runtimeMethod = SelectedRuntimeMethodFor(selectedMethod, target.GetType())
+        }
+        if runtimeMethod == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected method has no runtime metadata match"))
+        }
+        try {
+            return runtimeMethod.Invoke(invocationReceiver, invocationArguments)
+        } catch invocationFailure: TargetInvocationException {
+            RethrowInvocationFailure(invocationFailure)
+        }
+        return null
     }
 
     private static func CallClrLikeMember(target: object?, memberName: string, arguments: IReadOnlyList<object?>): object? {
@@ -2212,7 +2285,7 @@ internal sealed class PlaygroundRunner {
             }
             i = i + 1
         }
-        created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel, environment)
+        created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel, environment, depth)
         if newExpression.Initializer != null {
             runtimeObject := created as RuntimeObject
             if runtimeObject == null {
@@ -2223,7 +2296,7 @@ internal sealed class PlaygroundRunner {
         return created
     }
 
-    private func EvaluateNewWithArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?, environment: RuntimeEnvironment): object {
+    private func EvaluateNewWithArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?, environment: RuntimeEnvironment, depth: int): object {
         typeName := GetTypeName(newExpression.Type)
         if typeName == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
@@ -2280,8 +2353,127 @@ internal sealed class PlaygroundRunner {
         typeNamespaces.TryGetValue(typeName, out namespaceName)
         constructionBinding := ConstructionBindingAt(newExpression.Line, newExpression.Column, semanticModel)
         runtimeObject := new RuntimeObject(declaration, new RuntimeEnvironment(null), namespaceName, constructionBinding)
-        ApplyPrimaryConstructorArguments(runtimeObject, arguments)
+        if constructionBinding != null {
+            sourceConstructor := constructionBinding.SourceConstructor as ConstructorDeclaration
+            if sourceConstructor != null {
+                constructorArguments: object?[] = null
+                failureReason := "analyzer-bound source constructor arguments could not be materialized"
+                if !BuildBoundSourceConstructorArguments(constructionBinding, newExpression, arguments, out constructorArguments, out failureReason) || constructorArguments == null {
+                    throw Unsupported(PlaygroundRunFacts.UnsupportedExpression(failureReason))
+                }
+                InvokeSourceConstructor(sourceConstructor, constructorArguments, runtimeObject, semanticModel, depth)
+            } else {
+                ApplyPrimaryConstructorArguments(runtimeObject, arguments)
+            }
+        } else {
+            ApplyPrimaryConstructorArguments(runtimeObject, arguments)
+        }
         return runtimeObject
+    }
+
+    private func BuildBoundSourceConstructorArguments(binding: AnalyzerConstructionBinding, newExpression: NewExpression, arguments: IReadOnlyList<object?>, out invocationArguments: object?[], out failureReason: string): bool {
+        invocationArguments = null
+        failureReason = "analyzer-bound source constructor arguments could not be materialized"
+        if binding == null || newExpression == null || arguments == null || binding.ParameterCount < 0 {
+            return false
+        }
+        sourceConstructor := binding.SourceConstructor as ConstructorDeclaration
+        if sourceConstructor == null || sourceConstructor.Parameters.Count != binding.ParameterCount {
+            failureReason = "the analyzer-selected source constructor has an unsupported parameter shape"
+            return false
+        }
+
+        values := new object?[](binding.ParameterCount)
+        assigned := new bool[](binding.ParameterCount)
+        for bound in binding.ArgumentBindings {
+            if bound.ParameterIndex < 0 || bound.ParameterIndex >= binding.ParameterCount {
+                failureReason = "analyzer-bound source constructor argument refers to an invalid parameter slot"
+                return false
+            }
+            if bound.Kind == 2 {
+                values[bound.ParameterIndex] = bound.DefaultValue
+                assigned[bound.ParameterIndex] = true
+                continue
+            }
+            if bound.Kind == 1 {
+                arrayType: Type = null
+                elementType: Type = null
+                if !TryResolvePlaygroundConstructorValueType(bound.ParameterType, out arrayType) || !arrayType.IsArray || !TryResolvePlaygroundConstructorValueType(bound.ConversionType, out elementType) {
+                    failureReason = "the analyzer-selected source params parameter is unavailable in the playground runtime"
+                    return false
+                }
+                array := values[bound.ParameterIndex] as Array
+                if array == null {
+                    array = Array.CreateInstance(elementType, 0)
+                    values[bound.ParameterIndex] = array
+                }
+                if bound.ArgumentIndex >= 0 {
+                    if bound.ArgumentIndex >= arguments.Count {
+                        failureReason = "an analyzer-bound expanded source argument index is outside the evaluated arguments"
+                        return false
+                    }
+                    converted: object? = null
+                    if !ConvertBoundConstructorArgument(arguments[bound.ArgumentIndex], elementType, out converted) {
+                        failureReason = "an expanded source constructor argument could not be converted to the selected params element type"
+                        return false
+                    }
+                    resized := Array.CreateInstance(elementType, array.Length + 1)
+                    index := 0
+                    while index < array.Length {
+                        resized.SetValue(array.GetValue(index), index)
+                        index += 1
+                    }
+                    resized.SetValue(converted, array.Length)
+                    values[bound.ParameterIndex] = resized
+                }
+                assigned[bound.ParameterIndex] = true
+                continue
+            }
+            if bound.ArgumentIndex < 0 || bound.ArgumentIndex >= arguments.Count || bound.ArgumentIndex >= newExpression.ConstructorArguments.Count {
+                failureReason = "analyzer-bound source constructor argument has no evaluated source value"
+                return false
+            }
+            targetType: Type = null
+            if !TryResolvePlaygroundConstructorValueType(bound.ConversionType, out targetType) {
+                failureReason = "the analyzer-selected source constructor conversion type is unavailable in the playground runtime"
+                return false
+            }
+            converted: object? = null
+            if !ConvertBoundConstructorArgument(arguments[bound.ArgumentIndex], targetType, out converted) {
+                failureReason = "a source constructor argument could not be converted to its analyzer-selected parameter type"
+                return false
+            }
+            values[bound.ParameterIndex] = converted
+            assigned[bound.ParameterIndex] = true
+        }
+
+        index := 0
+        while index < binding.ParameterCount {
+            if !assigned[index] {
+                failureReason = "the analyzer-bound source constructor omitted a required parameter value"
+                return false
+            }
+            index += 1
+        }
+        invocationArguments = values
+        return true
+    }
+
+    private func InvokeSourceConstructor(constructor: ConstructorDeclaration, arguments: IReadOnlyList<object?>, receiver: RuntimeObject, semanticModel: SemanticModel?, depth: int) {
+        if constructor == null || receiver == null || arguments == null || constructor.Parameters.Count != arguments.Count {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedConstructorArguments())
+        }
+        environment := new RuntimeEnvironment(receiver.Environment)
+        if semanticModel != null {
+            environment.SetSemanticModel(semanticModel)
+        }
+        environment.Declare(PlaygroundRunFacts.ReceiverBindingName(), receiver)
+        index := 0
+        while index < constructor.Parameters.Count {
+            environment.Declare(constructor.Parameters[index].Name, arguments[index])
+            index += 1
+        }
+        ExecuteBlock(constructor.Body, environment, depth + 1)
     }
 
     private func TryCreateReflectedObject(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?, environment: RuntimeEnvironment): object? {

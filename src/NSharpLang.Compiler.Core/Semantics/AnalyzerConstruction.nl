@@ -486,7 +486,7 @@ class AnalyzerConstruction {
             }
         }
 
-        sourceConstructor := state.SelectedSourceConstructor == null ? null : state.SelectedSourceConstructor.SourceDeclaration
+        sourceConstructor := state.SelectedSourceConstructor == null ? null : state.SelectedSourceConstructor.SourceConstructor
         interfaceMap := new List<AnalyzerInterfaceSlotImplementation>()
         sourceDefinition := declarationContextValue.ResolveDeclaredAlias(state.ConstructedType)
         constructedSource := sourceDefinition as GenericTypeInfo
@@ -1649,19 +1649,7 @@ class AnalyzerConstruction {
         }
 
         argument := node.ConstructorArguments[state.ArgIndex]
-        selectedArgumentType := argumentType
-        // `in` binds the value type for overload comparison, just like an omitted `in` modifier on
-        // an ordinary call. Its storage location remains on the syntax argument and is consumed by
-        // the selected constructor binding when the playground materializes the reflected call.
-        // `ref` and `out` require by-ref argument identity during overload selection.
-        if (argument.Modifier == ArgumentModifier.Ref || argument.Modifier == ArgumentModifier.Out) && !BuiltInTypes.IsUnknown(selectedArgumentType) {
-            existingByRef := selectedArgumentType as ByRefTypeInfo
-            if existingByRef != null {
-                selectedArgumentType = existingByRef.InnerType
-            }
-            selectedArgumentType = new ByRefTypeInfo(selectedArgumentType, argument.Modifier == ArgumentModifier.Out)
-        }
-        state.ConstructorArgumentTypes.Add(selectedArgumentType)
+        state.ConstructorArgumentTypes.Add(argumentType)
         state.ArgIndex = state.ArgIndex + 1
         state.Phase = 0
         soaEscapeValue.ReportSoaRowEscapeIfNeeded(argument.Value, argumentType, "passed as a constructor argument")

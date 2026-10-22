@@ -786,6 +786,41 @@ test "a ref or out source parameter carries a by-ref type, idempotently" {
     assert Object.ReferenceEquals(outside, intType)
 }
 
+test "synthetic input directions share applicability and argument-value shaping" {
+    intType: TypeInfo = BuiltInTypes.Int
+    inSignature := OverloadSignature(OverloadTypeList(BuiltInTypes.Int))
+    inModifiers := new List<Ast.ParameterModifier>()
+    inModifiers.Add(Ast.ParameterModifier.In)
+    inSignature.ParameterModifiers = inModifiers
+
+    refSignature := OverloadSignature(OverloadTypeList(BuiltInTypes.Int))
+    refModifiers := new List<Ast.ParameterModifier>()
+    refModifiers.Add(Ast.ParameterModifier.Ref)
+    refSignature.ParameterModifiers = refModifiers
+
+    assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.In, ArgumentModifier.None)
+    assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.In, ArgumentModifier.In)
+    assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.In, ArgumentModifier.Ref)
+    assert !AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.None, ArgumentModifier.In)
+    assert !AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.Ref, ArgumentModifier.In)
+    assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.Ref, ArgumentModifier.Ref)
+    assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.Out, ArgumentModifier.Out)
+    assert AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(Ast.ParameterModifier.Params, ArgumentModifier.None)
+
+    assert AnalyzerOverloadFacts.CompareInputParameterPreference(Ast.ParameterModifier.In, Ast.ParameterModifier.None, ArgumentModifier.None) == AnalyzerOverloadSpecificity.RightIsBetter
+    assert AnalyzerOverloadFacts.CompareInputParameterPreference(Ast.ParameterModifier.None, Ast.ParameterModifier.In, ArgumentModifier.None) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert AnalyzerOverloadFacts.CompareInputParameterPreference(Ast.ParameterModifier.In, Ast.ParameterModifier.None, ArgumentModifier.In) == AnalyzerOverloadSpecificity.NeitherIsBetter
+
+    inExpected := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(inSignature, 0, intType)
+    assert Object.ReferenceEquals(inExpected, intType)
+    refExpected := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(refSignature, 0, intType) as ByRefTypeInfo
+    assert refExpected != null
+    assert Object.ReferenceEquals(AnalyzerOverloadFacts.ApplySyntheticArgumentModifier(ArgumentModifier.In, intType), intType)
+    refArgument := AnalyzerOverloadFacts.ApplySyntheticArgumentModifier(ArgumentModifier.Ref, intType) as ByRefTypeInfo
+    assert refArgument != null
+    assert Object.ReferenceEquals(AnalyzerOverloadFacts.ApplySyntheticArgumentModifier(ArgumentModifier.None, intType), intType)
+}
+
 test "generic names match across qualification in either direction" {
     assert AnalyzerOverloadFacts.GenericNamesMatch("List", "List")
     assert AnalyzerOverloadFacts.GenericNamesMatch("List", "System.Collections.Generic.List")
