@@ -1979,15 +1979,26 @@ internal sealed class PlaygroundRunner {
             if function == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected source method has no declaration"))
             }
+            executionFunction := function
+            executionReceiver := target as RuntimeObject
+            // An interface call binds to its declared slot, while the runtime receiver supplies
+            // that slot's source implementation. Keep the analyzer's selected slot, then dispatch
+            // it on the concrete source object the same way a CLR callvirt does.
+            if !binding.IsExtension && executionReceiver != null && function.Body == null {
+                implementation := FindMethod(executionReceiver.Declaration, function.Name, function.Parameters.Count, false)
+                if implementation != null && implementation.Body != null {
+                    executionFunction = implementation
+                }
+            }
             invocationArguments := binding.IsExtension ? PrependRuntimeArgument(target, runtimeArguments) : runtimeArguments
-            receiver := binding.IsExtension ? null : target as RuntimeObject
+            receiver := binding.IsExtension ? null : executionReceiver
             if !binding.IsExtension && !sourceFunctionType.SourceIsStatic && receiver == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected source method has no runtime receiver"))
             }
-            if AnalyzerAmbientContext.HasModifier(function, Modifiers.Async) {
-                return InvokeAsyncFunctionValue(function, invocationArguments, receiver, depth)
+            if AnalyzerAmbientContext.HasModifier(executionFunction, Modifiers.Async) {
+                return InvokeAsyncFunctionValue(executionFunction, invocationArguments, receiver, depth)
             }
-            return InvokeFunction(function, invocationArguments, receiver, depth)
+            return InvokeFunction(executionFunction, invocationArguments, receiver, depth)
         }
 
         selectedMethod := binding.ReflectedMethod
