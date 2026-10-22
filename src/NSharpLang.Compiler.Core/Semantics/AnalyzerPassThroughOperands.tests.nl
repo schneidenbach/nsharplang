@@ -118,9 +118,17 @@ class OperandIncompleteAwaiter {
 }
 
 class OperandOptionalPatternAwaiter: INotifyCompletion {
-    IsCompleted: bool { get { return true } }
-    func GetResult(): int { return 1 }
-    func OnCompleted(continuation: Action) { continuation() }
+    IsCompleted: bool {
+        get {
+            return true
+        }
+    }
+    func GetResult(): int {
+        return 1
+    }
+    func OnCompleted(continuation: Action) {
+        continuation()
+    }
 }
 
 class OperandOptionalGetAwaiterAwaitable {
@@ -136,9 +144,17 @@ class OperandParamsGetAwaiterAwaitable {
 }
 
 class OperandOptionalGetResultAwaiter: INotifyCompletion {
-    IsCompleted: bool { get { return true } }
-    func GetResult(fallback: int = 0): int { return fallback }
-    func OnCompleted(continuation: Action) { continuation() }
+    IsCompleted: bool {
+        get {
+            return true
+        }
+    }
+    func GetResult(fallback: int = 0): int {
+        return fallback
+    }
+    func OnCompleted(continuation: Action) {
+        continuation()
+    }
 }
 
 class OperandOptionalGetResultAwaitable {
@@ -148,9 +164,17 @@ class OperandOptionalGetResultAwaitable {
 }
 
 class OperandParamsGetResultAwaiter: INotifyCompletion {
-    IsCompleted: bool { get { return true } }
-    func GetResult(params ignored: int[]): int { return ignored.Length }
-    func OnCompleted(continuation: Action) { continuation() }
+    IsCompleted: bool {
+        get {
+            return true
+        }
+    }
+    func GetResult(params ignored: int[]): int {
+        return ignored.Length
+    }
+    func OnCompleted(continuation: Action) {
+        continuation()
+    }
 }
 
 class OperandParamsGetResultAwaitable {
@@ -159,9 +183,11 @@ class OperandParamsGetResultAwaitable {
     }
 }
 
-class OperandOptionalExtensionGetAwaiterAwaitable {}
+class OperandOptionalExtensionGetAwaiterAwaitable {
+}
 
-class OperandParamsExtensionGetAwaiterAwaitable {}
+class OperandParamsExtensionGetAwaiterAwaitable {
+}
 
 func GetAwaiter(this value: OperandOptionalExtensionGetAwaiterAwaitable, fallback: int = 0): OperandOptionalPatternAwaiter {
     return new OperandOptionalPatternAwaiter()
