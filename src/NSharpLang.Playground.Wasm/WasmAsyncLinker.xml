@@ -21,12 +21,12 @@
   </assembly>
   <assembly fullname="NSharpLang.Playground">
     <type fullname="NSharpLang.Playground.PlaygroundRunner" preserve="nothing">
-      <nested-type name="RuntimeTaskRunCallback" preserve="nothing">
-        <method name="InvokeAction" />
-        <method name="InvokeResult" />
-        <method name="InvokeTask" />
-        <method name="InvokeTaskResult" />
-      </nested-type>
+    </type>
+    <type fullname="NSharpLang.Playground.RuntimeTaskRunCallback" preserve="nothing">
+      <method name="InvokeAction" />
+      <method name="InvokeResult" />
+      <method name="InvokeTask" />
+      <method name="InvokeTaskResult" />
     </type>
     <type fullname="NSharpLang.Playground.PlaygroundTaskCompletionSignal" preserve="nothing">
       <method name="Signal" />
@@ -34,7 +34,7 @@
     <type fullname="NSharpLang.Playground.PlaygroundAwaiterCompletionSignal" preserve="nothing">
       <method name="Signal" />
     </type>
-    <type fullname="NSharpLang.Playground.RuntimeTaskRunResultSignal`1" preserve="nothing">
+    <type fullname="NSharpLang.Playground.RuntimeTaskRunResultSignal" preserve="nothing">
       <method name="Signal" />
     </type>
   </assembly>

@@ -2421,7 +2421,7 @@ internal sealed class PlaygroundRunner {
     func TaskRunCallableTaskResult<T>(callback: object, depth: int): Task<T> {
         task := TaskRunCallableTask(callback, depth)
         completion := new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously)
-        signal := new RuntimeTaskRunResultSignal<T>(task, completion)
+        signal := new RuntimeTaskRunResultSignal(task, completion, typeof(T))
         signal.Start()
         taskProperty := completion.GetType().GetProperty("Task", BindingFlags.Public | BindingFlags.Instance)
         if taskProperty == null {
@@ -3728,34 +3728,6 @@ internal sealed class PlaygroundRunner {
     private sealed record RuntimeLambda(Declaration: LambdaExpression, Closure: RuntimeEnvironment) {
     }
 
-    private sealed class RuntimeTaskRunCallback {
-        Owner: PlaygroundRunner
-        Callback: object
-        Depth: int
-
-        constructor(owner: PlaygroundRunner, callback: object, depth: int) {
-            Owner = owner
-            Callback = callback
-            Depth = depth
-        }
-
-        func InvokeAction(): void {
-            Owner.InvokeTaskRunCallable(Callback, Depth)
-        }
-
-        func InvokeResult<T>(): T {
-            return (T)Owner.InvokeTaskRunCallable(Callback, Depth)
-        }
-
-        func InvokeTask(): Task {
-            return Owner.TaskRunCallableTask(Callback, Depth)
-        }
-
-        func InvokeTaskResult<T>(): Task<T> {
-            return Owner.TaskRunCallableTaskResult<T>(Callback, Depth)
-        }
-    }
-
     private sealed class RuntimeConfiguredTaskAwaitable {
         Task: Task
         ContinueOnCapturedContext: bool
@@ -3845,6 +3817,34 @@ internal sealed class PlaygroundRunner {
     }
 }
 
+internal sealed class RuntimeTaskRunCallback {
+    Owner: PlaygroundRunner
+    Callback: object
+    Depth: int
+
+    constructor(owner: PlaygroundRunner, callback: object, depth: int) {
+        Owner = owner
+        Callback = callback
+        Depth = depth
+    }
+
+    func InvokeAction(): void {
+        Owner.InvokeTaskRunCallable(Callback, Depth)
+    }
+
+    func InvokeResult<T>(): T {
+        return (T)Owner.InvokeTaskRunCallable(Callback, Depth)
+    }
+
+    func InvokeTask(): Task {
+        return Owner.TaskRunCallableTask(Callback, Depth)
+    }
+
+    func InvokeTaskResult<T>(): Task<T> {
+        return Owner.TaskRunCallableTaskResult<T>(Callback, Depth)
+    }
+}
+
 internal sealed class PlaygroundAwaiterCompletionSignal {
     Completion: TaskCompletionSource<object?>
 
@@ -3910,59 +3910,98 @@ internal sealed class PlaygroundTaskCompletionSignal {
     }
 }
 
-internal sealed class RuntimeTaskRunResultSignal<T> {
+internal sealed class RuntimeTaskRunResultSignal {
     Source: Task
-    Completion: TaskCompletionSource<T>
+    Completion: object
+    ResultType: Type
 
-    constructor(source: Task, completion: TaskCompletionSource<T>) {
+    constructor(source: Task, completion: object, resultType: Type) {
         Source = source
         Completion = completion
+        ResultType = resultType
     }
 
     func Start(): void {
-        method := typeof(RuntimeTaskRunResultSignal<T>).GetMethod("Signal", BindingFlags.Public | BindingFlags.Instance)
+        callback := RuntimeTaskRunResultSignal.CreateAction(this)
+        Source.GetAwaiter().UnsafeOnCompleted(callback)
+    }
+
+    static func CreateAction(signal: RuntimeTaskRunResultSignal): Action {
+        method := typeof(RuntimeTaskRunResultSignal).GetMethod("Signal", BindingFlags.Public | BindingFlags.Instance)
         if method == null {
             throw new InvalidOperationException("The Task.Run result continuation signal method is missing.")
         }
-        callback := Delegate.CreateDelegate(typeof(Action), this, method) as Action
+        callback := Delegate.CreateDelegate(typeof(Action), signal, method) as Action
         if callback == null {
             throw new InvalidOperationException("The Task.Run result continuation could not be bound to Action.")
         }
-        Source.GetAwaiter().UnsafeOnCompleted(callback)
+        return callback
     }
 
     func Signal(): void {
         if !Source.IsCompleted {
-            Completion.TrySetException(new InvalidOperationException("The Task.Run result continuation ran before its source task completed."))
+            CompleteException(new InvalidOperationException("The Task.Run result continuation ran before its source task completed."))
             return
         }
         if Source.IsCanceled {
-            Completion.TrySetCanceled()
+            CompleteCanceled()
             return
         }
         if Source.IsFaulted {
             failure := Source.Exception
             if failure == null {
-                Completion.TrySetException(new InvalidOperationException("The Task.Run source task faulted without an exception."))
+                CompleteException(new InvalidOperationException("The Task.Run source task faulted without an exception."))
                 return
             }
             if failure.InnerException != null {
-                Completion.TrySetException(failure.InnerException)
+                CompleteException(failure.InnerException)
                 return
             }
-            Completion.TrySetException(failure)
+            CompleteException(failure)
             return
         }
         try {
             resultProperty := Source.GetType().GetProperty("Result", BindingFlags.Public | BindingFlags.Instance)
             if resultProperty == null || resultProperty.GetIndexParameters().Length != 0 {
-                Completion.TrySetException(new InvalidOperationException("The selected Task.Run(Func<Task<TResult>>) callable returned a task without a result."))
+                CompleteException(new InvalidOperationException("The selected Task.Run(Func<Task<TResult>>) callable returned a task without a result."))
                 return
             }
-            Completion.TrySetResult((T)resultProperty.GetValue(Source))
+            CompleteResult(resultProperty.GetValue(Source))
         } catch failure: Exception {
-            Completion.TrySetException(failure)
+            CompleteException(failure)
         }
+    }
+
+    private func CompleteResult(value: object?): void {
+        parameterTypes := new Type[](1)
+        parameterTypes[0] = ResultType
+        method := Completion.GetType().GetMethod("TrySetResult", BindingFlags.Public | BindingFlags.Instance, null, parameterTypes, null)
+        if method == null {
+            throw new InvalidOperationException("The Task.Run result completion method is missing.")
+        }
+        arguments := new object?[](1)
+        arguments[0] = value
+        method.Invoke(Completion, arguments)
+    }
+
+    private func CompleteException(failure: Exception): void {
+        parameterTypes := new Type[](1)
+        parameterTypes[0] = typeof(Exception)
+        method := Completion.GetType().GetMethod("TrySetException", BindingFlags.Public | BindingFlags.Instance, null, parameterTypes, null)
+        if method == null {
+            throw new InvalidOperationException("The Task.Run exception completion method is missing.")
+        }
+        arguments := new object?[](1)
+        arguments[0] = failure
+        method.Invoke(Completion, arguments)
+    }
+
+    private func CompleteCanceled(): void {
+        method := Completion.GetType().GetMethod("TrySetCanceled", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+        if method == null {
+            throw new InvalidOperationException("The Task.Run cancellation completion method is missing.")
+        }
+        method.Invoke(Completion, new object?[](0))
     }
 }
 
