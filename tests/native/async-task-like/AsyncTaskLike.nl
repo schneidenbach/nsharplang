@@ -836,6 +836,22 @@ async func AwaitConstructedGenericSourceInterface(source: GenericSourceInterface
     return await source
 }
 
+class GenericOwnerSourceInterfaceAwaiter<T>(source: Task<int>, value: T): GenericSourceInterfaceAwaiter<T> {
+    IsCompleted: bool { get { return source.IsCompleted } }
+    func GetResult(): T { return value }
+    func OnCompleted(continuation: Action) { source.GetAwaiter().OnCompleted(continuation) }
+}
+
+class GenericOwnerSourceInterfaceAwaitable<T>(source: Task<int>, value: T) {
+    func GetAwaiter(): GenericSourceInterfaceAwaiter<T> {
+        return new GenericOwnerSourceInterfaceAwaiter<T>(source, value)
+    }
+}
+
+async func AwaitGenericOwnerSourceInterface(source: GenericOwnerSourceInterfaceAwaitable<int>): Task<int> {
+    return await source
+}
+
 class GenericExtensionBox<T> {
     Value: T
 

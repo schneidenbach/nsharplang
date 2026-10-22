@@ -416,9 +416,29 @@ test "a constructed generic source interface awaiter suspends and resumes throug
     assert pending.Result == 50
 }
 
+test "a generic owner implementation maps its constructed source interface slots after suspension" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitGenericOwnerSourceInterface(new GenericOwnerSourceInterfaceAwaitable<int>(gate.Task, 56))
+    assert !pending.IsCompleted
+
+    gate.SetResult(56)
+    assert pending.Result == 56
+}
+
 test "a receiver-inferred generic GetAwaiter extension is emitted and returns its closed value" {
     pending := AwaitGenericExtension(new GenericExtensionBox<int>(47))
     assert pending.Result == 47
+}
+
+test "reflected params constructors preserve expanded, direct-array, and empty argument shapes" {
+    expanded := new ReflectedParamsBox(1, 2)
+    values: int[] = [3, 4]
+    direct := new ReflectedParamsBox(values)
+    empty := new ReflectedParamsBox()
+
+    assert expanded.Count == 2
+    assert direct.Count == 2
+    assert empty.Count == 0
 }
 
 test "the pending awaiter matrix uses one bound pattern across source and referenced libraries" {

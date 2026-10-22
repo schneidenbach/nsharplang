@@ -63,6 +63,9 @@ class ColumnarParameterDefaultEmitter {
                 }
             }
             parameter := method.DefineParameter(index + 1, attributes, names[index])
+            if index < modifierKinds.Length && modifierKinds[index] == 3 && !ApplyParamArrayToParameter(parameter) {
+                return false
+            }
             if index < modifierKinds.Length && modifierKinds[index] == 5 && !ApplyIsReadOnlyToParameter(parameter) {
                 return false
             }
@@ -92,6 +95,19 @@ class ColumnarParameterDefaultEmitter {
         }
 
         parameter.SetCustomAttribute(new CustomAttributeBuilder(readOnlyCtor, new object[](0)))
+        return true
+    }
+
+    // `params` is part of the CLR signature contract. Referenced assemblies expose it through
+    // ParamArrayAttribute; without that metadata, the analyzer sees a plain array parameter and
+    // cannot carry its selected expanded-argument binding into consumers.
+    static func ApplyParamArrayToParameter(parameter: ParameterBuilder): bool {
+        constructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+        if constructor == null {
+            return false
+        }
+
+        parameter.SetCustomAttribute(new CustomAttributeBuilder(constructor, new object[](0)))
         return true
     }
 
@@ -174,6 +190,9 @@ class ColumnarParameterDefaultEmitter {
                 }
             }
             parameter := constructorBuilder.DefineParameter(index + 1, attributes, names[index])
+            if index < modifierKinds.Length && modifierKinds[index] == 3 && !ApplyParamArrayToParameter(parameter) {
+                return false
+            }
             if index < modifierKinds.Length && modifierKinds[index] == 5 && !ApplyIsReadOnlyToParameter(parameter) {
                 return false
             }

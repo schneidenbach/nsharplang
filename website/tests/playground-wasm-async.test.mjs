@@ -30,6 +30,7 @@ test('the WebAssembly playground executes async awaiter shapes with runtime sema
       {id: 'reflectedGenericExtension', gateType: 'ReflectedGenericExtensionBox<int>', call: (gate) => `ReadReflectedGenericExtension(${gate})`, completion: (gate) => `${gate}.Complete(74)`, result: 74},
       {id: 'interfaceAwaiter', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadInterfaceAwaiter(new InterfaceAwaitable(${gate}.Task))`, completion: (gate) => `${gate}.SetResult(75)`, result: 75},
       {id: 'genericSourceInterface', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadGenericSourceInterface(new GenericSourceInterfaceAwaitable(${gate}.Task))`, completion: (gate) => `${gate}.SetResult(76)`, result: 76},
+      {id: 'genericOwnerSourceInterface', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadGenericOwnerSourceInterface(new GenericOwnerSourceInterfaceAwaitable(${gate}.Task, 78))`, completion: (gate) => `${gate}.SetResult(78)`, result: 78},
       {id: 'explicitSourceInterface', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadExplicitSourceInterface(new ExplicitSourceInterfaceAwaitable(${gate}.Task))`, completion: (gate) => `${gate}.SetResult(77)`, result: 77},
       {id: 'implicitDecoy', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadImplicitDecoy(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(66)`, result: 66},
       {id: 'publicExplicit', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadPublicAndExplicit(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(67)`, result: 67},
@@ -43,7 +44,7 @@ test('the WebAssembly playground executes async awaiter shapes with runtime sema
       'async func main() {',
       ...pendingMatrixRows.map(({id, gateType}) => `    ${id}Gate := new ${gateType}`),
       ...pendingMatrixRows.map(({id, call}) => `    ${id}Task := ${call(`${id}Gate`)}`),
-      ...pendingMatrixRows.map(({id}) => `    if ${id}Task.IsCompleted { throw new Exception("${id} matrix row did not suspend") }`),
+      ...pendingMatrixRows.map(({id}) => `    if ${id}Task.IsCompleted { print await ${id}Task; throw new Exception("${id} matrix row did not suspend") }`),
       ...pendingMatrixRows.map(({id, completion}) => `    ${completion(`${id}Gate`)}`),
       ...pendingMatrixRows.map(({id}) => `    print await ${id}Task`),
       '}',
@@ -113,6 +114,18 @@ class GenericSourceInterfaceAwaiterImplementation(source: Task<int>): GenericSou
 class GenericSourceInterfaceAwaitable(source: Task<int>) {
     func GetAwaiter(): GenericSourceInterfaceAwaiter<int> {
         return new GenericSourceInterfaceAwaiterImplementation(source)
+    }
+}
+
+class GenericOwnerSourceInterfaceAwaiter<T>(source: Task<int>, value: T): GenericSourceInterfaceAwaiter<T> {
+    IsCompleted: bool { get { return source.IsCompleted } }
+    func GetResult(): T { return value }
+    func OnCompleted(continuation: Action) { source.GetAwaiter().OnCompleted(continuation) }
+}
+
+class GenericOwnerSourceInterfaceAwaitable(source: Task<int>, value: int) {
+    func GetAwaiter(): GenericSourceInterfaceAwaiter<int> {
+        return new GenericOwnerSourceInterfaceAwaiter<int>(source, value)
     }
 }
 
@@ -230,6 +243,7 @@ func GetAwaiter<T>(this value: CriticalBox<T>): CriticalAwaiter<T> {
 async func ReadTask(source: Task<int>): Task<int> { return await source }
 async func ReadInterfaceAwaiter(source: InterfaceAwaitable): Task<int> { return await source }
 async func ReadGenericSourceInterface(source: GenericSourceInterfaceAwaitable): Task<int> { return await source }
+async func ReadGenericOwnerSourceInterface(source: GenericOwnerSourceInterfaceAwaitable): Task<int> { return await source }
 async func ReadExplicitSourceInterface(source: ExplicitSourceInterfaceAwaitable): Task<int> { return await source }
 async func ReadReflectedGenericExtension(source: ReflectedGenericExtensionBox<int>): Task<int> { return await source }
 async func ReadDecoy(source: Task<int>): Task<int> { return await new DecoyAwaitable(source) }
@@ -269,6 +283,33 @@ ${pendingMatrixMain}
 `,
         stdout: pendingMatrixRows.map(({result}) => `${result}\n`).join(''),
         timeoutMs: 5000,
+      },
+      {
+        name: 'referenced params constructors execute analyzer-bound argument shapes',
+        source: `import System
+import System.Threading.Tasks
+import NSharpLang.AsyncAwaitablePatternFixtures
+
+async func ReadConstructorShapes(source: Task<int>): Task<int> {
+    await source
+    expanded := new ReflectedParamsBox(1, 2)
+    print expanded.Count
+    direct := new ReflectedParamsBox([3, 4])
+    print direct.Count
+    empty := new ReflectedParamsBox()
+    print empty.Count
+    return 79
+}
+
+async func main() {
+    gate := new TaskCompletionSource<int>
+    pending := ReadConstructorShapes(gate.Task)
+    if pending.IsCompleted { throw new Exception("constructor shape test did not suspend") }
+    gate.SetResult(1)
+    print await pending
+}
+`,
+        stdout: '2\n2\n0\n79\n',
       },
       {
         name: 'reflected TaskAwaiter completion interface map',

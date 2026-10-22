@@ -591,7 +591,7 @@ internal sealed class PlaygroundRunner {
             if sourceBinding == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("await has no shared source awaitable binding"))
             }
-            return await AwaitSourceAwaitable(runtimeObject, sourceBinding, semanticModel)
+            return await AwaitSourceAwaitable(runtimeObject, sourceBinding)
         }
 
         awaitableType := value.GetType()
@@ -745,6 +745,29 @@ internal sealed class PlaygroundRunner {
         if typeInfo == null {
             return false
         }
+        obliviousType := typeInfo as ObliviousTypeInfo
+        if obliviousType != null {
+            return TryResolvePlaygroundRuntimeType(obliviousType.InnerType, out runtimeType)
+        }
+        nullableType := typeInfo as NullableTypeInfo
+        if nullableType != null {
+            underlyingType: Type = null
+            if !TryResolvePlaygroundRuntimeType(nullableType.InnerType, out underlyingType) {
+                return false
+            }
+            if !underlyingType.IsValueType {
+                runtimeType = underlyingType
+                return true
+            }
+            try {
+                arguments := new Type[](1)
+                arguments[0] = underlyingType
+                runtimeType = typeof(Nullable<int>).GetGenericTypeDefinition().MakeGenericType(arguments)
+                return true
+            } catch failure: ArgumentException {
+                return false
+            }
+        }
         reflected := typeInfo as ReflectionTypeInfo
         if reflected != null {
             return TryResolvePlaygroundRuntimeTypeFromMetadata(reflected.Type, out runtimeType)
@@ -774,6 +797,15 @@ internal sealed class PlaygroundRunner {
                 runtimeType = null
                 return false
             }
+        }
+        arrayType := typeInfo as ArrayTypeInfo
+        if arrayType != null {
+            elementType: Type = null
+            if !TryResolvePlaygroundRuntimeType(arrayType.ElementType, out elementType) {
+                return false
+            }
+            runtimeType = elementType.MakeArrayType()
+            return true
         }
         simpleType := typeInfo as SimpleTypeInfo
         if simpleType != null {
@@ -854,6 +886,66 @@ internal sealed class PlaygroundRunner {
         runtimeType = null
         if metadataType == null || metadataType.IsGenericParameter || metadataType.FullName == null {
             return false
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(bool)) {
+            runtimeType = typeof(bool)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(byte)) {
+            runtimeType = typeof(byte)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(sbyte)) {
+            runtimeType = typeof(sbyte)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(short)) {
+            runtimeType = typeof(short)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(ushort)) {
+            runtimeType = typeof(ushort)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(int)) {
+            runtimeType = typeof(int)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(uint)) {
+            runtimeType = typeof(uint)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(long)) {
+            runtimeType = typeof(long)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(ulong)) {
+            runtimeType = typeof(ulong)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(float)) {
+            runtimeType = typeof(float)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(double)) {
+            runtimeType = typeof(double)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(decimal)) {
+            runtimeType = typeof(decimal)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(char)) {
+            runtimeType = typeof(char)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(string)) {
+            runtimeType = typeof(string)
+            return true
+        }
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, typeof(object)) {
+            runtimeType = typeof(object)
+            return true
         }
         if metadataType.IsArray {
             elementType: Type = null
@@ -1098,7 +1190,24 @@ internal sealed class PlaygroundRunner {
         return null
     }
 
-    private async func AwaitSourceAwaitable(value: RuntimeObject, pattern: AnalyzerAwaitablePatternBinding, semanticModel: SemanticModel?): Task<object?> {
+    // A source method can be interpreted under a model entry selected by its declaration while its
+    // nested construction was recorded in the containing file's model. Search the already-bound
+    // semantic models by the exact source position; this retrieves the analyzer's answer and does
+    // not perform constructor or interface matching in the playground.
+    private func ConstructionBindingAt(line: int, column: int, preferredModel: SemanticModel?): AnalyzerConstructionBinding? {
+        selected: AnalyzerConstructionBinding? = null
+        if preferredModel != null && preferredModel.TryGetConstructionBindingAt(line, column, out selected) && selected != null {
+            return selected
+        }
+        for modelEntry in semanticModelsByDeclaration {
+            if modelEntry.Value.TryGetConstructionBindingAt(line, column, out selected) && selected != null {
+                return selected
+            }
+        }
+        return null
+    }
+
+    private async func AwaitSourceAwaitable(value: RuntimeObject, pattern: AnalyzerAwaitablePatternBinding): Task<object?> {
         getAwaiter := pattern.GetAwaiterDeclaration
         if getAwaiter == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared source awaitable binding has no GetAwaiter declaration"))
@@ -1123,15 +1232,20 @@ internal sealed class PlaygroundRunner {
         if sourcePattern == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared source awaitable binding has no source awaiter pattern"))
         }
-        isCompletedValue := ReadSourceAwaiterIsCompleted(awaiter, pattern, sourcePattern, semanticModel)
+        isCompletedValue := ReadSourceAwaiterIsCompleted(awaiter, pattern, sourcePattern)
         if !Convert.ToBoolean(isCompletedValue) {
             completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
             continuation := CreateAwaiterContinuation(completion)
             completionArguments := new object?[](1)
             completionArguments[0] = continuation
             completionFunction := sourcePattern.Completion
-            if completionFunction == null && semanticModel != null && awaiter.Declaration != null {
-                completionFunction = ResolveSourceCompletionImplementation(awaiter, sourcePattern, semanticModel, types)
+            if completionFunction == null && awaiter.ConstructionBinding != null {
+                contractType: NSharpLang.Compiler.TypeInfo? = null
+                if sourcePattern.CompletionSlot.DeclaringType != null {
+                    contractType = new ReflectionTypeInfo(sourcePattern.CompletionSlot.DeclaringType)
+                }
+                implementation := awaiter.ConstructionBinding.FindInterfaceImplementation(null, sourcePattern.CompletionSlot, contractType)
+                completionFunction = implementation as FunctionDeclaration
             }
             if completionFunction == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no implementation for its selected completion interface slot"))
@@ -1140,8 +1254,9 @@ internal sealed class PlaygroundRunner {
             await completion.Task
         }
         getResultFunction := sourcePattern.GetResult
-        if getResultFunction.Body == null && getResultFunction.ExpressionBody == null && semanticModel != null && awaiter.Declaration != null {
-            mappedGetResult := ResolveSourceGetResultImplementation(awaiter, sourcePattern, pattern.AwaiterType, semanticModel, types)
+        if getResultFunction.Body == null && getResultFunction.ExpressionBody == null && awaiter.ConstructionBinding != null {
+            implementation := awaiter.ConstructionBinding.FindInterfaceImplementation(sourcePattern.GetResult, null, pattern.AwaiterType)
+            mappedGetResult := implementation as FunctionDeclaration
             if mappedGetResult != null {
                 getResultFunction = mappedGetResult
             }
@@ -1152,13 +1267,20 @@ internal sealed class PlaygroundRunner {
         return InvokeFunction(getResultFunction, new object?[](0), awaiter, 0)
     }
 
-    private func ReadSourceAwaiterIsCompleted(awaiter: RuntimeObject, pattern: AnalyzerAwaitablePatternBinding, sourcePattern: SourceAwaiterPatternBinding, semanticModel: SemanticModel?): object? {
+    private func ReadSourceAwaiterIsCompleted(awaiter: RuntimeObject, pattern: AnalyzerAwaitablePatternBinding, sourcePattern: SourceAwaiterPatternBinding): object? {
         if awaiter == null || pattern == null || sourcePattern == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no selected IsCompleted slot"))
         }
         selected := pattern.IsCompleted
-        if selected != null && AwaitablePatternBinder.IsSourceInterfaceTypeInfo(selected.Owner) && semanticModel != null && awaiter.Declaration != null {
-            implementation := AwaitablePatternBinder.FindSourceInterfacePropertyImplementationOnDeclaration(awaiter.Declaration, sourcePattern.IsCompleted, pattern.AwaiterType, semanticModel, types)
+        if selected == null || selected.Member == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no selected IsCompleted member"))
+        }
+        slot: Declaration? = sourcePattern.IsCompleted
+        if AwaitablePatternBinder.IsSourceInterfaceTypeInfo(selected.Owner) {
+            if awaiter.ConstructionBinding == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no analyzer-bound interface implementation map"))
+            }
+            implementation := awaiter.ConstructionBinding.FindInterfaceImplementation(slot, null, pattern.AwaiterType)
             property := implementation as PropertyDeclaration
             if property != null {
                 return ReadRuntimeProperty(awaiter, property, 0)
@@ -1172,26 +1294,18 @@ internal sealed class PlaygroundRunner {
             }
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no implementation for its selected IsCompleted interface slot"))
         }
-        return ReadRuntimeProperty(awaiter, sourcePattern.IsCompletedName, 0)
-    }
-
-    private static func ResolveSourceCompletionImplementation(awaiter: RuntimeObject, sourcePattern: SourceAwaiterPatternBinding, semanticModel: SemanticModel, sourceTypes: IReadOnlyDictionary<string, Declaration>): FunctionDeclaration? {
-        if awaiter == null || awaiter.Declaration == null || sourcePattern == null || semanticModel == null {
-            return null
+        property := slot as PropertyDeclaration
+        if property != null {
+            return ReadRuntimeProperty(awaiter, property, 0)
         }
-        completionContract := sourcePattern.CompletionSlot.DeclaringType
-        contractType: NSharpLang.Compiler.TypeInfo? = null
-        if completionContract != null {
-            contractType = new ReflectionTypeInfo(completionContract)
+        field := slot as FieldDeclaration
+        if field != null {
+            value: object? = null
+            if awaiter.Fields.TryGetValue(field.Name, out value) {
+                return value
+            }
         }
-        return AwaitablePatternBinder.FindSourceInterfaceImplementationOnDeclaration(awaiter.Declaration, null, sourcePattern.CompletionSlot, contractType, semanticModel, sourceTypes)
-    }
-
-    private static func ResolveSourceGetResultImplementation(awaiter: RuntimeObject, sourcePattern: SourceAwaiterPatternBinding, awaiterType: NSharpLang.Compiler.TypeInfo, semanticModel: SemanticModel, sourceTypes: IReadOnlyDictionary<string, Declaration>): FunctionDeclaration? {
-        if awaiter == null || awaiter.Declaration == null || sourcePattern == null || awaiterType == null || semanticModel == null {
-            return null
-        }
-        return AwaitablePatternBinder.FindSourceInterfaceImplementationOnDeclaration(awaiter.Declaration, sourcePattern.GetResult, null, awaiterType, semanticModel, sourceTypes)
+        throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no selected IsCompleted implementation"))
     }
 
     private static func RethrowInvocationFailure(failure: TargetInvocationException) {
@@ -2052,7 +2166,8 @@ internal sealed class PlaygroundRunner {
         }
         namespaceName: string? = null
         typeNamespaces.TryGetValue(typeName, out namespaceName)
-        runtimeObject := new RuntimeObject(declaration, new RuntimeEnvironment(null), namespaceName)
+        constructionBinding := ConstructionBindingAt(newExpression.Line, newExpression.Column, semanticModel)
+        runtimeObject := new RuntimeObject(declaration, new RuntimeEnvironment(null), namespaceName, constructionBinding)
         ApplyPrimaryConstructorArguments(runtimeObject, arguments)
         return runtimeObject
     }
@@ -2078,19 +2193,23 @@ internal sealed class PlaygroundRunner {
         reflectedTypeInfo := semanticModel.LookupTypeReferenceAtPosition(line, column)
         runtimeType: Type = null
         if reflectedTypeInfo == null || !TryResolvePlaygroundRuntimeType(reflectedTypeInfo, out runtimeType) {
-            return null
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected reflected constructor type is not available to the playground runtime"))
         }
-        selectedBinding: AnalyzerConstructionBinding? = null
-        if !semanticModel.TryGetConstructionBindingAt(newExpression.Line, newExpression.Column, out selectedBinding) || selectedBinding == null || selectedBinding.ReflectedConstructor == null {
-            return null
+        selectedBinding := ConstructionBindingAt(newExpression.Line, newExpression.Column, semanticModel)
+        if selectedBinding == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("analyzer did not retain the selected constructor binding for '" + runtimeType.ToString() + "'"))
+        }
+        if selectedBinding.ReflectedConstructor == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("analyzer did not select a reflected constructor for this external type"))
         }
         constructor := ResolveRuntimeConstructor(selectedBinding.ReflectedConstructor, runtimeType)
         if constructor == null {
-            return null
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected reflected constructor has no runtime metadata match"))
         }
         invocationArguments: object?[] = null
-        if !BuildBoundConstructorArguments(newExpression, arguments, constructor, out invocationArguments) || invocationArguments == null {
-            return null
+        argumentFailure := "analyzer-bound reflected constructor arguments could not be materialized"
+        if !BuildBoundConstructorArguments(selectedBinding, arguments, out invocationArguments, out argumentFailure) || invocationArguments == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression(argumentFailure))
         }
         try {
             return constructor.Invoke(invocationArguments)
@@ -2122,80 +2241,88 @@ internal sealed class PlaygroundRunner {
         return null
     }
 
-    private static func BuildBoundConstructorArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>, constructor: ConstructorInfo, out invocationArguments: object?[]): bool {
+    private func BuildBoundConstructorArguments(binding: AnalyzerConstructionBinding, arguments: IReadOnlyList<object?>, out invocationArguments: object?[], out failureReason: string): bool {
         invocationArguments = null
-        if newExpression == null || arguments == null || constructor == null || newExpression.ConstructorArguments.Count != arguments.Count {
+        failureReason = "analyzer-bound reflected constructor arguments could not be materialized"
+        if binding == null || arguments == null || binding.ParameterCount < 0 {
             return false
         }
-        parameters := constructor.GetParameters()
-        values := new object?[](parameters.Length)
-        assigned := new bool[](parameters.Length)
-        if values == null || assigned == null {
-            return false
-        }
-        positionalIndex := 0
-        paramsIndex := -1
-        if parameters.Length > 0 && parameters[parameters.Length - 1].GetCustomAttributes(typeof(ParamArrayAttribute), false).Length > 0 {
-            paramsIndex = parameters.Length - 1
-        }
-        argumentIndex := 0
-        while argumentIndex < newExpression.ConstructorArguments.Count {
-            argument := newExpression.ConstructorArguments[argumentIndex]
-            parameterIndex := -1
-            if argument.Name != null {
-                index := 0
-                while index < parameters.Length {
-                    if string.Equals(parameters[index].Name, argument.Name, StringComparison.Ordinal) {
-                        parameterIndex = index
-                        break
-                    }
-                    index += 1
-                }
-            } else {
-                while positionalIndex < parameters.Length && assigned[positionalIndex] {
-                    positionalIndex += 1
-                }
-                parameterIndex = positionalIndex
-                if paramsIndex >= 0 && positionalIndex >= paramsIndex {
-                    parameterIndex = paramsIndex
-                }
-                positionalIndex += 1
-            }
-            if parameterIndex < 0 || parameterIndex >= parameters.Length {
+        values := new object?[](binding.ParameterCount)
+        assigned := new bool[](binding.ParameterCount)
+        for bound in binding.ArgumentBindings {
+            if bound.ParameterIndex < 0 || bound.ParameterIndex >= binding.ParameterCount {
+                failureReason = "analyzer-bound constructor argument refers to an invalid parameter slot"
                 return false
             }
-            if parameterIndex == paramsIndex && parameters[parameterIndex].ParameterType.IsArray && arguments.Count > parameters.Length - 1 {
-                elementType := parameters[parameterIndex].ParameterType.GetElementType()
-                if elementType == null {
-                    return false
-                }
-                values[parameterIndex] = AppendConstructorParamsValue(values[parameterIndex], arguments[argumentIndex], elementType)
-            } else {
-                converted: object? = null
-                if !ConvertBoundConstructorArgument(arguments[argumentIndex], parameters[parameterIndex].ParameterType, out converted) {
-                    return false
-                }
-                values[parameterIndex] = converted
+            parameterIndex := bound.ParameterIndex
+            if bound.Kind == 2 {
+                values[parameterIndex] = bound.DefaultValue
                 assigned[parameterIndex] = true
-            }
-            argumentIndex += 1
-        }
-        index := 0
-        while index < parameters.Length {
-            if assigned[index] {
-                index += 1
                 continue
             }
-            parameter := parameters[index]
-            if index == paramsIndex {
-                elementType := parameter.ParameterType.GetElementType()
-                if elementType == null {
+            if bound.Kind == 1 {
+                parameterType: Type = null
+                elementType: Type = null
+                if !TryResolvePlaygroundRuntimeType(bound.ParameterType, out parameterType) {
+                    failureReason = "the selected params parameter type '" + bound.ParameterType.ToString() + "' is unavailable in the playground runtime"
                     return false
                 }
-                values[index] = Array.CreateInstance(elementType, 0)
-            } else if parameter.IsOptional {
-                values[index] = parameter.DefaultValue
-            } else {
+                if !TryResolvePlaygroundRuntimeType(bound.ConversionType, out elementType) {
+                    failureReason = "the selected params element type '" + bound.ConversionType.ToString() + "' is unavailable in the playground runtime"
+                    return false
+                }
+                if !parameterType.IsArray {
+                    failureReason = "the analyzer marked an expanded argument for a non-array params parameter"
+                    return false
+                }
+                array := values[parameterIndex] as Array
+                if array == null {
+                    array = Array.CreateInstance(elementType, 0)
+                    values[parameterIndex] = array
+                }
+                if bound.ArgumentIndex >= 0 {
+                    if bound.ArgumentIndex >= arguments.Count {
+                        failureReason = "an expanded constructor argument index is outside the evaluated arguments"
+                        return false
+                    }
+                    converted: object? = null
+                    if !ConvertBoundConstructorArgument(arguments[bound.ArgumentIndex], elementType, out converted) {
+                        failureReason = "an expanded constructor argument could not be converted to the selected params element type"
+                        return false
+                    }
+                    resized := Array.CreateInstance(elementType, array.Length + 1)
+                    index := 0
+                    while index < array.Length {
+                        resized.SetValue(array.GetValue(index), index)
+                        index += 1
+                    }
+                    resized.SetValue(converted, array.Length)
+                    values[parameterIndex] = resized
+                }
+                assigned[parameterIndex] = true
+                continue
+            }
+            if bound.ArgumentIndex < 0 || bound.ArgumentIndex >= arguments.Count {
+                failureReason = "analyzer-bound constructor argument has no evaluated source argument"
+                return false
+            }
+            targetType: Type = null
+            if !TryResolvePlaygroundRuntimeType(bound.ConversionType, out targetType) {
+                failureReason = "the selected constructor parameter conversion type is unavailable in the playground runtime"
+                return false
+            }
+            converted: object? = null
+            if !ConvertBoundConstructorArgument(arguments[bound.ArgumentIndex], targetType, out converted) {
+                failureReason = "a constructor argument could not be converted to its analyzer-selected parameter type"
+                return false
+            }
+            values[parameterIndex] = converted
+            assigned[parameterIndex] = true
+        }
+        index := 0
+        while index < binding.ParameterCount {
+            if !assigned[index] {
+                failureReason = "the analyzer-bound constructor omitted a required parameter value"
                 return false
             }
             index += 1
@@ -2204,29 +2331,31 @@ internal sealed class PlaygroundRunner {
         return true
     }
 
-    private static func AppendConstructorParamsValue(existing: object?, value: object?, elementType: Type): object? {
-        existingArray := existing as Array
-        count := existingArray == null ? 0 : existingArray.Length
-        values := Array.CreateInstance(elementType, count + 1)
-        index := 0
-        if existingArray != null {
-            while index < count {
-                values.SetValue(existingArray.GetValue(index), index)
-                index += 1
-            }
-        }
-        converted: object? = null
-        if !ConvertBoundConstructorArgument(value, elementType, out converted) {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
-        }
-        values.SetValue(converted, count)
-        return values
-    }
-
     private static func ConvertBoundConstructorArgument(value: object?, parameterType: Type, out converted: object?): bool {
         converted = value
         if parameterType == null {
             return false
+        }
+        sourceArray := value as Array
+        if sourceArray != null && parameterType.IsArray {
+            elementType := parameterType.GetElementType()
+            if elementType == null {
+                return false
+            }
+            convertedArray := Array.CreateInstance(elementType, sourceArray.Length)
+            index := 0
+            while index < sourceArray.Length {
+                elementValue: object? = null
+                elementConverted: object? = null
+                if !ConvertBoundConstructorArgument(sourceArray.GetValue(index), elementType, out elementConverted) {
+                    return false
+                }
+                elementValue = elementConverted
+                convertedArray.SetValue(elementValue, index)
+                index += 1
+            }
+            converted = convertedArray
+            return true
         }
         if value == null {
             return !parameterType.IsValueType || Nullable.GetUnderlyingType(parameterType) != null
@@ -2747,16 +2876,18 @@ internal sealed class PlaygroundRunner {
         Environment: RuntimeEnvironment
         NamespaceName: string?
         Fields: Dictionary<string, object?>
+        ConstructionBinding: AnalyzerConstructionBinding?
 
-        constructor(declaration: Declaration?, environment: RuntimeEnvironment, namespaceName: string?) {
+        constructor(declaration: Declaration?, environment: RuntimeEnvironment, namespaceName: string?, constructionBinding: AnalyzerConstructionBinding? = null) {
             Declaration = declaration
             Environment = environment
             NamespaceName = namespaceName
             Fields = new Dictionary<string, object?>(StringComparer.Ordinal)
+            ConstructionBinding = constructionBinding
         }
 
         func Clone(): RuntimeObject {
-            copy := new RuntimeObject(Declaration, new RuntimeEnvironment(null), NamespaceName)
+            copy := new RuntimeObject(Declaration, new RuntimeEnvironment(null), NamespaceName, ConstructionBinding)
             for pair in Fields {
                 copy.Fields[pair.Key] = pair.Value
                 copy.Environment.Declare(pair.Key, pair.Value)

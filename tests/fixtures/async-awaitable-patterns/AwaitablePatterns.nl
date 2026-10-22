@@ -12,6 +12,18 @@ class ReflectedLongBox {
     }
 }
 
+class ReflectedParamsBox {
+    private values: int[]
+
+    constructor(params values: int[]) {
+        this.values = values
+    }
+
+    Count: int {
+        get { return values.Length }
+    }
+}
+
 class ReflectedOptionalExtensionBox {}
 
 class ReflectedOptionalExtensionAwaiter: INotifyCompletion {

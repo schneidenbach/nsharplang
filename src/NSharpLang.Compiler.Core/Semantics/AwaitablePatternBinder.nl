@@ -1206,113 +1206,6 @@ class AwaitablePatternBinder {
         return null
     }
 
-    // The playground executes source objects without baking CLR interface maps. It still dispatches
-    // through the same selected slot: match the slot's exact signature, prefer an explicit source
-    // implementation whose qualifier resolves to that interface, then use a public implicit
-    // implementation. The emitted path calls the runtime interface slot directly.
-    static func FindSourceInterfaceImplementationOnDeclaration(owner: Declaration, sourceSlot: FunctionDeclaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo?, semanticModel: SemanticModel, sourceTypes: IReadOnlyDictionary<string, Declaration>? = null): FunctionDeclaration? {
-        if owner == null || semanticModel == null || sourceSlot == null && runtimeSlot == null {
-            return null
-        }
-        methodName := ""
-        if sourceSlot != null {
-            methodName = sourceSlot.Name
-        } else {
-            if runtimeSlot == null {
-                return null
-            }
-            methodName = runtimeSlot.Name
-        }
-        expectedInterface := slotOwnerType
-        if expectedInterface == null && runtimeSlot != null && runtimeSlot.DeclaringType != null {
-            expectedInterface = new ReflectionTypeInfo(runtimeSlot.DeclaringType)
-        }
-        if expectedInterface == null {
-            return null
-        }
-        selectedInterface := expectedInterface
-        declarations := SourceDeclarationChain(owner, sourceTypes, semanticModel)
-        for declaration in declarations {
-            members := SourceMembers(declaration)
-            if members == null {
-                continue
-            }
-            for member in members {
-                function := member as FunctionDeclaration
-                if function == null || !ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) || ExplicitInterfaceMemberFacts.SimpleNameOf(function.Name) != methodName || !SourceFunctionMatchesInterfaceSlot(function, sourceSlot, runtimeSlot, selectedInterface, semanticModel) {
-                    continue
-                }
-                qualifier := ExplicitInterfaceMemberFacts.QualifierOf(function.Name)
-                if SourceDeclarationQualifierMapsToSlot(owner, qualifier, selectedInterface, sourceTypes, semanticModel) {
-                    return function
-                }
-            }
-        }
-
-        for declaration in declarations {
-            members := SourceMembers(declaration)
-            if members == null {
-                continue
-            }
-            for member in members {
-                function := member as FunctionDeclaration
-                if function == null || ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) || function.Name != methodName || !IsPublicSourceFunction(function) || !SourceFunctionMatchesInterfaceSlot(function, sourceSlot, runtimeSlot, selectedInterface, semanticModel) {
-                    continue
-                }
-                return function
-            }
-        }
-        return null
-    }
-
-    static func FindSourceInterfacePropertyImplementationOnDeclaration(owner: Declaration, sourceSlot: Declaration, slotOwnerType: TypeInfo, semanticModel: SemanticModel, sourceTypes: IReadOnlyDictionary<string, Declaration>? = null): Declaration? {
-        if owner == null || sourceSlot == null || slotOwnerType == null || semanticModel == null {
-            return null
-        }
-        slotName := SourceAwaiterMemberName(sourceSlot)
-        slotType := SourceAwaiterMemberType(sourceSlot)
-        if slotName == null || slotType == null {
-            return null
-        }
-        slotSubstitution := AnalyzerSourceAwaitSubstitution(slotOwnerType)
-        expectedType: TypeInfo = BuiltInTypes.Unknown
-        if !TryResolveSourceTypeReference(semanticModel, slotType, out expectedType) {
-            return null
-        }
-        expectedType = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expectedType, slotSubstitution)
-        declarations := SourceDeclarationChain(owner, sourceTypes, semanticModel)
-        for declaration in declarations {
-            members := SourceMembers(declaration)
-            if members == null {
-                continue
-            }
-            for member in members {
-                property := member as PropertyDeclaration
-                if property == null || !ExplicitInterfaceMemberFacts.IsExplicitMemberName(property.Name) || ExplicitInterfaceMemberFacts.SimpleNameOf(property.Name) != slotName || !SourcePropertyMatchesInterfaceSlot(property, expectedType, semanticModel) {
-                    continue
-                }
-                qualifier := ExplicitInterfaceMemberFacts.QualifierOf(property.Name)
-                if SourceDeclarationQualifierMapsToSlot(owner, qualifier, slotOwnerType, sourceTypes, semanticModel) {
-                    return property
-                }
-            }
-        }
-        for declaration in declarations {
-            members := SourceMembers(declaration)
-            if members == null {
-                continue
-            }
-            for member in members {
-                property := member as PropertyDeclaration
-                if property == null || ExplicitInterfaceMemberFacts.IsExplicitMemberName(property.Name) || property.Name != slotName || !IsPublicSourceProperty(property) || !SourcePropertyMatchesInterfaceSlot(property, expectedType, semanticModel) {
-                    continue
-                }
-                return property
-            }
-        }
-        return null
-    }
-
     static func SourceAwaiterMemberName(member: Declaration): string? {
         field := member as FieldDeclaration
         if field != null {
@@ -1337,130 +1230,12 @@ class AwaitablePatternBinder {
         return null
     }
 
-    static func SourcePropertyMatchesInterfaceSlot(property: PropertyDeclaration, expectedType: TypeInfo, semanticModel: SemanticModel): bool {
-        if property == null || property.Type == null || expectedType == null || semanticModel == null {
-            return false
-        }
-        actualType: TypeInfo = BuiltInTypes.Unknown
-        return TryResolveSourceTypeReference(semanticModel, property.Type, out actualType) && SourceInterfaceSlotTypesMatch(actualType, expectedType)
-    }
-
     static func IsPublicSourceProperty(property: PropertyDeclaration): bool {
         if property == null {
             return false
         }
         modifiers := Convert.ToInt32(property.Modifiers)
         return (modifiers & Convert.ToInt32(Modifiers.Private)) == 0 && (modifiers & Convert.ToInt32(Modifiers.Protected)) == 0
-    }
-
-    static func SourceDeclarationChain(owner: Declaration, sourceTypes: IReadOnlyDictionary<string, Declaration>?, semanticModel: SemanticModel): List<Declaration> {
-        chain := new List<Declaration>()
-        if owner == null {
-            return chain
-        }
-        current: Declaration? = owner
-        depth := 0
-        while current != null && depth < 32 {
-            chain.Add(current)
-            baseReference: TypeReference? = null
-            classDeclaration := current as ClassDeclaration
-            if classDeclaration != null {
-                baseReference = classDeclaration.BaseClass
-            }
-            if baseReference == null || sourceTypes == null || semanticModel == null {
-                break
-            }
-            baseType: TypeInfo = BuiltInTypes.Unknown
-            if !TryResolveSourceTypeReference(semanticModel, baseReference, out baseType) {
-                break
-            }
-            sourceBase := SourceDeclarationForTypeInfo(baseType, sourceTypes)
-            if sourceBase == null || sourceBase == current {
-                break
-            }
-            current = sourceBase
-            depth += 1
-        }
-        return chain
-    }
-
-    static func SourceDeclarationForTypeInfo(typeInfo: TypeInfo, sourceTypes: IReadOnlyDictionary<string, Declaration>): Declaration? {
-        if typeInfo == null || sourceTypes == null {
-            return null
-        }
-        candidate := typeInfo
-        constructed := typeInfo as GenericTypeInfo
-        if constructed != null && constructed.GenericDefinition != null {
-            candidate = constructed.GenericDefinition
-        }
-        name := AnalyzerDeclarationContext.TypeName(candidate)
-        declaration: Declaration? = null
-        if sourceTypes.TryGetValue(name, out declaration) {
-            return declaration
-        }
-        return null
-    }
-
-    static func SourceDeclarationQualifierMapsToSlot(owner: Declaration, qualifier: string, slotOwnerType: TypeInfo, sourceTypes: IReadOnlyDictionary<string, Declaration>?, semanticModel: SemanticModel): bool {
-        if owner == null || qualifier == null || qualifier.Length == 0 || slotOwnerType == null || semanticModel == null {
-            return false
-        }
-        let rootType: TypeInfo? = null
-        if sourceTypes != null {
-            ownerName := SourceDeclarationName(owner)
-            ownerArity := SourceDeclarationArity(owner)
-            if ownerName != null {
-                key := TypeArityNames.Key(ownerName, ownerArity)
-                semanticModel.TypesByIdentity.TryGetValue(key, out rootType)
-                if rootType == null && ownerArity == 0 {
-                    semanticModel.Types.TryGetValue(ownerName, out rootType)
-                }
-            }
-        }
-        if rootType != null && SourceTypeClosureContainsQualifier(rootType, qualifier, slotOwnerType, semanticModel, 0) {
-            return true
-        }
-        return SourceQualifierResolvesToType(semanticModel, qualifier, slotOwnerType)
-    }
-
-    static func SourceDeclarationName(declaration: Declaration): string? {
-        classDeclaration := declaration as ClassDeclaration
-        if classDeclaration != null {
-            return classDeclaration.Name
-        }
-        interfaceDeclaration := declaration as InterfaceDeclaration
-        if interfaceDeclaration != null {
-            return interfaceDeclaration.Name
-        }
-        structDeclaration := declaration as StructDeclaration
-        if structDeclaration != null {
-            return structDeclaration.Name
-        }
-        recordDeclaration := declaration as RecordDeclaration
-        if recordDeclaration != null {
-            return recordDeclaration.Name
-        }
-        return null
-    }
-
-    static func SourceDeclarationArity(declaration: Declaration): int {
-        classDeclaration := declaration as ClassDeclaration
-        if classDeclaration != null {
-            return classDeclaration.TypeParameters == null ? 0 : classDeclaration.TypeParameters.Count
-        }
-        interfaceDeclaration := declaration as InterfaceDeclaration
-        if interfaceDeclaration != null {
-            return interfaceDeclaration.TypeParameters == null ? 0 : interfaceDeclaration.TypeParameters.Count
-        }
-        structDeclaration := declaration as StructDeclaration
-        if structDeclaration != null {
-            return structDeclaration.TypeParameters == null ? 0 : structDeclaration.TypeParameters.Count
-        }
-        recordDeclaration := declaration as RecordDeclaration
-        if recordDeclaration != null {
-            return recordDeclaration.TypeParameters == null ? 0 : recordDeclaration.TypeParameters.Count
-        }
-        return 0
     }
 
     static func SourceTypeClosureContainsQualifier(typeInfo: TypeInfo, qualifier: string, expectedType: TypeInfo, semanticModel: SemanticModel, depth: int): bool {
@@ -1578,7 +1353,7 @@ class AwaitablePatternBinder {
         return null
     }
 
-    static func SourceFunctionMatchesInterfaceSlot(function: FunctionDeclaration, sourceSlot: FunctionDeclaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo?, semanticModel: SemanticModel): bool {
+    static func SourceFunctionMatchesInterfaceSlot(function: FunctionDeclaration, sourceSlot: FunctionDeclaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo?, semanticModel: SemanticModel, implementationOwnerType: TypeInfo? = null): bool {
         if function == null || semanticModel == null || sourceSlot == null && runtimeSlot == null || function.TypeParameters != null && function.TypeParameters.Count != 0 {
             return false
         }
@@ -1598,6 +1373,7 @@ class AwaitablePatternBinder {
         if slotOwnerType != null {
             slotSubstitution = AnalyzerSourceAwaitSubstitution(slotOwnerType)
         }
+        implementationSubstitution := implementationOwnerType == null ? null : AnalyzerSourceAwaitSubstitution(implementationOwnerType)
         index := 0
         while index < slotParameterCount {
             if function.Parameters[index].Type == null {
@@ -1608,6 +1384,7 @@ class AwaitablePatternBinder {
             if !TryResolveSourceTypeReference(semanticModel, function.Parameters[index].Type, out actualParameter) {
                 return false
             }
+            actualParameter = AnalyzerSyntheticCallFacts.ApplyGenericBindings(actualParameter, implementationSubstitution)
             if sourceSlot != null {
                 if sourceSlot.Parameters[index].Type == null || !TryResolveSourceTypeReference(semanticModel, sourceSlot.Parameters[index].Type, out expectedParameter) {
                     return false
@@ -1629,6 +1406,7 @@ class AwaitablePatternBinder {
         if function.ReturnType != null && !TryResolveSourceTypeReference(semanticModel, function.ReturnType, out actualReturn) {
             return false
         }
+        actualReturn = AnalyzerSyntheticCallFacts.ApplyGenericBindings(actualReturn, implementationSubstitution)
         expectedReturn: TypeInfo = BuiltInTypes.Void
         if sourceSlot != null && sourceSlot.ReturnType != null {
             if !TryResolveSourceTypeReference(semanticModel, sourceSlot.ReturnType, out expectedReturn) {
@@ -1644,6 +1422,248 @@ class AwaitablePatternBinder {
         return SourceInterfaceSlotTypesMatch(actualReturn, expectedReturn)
     }
 
+    // Build the interface dispatch facts for one constructed source object while its closed owner
+    // type is still available to the analyzer. The playground attaches this immutable map to the
+    // object and executes it directly; it never searches methods by name or repeats generic
+    // substitution while an await is suspended.
+    static func BuildSourceInterfaceImplementationMap(ownerType: TypeInfo, declarations: AnalyzerDeclarationContext, semanticModel: SemanticModel): List<AnalyzerInterfaceSlotImplementation> {
+        result := new List<AnalyzerInterfaceSlotImplementation>()
+        if ownerType == null || declarations == null || semanticModel == null {
+            return result
+        }
+        interfaces := new List<TypeInfo>()
+        CollectSourceInterfaceClosure(ownerType, declarations, semanticModel, interfaces, 0)
+        for interfaceType in interfaces {
+            sourceDefinition := declarations.ResolveDeclaredAlias(interfaceType)
+            constructed := sourceDefinition as GenericTypeInfo
+            if constructed != null && constructed.GenericDefinition != null {
+                sourceDefinition = constructed.GenericDefinition
+            }
+            if declarations.ContainsSourceType(sourceDefinition) {
+                shape := SourceShapeForType(interfaceType, declarations)
+                if shape == null {
+                    continue
+                }
+                interfaceDeclarationType := interfaceType
+                constructedInterface := interfaceType as GenericTypeInfo
+                if constructedInterface != null && constructedInterface.GenericDefinition != null {
+                    interfaceDeclarationType = constructedInterface.GenericDefinition
+                }
+                interfaceDeclaration := declarations.FindDeclarationForType(interfaceDeclarationType) as Declaration
+                sourceMembers := interfaceDeclaration == null ? null : SourceMembers(interfaceDeclaration)
+                if sourceMembers == null {
+                    continue
+                }
+                for slot in sourceMembers {
+                    functionSlot := slot as FunctionDeclaration
+                    if functionSlot != null {
+                        implementation := FindSourceInterfaceImplementationForConstructedOwner(ownerType, functionSlot, null, interfaceType, declarations, semanticModel)
+                        if implementation != null {
+                            result.Add(new AnalyzerInterfaceSlotImplementation(slot, null, interfaceType, implementation))
+                        }
+                        continue
+                    }
+                    if slot as FieldDeclaration != null || slot as PropertyDeclaration != null {
+                        implementation := FindSourceInterfacePropertyImplementationForConstructedOwner(ownerType, slot, interfaceType, declarations, semanticModel)
+                        if implementation != null {
+                            result.Add(new AnalyzerInterfaceSlotImplementation(slot, null, interfaceType, implementation))
+                        }
+                    }
+                }
+                continue
+            }
+
+            reflectedInterface := interfaceType as ReflectionTypeInfo
+            if reflectedInterface == null || !reflectedInterface.Type.IsInterface {
+                continue
+            }
+            for runtimeSlot in reflectedInterface.Type.GetMethods() {
+                if runtimeSlot.IsStatic {
+                    continue
+                }
+                implementation := FindSourceInterfaceImplementationForConstructedOwner(ownerType, null, runtimeSlot, interfaceType, declarations, semanticModel)
+                if implementation != null {
+                    result.Add(new AnalyzerInterfaceSlotImplementation(null, runtimeSlot, interfaceType, implementation))
+                }
+            }
+        }
+        return result
+    }
+
+    static func CollectSourceInterfaceClosure(typeInfo: TypeInfo, declarations: AnalyzerDeclarationContext, semanticModel: SemanticModel, interfaces: List<TypeInfo>, depth: int) {
+        if typeInfo == null || declarations == null || semanticModel == null || interfaces == null || depth > 32 {
+            return
+        }
+        resolved := declarations.ResolveDeclaredAlias(typeInfo)
+        reflection := resolved as ReflectionTypeInfo
+        if reflection != null {
+            runtimeType := reflection.Type
+            if runtimeType.IsInterface && !ContainsSourceInterfaceType(interfaces, resolved) {
+                interfaces.Add(resolved)
+            }
+            if runtimeType.IsInterface {
+                for inherited in runtimeType.GetInterfaces() {
+                    CollectSourceInterfaceClosure(new ReflectionTypeInfo(inherited), declarations, semanticModel, interfaces, depth + 1)
+                }
+            }
+            baseType := runtimeType.BaseType
+            if baseType != null {
+                CollectSourceInterfaceClosure(new ReflectionTypeInfo(baseType), declarations, semanticModel, interfaces, depth + 1)
+            }
+            return
+        }
+        shape := SourceShapeForType(resolved, declarations)
+        if shape == null {
+            return
+        }
+        sourceDefinition := resolved
+        constructedSource := resolved as GenericTypeInfo
+        if constructedSource != null && constructedSource.GenericDefinition != null {
+            sourceDefinition = constructedSource.GenericDefinition
+        }
+        sourceInterface := sourceDefinition as InterfaceTypeInfo
+        if sourceInterface != null && !ContainsSourceInterfaceType(interfaces, resolved) {
+            interfaces.Add(resolved)
+        }
+        substitution := AnalyzerSourceAwaitSubstitution(resolved)
+        references := SourceTypeReferences(sourceDefinition)
+        if references != null {
+            for reference in references {
+                resolvedReference: TypeInfo = BuiltInTypes.Unknown
+                if TryResolveSourceTypeReference(semanticModel, reference, out resolvedReference) {
+                    closedReference := AnalyzerSyntheticCallFacts.ApplyGenericBindings(resolvedReference, substitution)
+                    CollectSourceInterfaceClosure(closedReference, declarations, semanticModel, interfaces, depth + 1)
+                }
+            }
+        }
+    }
+
+    static func ContainsSourceInterfaceType(interfaces: List<TypeInfo>, candidate: TypeInfo): bool {
+        for current in interfaces {
+            if TypeInfoIdentityFacts.AreEqual(current, candidate) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func FindSourceInterfaceImplementationForConstructedOwner(ownerType: TypeInfo, sourceSlot: FunctionDeclaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo, declarations: AnalyzerDeclarationContext, semanticModel: SemanticModel): FunctionDeclaration? {
+        if ownerType == null || slotOwnerType == null || declarations == null || semanticModel == null || sourceSlot == null && runtimeSlot == null {
+            return null
+        }
+        methodName := ""
+        if sourceSlot != null {
+            methodName = sourceSlot.Name
+        } else {
+            if runtimeSlot == null {
+                return null
+            }
+            methodName = runtimeSlot.Name
+        }
+        chain := SourceTypeChain(ownerType, declarations)
+        for sourceType in chain {
+            shape := SourceShapeForType(sourceType, declarations)
+            if shape == null {
+                continue
+            }
+            for member in shape.DeclaredMembers {
+                function := member.SourceDeclaration as FunctionDeclaration
+                if function == null || !ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) || ExplicitInterfaceMemberFacts.SimpleNameOf(function.Name) != methodName || !SourceFunctionMatchesInterfaceSlot(function, sourceSlot, runtimeSlot, slotOwnerType, semanticModel, sourceType) {
+                    continue
+                }
+                qualifier := ExplicitInterfaceMemberFacts.QualifierOf(function.Name)
+                if SourceTypeClosureContainsQualifier(ownerType, qualifier, slotOwnerType, semanticModel, 0) {
+                    return function
+                }
+            }
+        }
+        for sourceType in chain {
+            shape := SourceShapeForType(sourceType, declarations)
+            if shape == null {
+                continue
+            }
+            for member in shape.DeclaredMembers {
+                function := member.SourceDeclaration as FunctionDeclaration
+                if function == null || ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) || function.Name != methodName || !IsPublicSourceFunction(function) || !SourceFunctionMatchesInterfaceSlot(function, sourceSlot, runtimeSlot, slotOwnerType, semanticModel, sourceType) {
+                    continue
+                }
+                return function
+            }
+        }
+        return null
+    }
+
+    static func FindSourceInterfacePropertyImplementationForConstructedOwner(ownerType: TypeInfo, sourceSlot: Declaration, slotOwnerType: TypeInfo, declarations: AnalyzerDeclarationContext, semanticModel: SemanticModel): Declaration? {
+        if ownerType == null || sourceSlot == null || slotOwnerType == null || declarations == null || semanticModel == null {
+            return null
+        }
+        slotName := SourceAwaiterMemberName(sourceSlot)
+        slotType := SourceAwaiterMemberType(sourceSlot)
+        if slotName == null || slotType == null {
+            return null
+        }
+        expectedType: TypeInfo = BuiltInTypes.Unknown
+        if !TryResolveSourceTypeReference(semanticModel, slotType, out expectedType) {
+            return null
+        }
+        expectedType = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expectedType, AnalyzerSourceAwaitSubstitution(slotOwnerType))
+        chain := SourceTypeChain(ownerType, declarations)
+        for sourceType in chain {
+            sourceDeclarationType := sourceType
+            constructedSourceType := sourceType as GenericTypeInfo
+            if constructedSourceType != null && constructedSourceType.GenericDefinition != null {
+                sourceDeclarationType = constructedSourceType.GenericDefinition
+            }
+            sourceDeclaration := declarations.FindDeclarationForType(sourceDeclarationType) as Declaration
+            sourceMembers := sourceDeclaration == null ? null : SourceMembers(sourceDeclaration)
+            if sourceMembers == null {
+                continue
+            }
+            for member in sourceMembers {
+                property := member as PropertyDeclaration
+                if property == null || !ExplicitInterfaceMemberFacts.IsExplicitMemberName(property.Name) || ExplicitInterfaceMemberFacts.SimpleNameOf(property.Name) != slotName || !SourcePropertyMatchesInterfaceSlotForOwner(property, sourceType, expectedType, semanticModel) {
+                    continue
+                }
+                qualifier := ExplicitInterfaceMemberFacts.QualifierOf(property.Name)
+                if SourceTypeClosureContainsQualifier(ownerType, qualifier, slotOwnerType, semanticModel, 0) {
+                    return property
+                }
+            }
+        }
+        for sourceType in chain {
+            sourceDeclarationType := sourceType
+            constructedSourceType := sourceType as GenericTypeInfo
+            if constructedSourceType != null && constructedSourceType.GenericDefinition != null {
+                sourceDeclarationType = constructedSourceType.GenericDefinition
+            }
+            sourceDeclaration := declarations.FindDeclarationForType(sourceDeclarationType) as Declaration
+            sourceMembers := sourceDeclaration == null ? null : SourceMembers(sourceDeclaration)
+            if sourceMembers == null {
+                continue
+            }
+            for member in sourceMembers {
+                property := member as PropertyDeclaration
+                if property == null || ExplicitInterfaceMemberFacts.IsExplicitMemberName(property.Name) || property.Name != slotName || !IsPublicSourceProperty(property) || !SourcePropertyMatchesInterfaceSlotForOwner(property, sourceType, expectedType, semanticModel) {
+                    continue
+                }
+                return property
+            }
+        }
+        return null
+    }
+
+    static func SourcePropertyMatchesInterfaceSlotForOwner(property: PropertyDeclaration, ownerType: TypeInfo, expectedType: TypeInfo, semanticModel: SemanticModel): bool {
+        if property == null || property.Type == null || ownerType == null || expectedType == null || semanticModel == null {
+            return false
+        }
+        actualType: TypeInfo = BuiltInTypes.Unknown
+        if !TryResolveSourceTypeReference(semanticModel, property.Type, out actualType) {
+            return false
+        }
+        actualType = AnalyzerSyntheticCallFacts.ApplyGenericBindings(actualType, AnalyzerSourceAwaitSubstitution(ownerType))
+        return SourceInterfaceSlotTypesMatch(actualType, expectedType)
+    }
+
     static func SourceInterfaceSlotTypesMatch(actual: TypeInfo, expected: TypeInfo): bool {
         if TypeInfoIdentityFacts.AreEqual(actual, expected) {
             return true
@@ -1651,17 +1671,6 @@ class AwaitablePatternBinder {
         actualReflection := actual as ReflectionTypeInfo
         expectedReflection := expected as ReflectionTypeInfo
         return actualReflection != null && expectedReflection != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(actualReflection.Type, expectedReflection.Type)
-    }
-
-    static func SourceQualifierResolvesToType(semanticModel: SemanticModel, qualifier: string, expectedType: TypeInfo?): bool {
-        if semanticModel == null || qualifier == null || qualifier.Length == 0 || expectedType == null {
-            return false
-        }
-        resolved: TypeInfo? = null
-        if semanticModel.Types.TryGetValue(qualifier, out resolved) && resolved != null && TypeInfoIdentityFacts.AreEqual(resolved, expectedType) {
-            return true
-        }
-        return semanticModel.TypesByIdentity.TryGetValue(TypeArityNames.Key(qualifier, 0), out resolved) && resolved != null && TypeInfoIdentityFacts.AreEqual(resolved, expectedType)
     }
 
     static func SourceCompletionMemberHasExactActionSignature(member: DeclaredMemberInfo, function: FunctionDeclaration, semanticModel: SemanticModel, methodName: string): bool {

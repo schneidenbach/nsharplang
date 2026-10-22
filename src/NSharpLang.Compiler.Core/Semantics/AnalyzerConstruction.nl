@@ -77,6 +77,7 @@ class ConstructionState {
     ConstructorSelectionDone: bool
     SelectedSourceConstructor: DeclaredMemberInfo?
     SelectedReflectedConstructor: ConstructorInfo?
+    SelectedConstructorSignature: FunctionTypeInfo?
     ArgIndex: int
     PropIndex: int
     PropertyStarted: bool
@@ -104,6 +105,7 @@ class ConstructionState {
         ConstructorSelectionDone = false
         SelectedSourceConstructor = null
         SelectedReflectedConstructor = null
+        SelectedConstructorSignature = null
         ArgIndex = 0
         PropIndex = 0
         PropertyStarted = false
@@ -120,11 +122,103 @@ class ConstructionState {
 // The playground is an interpreter, so it cannot rediscover a reflected constructor by testing
 // boxed runtime arguments. Retain the constructor the ordinary analyzer overload resolver selected
 // and let the interpreter map that exact metadata member to its runtime handle.
+class AnalyzerConstructionArgumentBinding {
+    ArgumentIndex: int
+    ParameterIndex: int
+    Kind: int
+    ParameterType: TypeInfo
+    ConversionType: TypeInfo
+    DefaultValue: object?
+
+    constructor(argumentIndex: int, parameterIndex: int, kind: int, parameterType: TypeInfo, conversionType: TypeInfo, defaultValue: object?) {
+        ArgumentIndex = argumentIndex
+        ParameterIndex = parameterIndex
+        Kind = kind
+        ParameterType = parameterType
+        ConversionType = conversionType
+        DefaultValue = defaultValue
+    }
+}
+
+class AnalyzerInterfaceSlotImplementation {
+    SlotDeclaration: Declaration?
+    RuntimeSlot: MethodInfo?
+    SlotOwnerType: TypeInfo
+    Implementation: Declaration
+
+    constructor(slotDeclaration: Declaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo, implementation: Declaration) {
+        SlotDeclaration = slotDeclaration
+        RuntimeSlot = runtimeSlot
+        SlotOwnerType = slotOwnerType
+        Implementation = implementation
+    }
+}
+
 class AnalyzerConstructionBinding {
     ReflectedConstructor: ConstructorInfo?
+    SourceConstructor: Declaration?
+    ConstructedType: TypeInfo
+    ParameterCount: int
+    ArgumentBindings: List<AnalyzerConstructionArgumentBinding>
+    InterfaceImplementations: List<AnalyzerInterfaceSlotImplementation>
 
-    constructor(reflectedConstructor: ConstructorInfo?) {
+    constructor(reflectedConstructor: ConstructorInfo?, sourceConstructor: Declaration?, constructedType: TypeInfo, parameterCount: int, argumentBindings: List<AnalyzerConstructionArgumentBinding>, interfaceImplementations: List<AnalyzerInterfaceSlotImplementation>) {
         ReflectedConstructor = reflectedConstructor
+        SourceConstructor = sourceConstructor
+        ConstructedType = constructedType
+        ParameterCount = parameterCount
+        ArgumentBindings = argumentBindings
+        InterfaceImplementations = interfaceImplementations
+    }
+
+    func FindInterfaceImplementation(slotDeclaration: Declaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo?): Declaration? {
+        if slotDeclaration == null && runtimeSlot == null {
+            return null
+        }
+        for mapping in InterfaceImplementations {
+            if slotDeclaration != null && Object.ReferenceEquals(mapping.SlotDeclaration, slotDeclaration) && slotOwnerType != null && TypeInfoIdentityFacts.AreEqual(mapping.SlotOwnerType, slotOwnerType) {
+                return mapping.Implementation
+            }
+            // Compare the closed metadata slot identity. Reflection can materialize equivalent
+            // MethodInfo wrappers through different interface-closure paths, so object equality
+            // alone is not a reliable key.
+            if runtimeSlot != null && mapping.RuntimeSlot != null && RuntimeInterfaceSlotsMatch(mapping.RuntimeSlot, runtimeSlot) {
+                return mapping.Implementation
+            }
+        }
+        return null
+    }
+
+    static func RuntimeInterfaceSlotsMatch(left: MethodInfo, right: MethodInfo): bool {
+        if left == null || right == null {
+            return false
+        }
+        if left.Equals(right) {
+            return true
+        }
+        leftOwner := left.DeclaringType
+        rightOwner := right.DeclaringType
+        if leftOwner == null || rightOwner == null || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(leftOwner, rightOwner) || left.Name != right.Name || left.IsStatic != right.IsStatic || left.IsGenericMethod != right.IsGenericMethod {
+            return false
+        }
+        leftGenericCount := left.GetGenericArguments().Length
+        rightGenericCount := right.GetGenericArguments().Length
+        if leftGenericCount != rightGenericCount {
+            return false
+        }
+        leftParameters := left.GetParameters()
+        rightParameters := right.GetParameters()
+        if leftParameters.Length != rightParameters.Length || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(left.ReturnType, right.ReturnType) {
+            return false
+        }
+        index := 0
+        while index < leftParameters.Length {
+            if leftParameters[index].IsOut != rightParameters[index].IsOut || leftParameters[index].IsIn != rightParameters[index].IsIn || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(leftParameters[index].ParameterType, rightParameters[index].ParameterType) {
+                return false
+            }
+            index += 1
+        }
+        return true
     }
 }
 
@@ -323,6 +417,111 @@ class AnalyzerConstruction {
         return state.ResultType
     }
 
+    // Freeze the constructor decision and its argument conversions while the analyzer still owns
+    // the selected overload. The playground consumes this result directly; it does not repeat
+    // parameter-name, params-tail, default-value, or conversion-target matching at runtime.
+    func CreateSemanticBinding(state: ConstructionState, semanticModel: SemanticModel): AnalyzerConstructionBinding? {
+        if state == null || state.New == null || semanticModel == null {
+            return null
+        }
+        signature := state.SelectedConstructorSignature
+        constructorNode := state.New
+        argumentBindings := new List<AnalyzerConstructionArgumentBinding>()
+        parameterCount := 0
+        if signature != null && signature.ParameterTypes != null {
+            parameterCount = signature.ParameterTypes.Count
+            call := ConstructorCall(constructorNode)
+            placements := AnalyzerSyntheticCallFacts.BindFunctionArguments(signature, ".ctor", call, 0)
+            comparisons := syntheticCallWalkValue.GetCallArgumentComparisons(signature, call, state.ConstructorArgumentTypes, null)
+            paramsIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(signature, parameterCount)
+            selectedConstructor := state.SelectedReflectedConstructor
+            if paramsIndex < 0 && selectedConstructor != null {
+                reflectedParameters := selectedConstructor.GetParameters()
+                if reflectedParameters.Length == parameterCount && parameterCount > 0 && AnalyzerOverloadFacts.IsParamsParameter(reflectedParameters[parameterCount - 1]) {
+                    paramsIndex = parameterCount - 1
+                }
+            }
+            assigned := new bool[](parameterCount)
+            argumentIndex := 0
+            while argumentIndex < constructorNode.ConstructorArguments.Count {
+                parameterIndex := placements.ParameterIndexByArgument[argumentIndex]
+                comparison := comparisons[argumentIndex]
+                if parameterIndex < 0 || parameterIndex >= parameterCount || comparison == null {
+                    return null
+                }
+                parameterType := signature.ParameterTypes[parameterIndex]
+                conversionType := comparison.ExpectedType
+                if conversionType == null {
+                    conversionType = parameterType
+                }
+                kind := 0
+                if parameterIndex == paramsIndex && !TypeInfoIdentityFacts.AreEqual(conversionType, parameterType) {
+                    kind = 1
+                }
+                argumentBindings.Add(new AnalyzerConstructionArgumentBinding(argumentIndex, parameterIndex, kind, parameterType, conversionType, null))
+                assigned[parameterIndex] = true
+                argumentIndex += 1
+            }
+
+            if selectedConstructor != null {
+                reflectedParameters := selectedConstructor.GetParameters()
+                parameterIndex := 0
+                while parameterIndex < parameterCount && parameterIndex < reflectedParameters.Length {
+                    if !assigned[parameterIndex] {
+                        parameterType := signature.ParameterTypes[parameterIndex]
+                        if parameterIndex == paramsIndex {
+                            elementType := ConstructionParamsElementType(parameterType)
+                            if elementType == null {
+                                return null
+                            }
+                            argumentBindings.Add(new AnalyzerConstructionArgumentBinding(-1, parameterIndex, 1, parameterType, elementType, null))
+                        } else if reflectedParameters[parameterIndex].IsOptional {
+                            argumentBindings.Add(new AnalyzerConstructionArgumentBinding(-1, parameterIndex, 2, parameterType, parameterType, reflectedParameters[parameterIndex].RawDefaultValue))
+                        } else {
+                            return null
+                        }
+                    }
+                    parameterIndex += 1
+                }
+            }
+        }
+
+        sourceConstructor := state.SelectedSourceConstructor == null ? null : state.SelectedSourceConstructor.SourceDeclaration
+        interfaceMap := new List<AnalyzerInterfaceSlotImplementation>()
+        sourceDefinition := declarationContextValue.ResolveDeclaredAlias(state.ConstructedType)
+        constructedSource := sourceDefinition as GenericTypeInfo
+        if constructedSource != null && constructedSource.GenericDefinition != null {
+            sourceDefinition = constructedSource.GenericDefinition
+        }
+        if declarationContextValue.ContainsSourceType(sourceDefinition) {
+            interfaceMap = AwaitablePatternBinder.BuildSourceInterfaceImplementationMap(state.ConstructedType, declarationContextValue, semanticModel)
+        }
+        return new AnalyzerConstructionBinding(state.SelectedReflectedConstructor, sourceConstructor, state.ConstructedType, parameterCount, argumentBindings, interfaceMap)
+    }
+
+    static func ConstructionParamsElementType(parameterType: TypeInfo): TypeInfo? {
+        oblivious := parameterType as ObliviousTypeInfo
+        if oblivious != null {
+            return ConstructionParamsElementType(oblivious.InnerType)
+        }
+        nullable := parameterType as NullableTypeInfo
+        if nullable != null {
+            return ConstructionParamsElementType(nullable.InnerType)
+        }
+        array := parameterType as ArrayTypeInfo
+        if array != null {
+            return array.ElementType
+        }
+        reflection := parameterType as ReflectionTypeInfo
+        if reflection != null && reflection.Type.IsArray {
+            element := reflection.Type.GetElementType()
+            if element != null {
+                return new ReflectionTypeInfo(element)
+            }
+        }
+        return null
+    }
+
     // ------------------------------------------------------------------------------------------
     // THE `new` HEAD: WHAT TYPE IS BEING CONSTRUCTED.
     // ------------------------------------------------------------------------------------------
@@ -496,6 +695,7 @@ class AnalyzerConstruction {
                 while index < signatures.Count {
                     if Object.ReferenceEquals(signatures[index], selected) {
                         state.SelectedSourceConstructor = sourceConstructors[index]
+                        state.SelectedConstructorSignature = selected
                         return
                     }
                     index = index + 1
@@ -530,6 +730,7 @@ class AnalyzerConstruction {
         while reflectedIndex < reflectedSignatures.Count {
             if Object.ReferenceEquals(reflectedSignatures[reflectedIndex], reflectedSelected) {
                 state.SelectedReflectedConstructor = reflectedCandidates[reflectedIndex]
+                state.SelectedConstructorSignature = reflectedSelected
                 return
             }
             reflectedIndex = reflectedIndex + 1
