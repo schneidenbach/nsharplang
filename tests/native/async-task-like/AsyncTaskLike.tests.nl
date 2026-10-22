@@ -441,6 +441,15 @@ test "reflected params constructors preserve expanded, direct-array, and empty a
     assert empty.Count == 0
 }
 
+test "reflected constructor overload bindings preserve defaults and numeric conversions after a pending gate" {
+    gate := new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := ReadReflectedConstructorShapesAfterGate(gate.Task)
+    assert !pending.IsCompleted
+
+    gate.SetResult()
+    assert pending.Result == 83
+}
+
 test "the pending awaiter matrix uses one bound pattern across source and referenced libraries" {
     gates := new List<TaskCompletionSource<int>>()
     gates.Add(new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously))

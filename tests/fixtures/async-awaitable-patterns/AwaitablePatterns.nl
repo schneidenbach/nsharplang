@@ -24,6 +24,40 @@ class ReflectedParamsBox {
     }
 }
 
+class ReflectedConstructorShapes {
+    private value: long
+    private shape: int
+    private marker: int
+
+    constructor(value: int, label: string = "default") {
+        this.value = value
+        if label == "default" {
+            this.shape = 1
+        } else {
+            this.shape = 2
+        }
+        this.marker = 0
+    }
+
+    constructor(value: long, marker: int) {
+        this.value = value
+        this.shape = 3
+        this.marker = marker
+    }
+
+    func GetValue(): long {
+        return value
+    }
+
+    func GetShape(): int {
+        return shape
+    }
+
+    func GetMarker(): int {
+        return marker
+    }
+}
+
 class ReflectedOptionalExtensionBox {}
 
 class ReflectedOptionalExtensionAwaiter: INotifyCompletion {

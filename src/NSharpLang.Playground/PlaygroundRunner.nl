@@ -2254,22 +2254,37 @@ internal sealed class PlaygroundRunner {
         if selected == null || runtimeType == null {
             return null
         }
-        selectedToken: int = 0
-        try {
-            selectedToken = selected.MetadataToken
-        } catch unsupportedMetadata: InvalidOperationException {
+        selectedOwner := selected.DeclaringType
+        if selectedOwner == null || RuntimeTypeDefinitionName(selectedOwner) != RuntimeTypeDefinitionName(runtimeType) {
             return null
         }
         for candidate in runtimeType.GetConstructors(BindingFlags.Public | BindingFlags.Instance) {
-            try {
-                if candidate.MetadataToken == selectedToken {
-                    return candidate
-                }
-            } catch unsupportedMetadata: InvalidOperationException {
-                continue
+            if RuntimeConstructorSignaturesMatch(selected, candidate) {
+                return candidate
             }
         }
         return null
+    }
+
+    private static func RuntimeConstructorSignaturesMatch(selected: ConstructorInfo, runtimeConstructor: ConstructorInfo): bool {
+        if selected == null || runtimeConstructor == null {
+            return false
+        }
+        selectedParameters := selected.GetParameters()
+        runtimeParameters := runtimeConstructor.GetParameters()
+        if selectedParameters.Length != runtimeParameters.Length {
+            return false
+        }
+        selectedOwner := selected.DeclaringType
+        runtimeOwner := runtimeConstructor.DeclaringType
+        index := 0
+        while index < selectedParameters.Length {
+            if !RuntimeSignatureTypesMatch(selectedParameters[index].ParameterType, runtimeParameters[index].ParameterType, selectedOwner, runtimeOwner) {
+                return false
+            }
+            index += 1
+        }
+        return true
     }
 
     private func BuildBoundConstructorArguments(binding: AnalyzerConstructionBinding, arguments: IReadOnlyList<object?>, out invocationArguments: object?[], out failureReason: string): bool {

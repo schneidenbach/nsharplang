@@ -608,6 +608,17 @@ async func ObserveConfiguredContext(gate: Task<int>, expected: SingleThreadTestC
     return !expected.IsCurrent()
 }
 
+async func ReadReflectedConstructorShapesAfterGate(gate: Task): Task<int> {
+    await gate
+    optional := new ReflectedConstructorShapes(1)
+    normal := new ReflectedConstructorShapes(2, "normal")
+    numeric := new ReflectedConstructorShapes(3, 4)
+    if optional.GetShape() != 1 || normal.GetShape() != 2 || numeric.GetShape() != 3 || numeric.GetValue() != 3 || numeric.GetMarker() != 4 {
+        throw new Exception("the analyzer-selected constructor arguments were not preserved")
+    }
+    return 83
+}
+
 class CriticalAwaitable {
     Source: Task<int>
     Trace: List<string>

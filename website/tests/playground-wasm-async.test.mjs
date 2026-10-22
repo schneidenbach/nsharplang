@@ -39,6 +39,7 @@ test('the WebAssembly playground executes async awaiter shapes with runtime sema
       {id: 'plainTask', gateType: 'TaskCompletionSource', call: (gate) => `ReadPlainTask(${gate}.Task)`, completion: (gate) => `${gate}.SetResult()`, result: 69},
       {id: 'unitValueTask', gateType: 'TaskCompletionSource', call: (gate) => `ReadUnitValueTask(new ValueTask(${gate}.Task))`, completion: (gate) => `${gate}.SetResult()`, result: 70},
       {id: 'valueTask', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadGenericValueTask(new ValueTask<int>(${gate}.Task))`, completion: (gate) => `${gate}.SetResult(73)`, result: 73},
+      {id: 'constructors', gateType: 'TaskCompletionSource', call: (gate) => `ReadConstructorShapes(${gate}.Task)`, completion: (gate) => `${gate}.SetResult()`, result: 4},
     ];
     const pendingMatrixMain = [
       'async func main() {',
@@ -286,6 +287,16 @@ async func ReadPublicAndExplicit(source: Task<int>): Task<int> {
 }
 async func ReadConfigured(source: Task<int>): Task<int> {
     return await source.ConfigureAwait(false)
+}
+async func ReadConstructorShapes(source: Task): Task<int> {
+    await source
+    optional := new ReflectedConstructorShapes(1)
+    normal := new ReflectedConstructorShapes(2, "normal")
+    numeric := new ReflectedConstructorShapes(3, 4)
+    if optional.GetShape() != 1 || normal.GetShape() != 2 || numeric.GetShape() != 3 || numeric.GetValue() != 3 || numeric.GetMarker() != 4 {
+        throw new Exception("constructor binding mismatch")
+    }
+    return numeric.GetMarker()
 }
 async func ReadPlainTask(source: Task): Task<int> {
     await source
