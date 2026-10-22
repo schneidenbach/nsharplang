@@ -4,6 +4,32 @@ import System
 import System.Runtime.CompilerServices
 import System.Threading.Tasks
 
+class ReflectedLongBox {
+    constructor(value: long) {
+        if value != 1 {
+            throw new Exception("constructor argument was not converted to long")
+        }
+    }
+}
+
+class ReflectedOptionalExtensionBox {}
+
+class ReflectedOptionalExtensionAwaiter: INotifyCompletion {
+    IsCompleted: bool => true
+
+    func GetResult(): int {
+        return 81
+    }
+
+    func OnCompleted(continuation: Action) {
+        continuation()
+    }
+}
+
+func GetAwaiter(this _value: ReflectedOptionalExtensionBox? = null): ReflectedOptionalExtensionAwaiter {
+    return new ReflectedOptionalExtensionAwaiter()
+}
+
 class ReflectedCompletionBase: INotifyCompletion {
     Source: Task<int>
 

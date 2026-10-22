@@ -407,6 +407,15 @@ test "an interface-typed source awaiter resumes through its interface slots" {
     assert pending.Result == 49
 }
 
+test "a constructed generic source interface awaiter suspends and resumes through interface slots" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitConstructedGenericSourceInterface(new GenericSourceInterfaceAwaitable(gate.Task))
+    assert !pending.IsCompleted
+
+    gate.SetResult(50)
+    assert pending.Result == 50
+}
+
 test "a receiver-inferred generic GetAwaiter extension is emitted and returns its closed value" {
     pending := AwaitGenericExtension(new GenericExtensionBox<int>(47))
     assert pending.Result == 47

@@ -117,6 +117,17 @@ class ConstructionState {
     }
 }
 
+// The playground is an interpreter, so it cannot rediscover a reflected constructor by testing
+// boxed runtime arguments. Retain the constructor the ordinary analyzer overload resolver selected
+// and let the interpreter map that exact metadata member to its runtime handle.
+class AnalyzerConstructionBinding {
+    ReflectedConstructor: ConstructorInfo?
+
+    constructor(reflectedConstructor: ConstructorInfo?) {
+        ReflectedConstructor = reflectedConstructor
+    }
+}
+
 // WHAT CONSTRUCTING A VALUE MEANS — the expression walk's `new` and `with` arms whole, the
 // object-initializer rule they share, and the eleven refusals they own between them.
 //

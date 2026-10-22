@@ -8624,7 +8624,7 @@ class ColumnarIteratorBodyPlanner {
         }
         getResult: MethodInfo? = null
         if !TryResolveSelectedSourceInstanceMethod(emit, awaiterType, sourceAwaiter.GetResult, out getResult) {
-            if !TryResolveSelectedSourceInterfaceMethod(emit, awaiterType, awaiterDefinition, sourceAwaiter.GetResult, out getResult) || getResult == null {
+            if !TryResolveSelectedSourceInterfaceMethod(emit, awaiterType, awaiterDefinition, sourceAwaiter.GetResult, selected.ResultType, out getResult) || getResult == null {
                 emit.Context.Decline("emit.iterator.async-await-pattern", "the selected source GetResult interface slot could not be mapped to its emitted declaration")
                 return false
             }
@@ -9015,18 +9015,9 @@ class ColumnarIteratorBodyPlanner {
     // concrete source span on ColumnarInstanceMethodDef. The analyzer already selected the exact
     // interface declaration; map that declaration to its emitted slot by the full zero-argument
     // signature and retain the interface MethodBuilder so the await uses callvirt on the slot.
-    static func TryResolveSelectedSourceInterfaceMethod(emit: ColumnarMoveNextEmit, ownerType: Type, definition: ColumnarStructDef, declaration: FunctionDeclaration?, out method: MethodInfo?): bool {
+    static func TryResolveSelectedSourceInterfaceMethod(emit: ColumnarMoveNextEmit, ownerType: Type, definition: ColumnarStructDef, declaration: FunctionDeclaration?, selectedReturnInfo: TypeInfo, out method: MethodInfo?): bool {
         method = null
-        if emit == null || ownerType == null || definition == null || !definition.IsInterface || declaration == null || declaration.TypeParameters != null && declaration.TypeParameters.Count != 0 || declaration.Parameters.Count != 0 || declaration.ReturnType == null {
-            return false
-        }
-        selectedReturnInfo := BuiltInTypes.Unknown as TypeInfo
-        semanticModel := emit.Context.RequiredScope().Facts.SemanticModel
-        if semanticModel == null || !AwaitablePatternBinder.TryResolveSourceTypeReference(semanticModel, declaration.ReturnType, out selectedReturnInfo) {
-            return false
-        }
-        selectedReturnType: Type = null
-        if !TryResolveAwaitPatternType(emit, selectedReturnInfo, out selectedReturnType) || selectedReturnType == null {
+        if emit == null || ownerType == null || definition == null || !definition.IsInterface || declaration == null || declaration.TypeParameters != null && declaration.TypeParameters.Count != 0 || declaration.Parameters.Count != 0 || selectedReturnInfo == null {
             return false
         }
         overloads: List<ColumnarInstanceMethodDef>? = null
@@ -9034,11 +9025,18 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         for candidate in overloads {
-            if candidate == null || candidate.Builder == null || candidate.ParamTypes.Length != 0 || !ColumnarTypeEquivalenceFacts.TypesEquivalent(candidate.ReturnType, selectedReturnType) {
+            genericArity := candidate == null || candidate.Generics == null ? 0 : candidate.Generics.TypeParams.Length
+            if candidate == null || candidate.Builder == null || candidate.ParamTypes.Length != 0 || genericArity != 0 || candidate.Builder.IsStatic {
                 continue
             }
+            // The analyzer retained this exact non-generic source slot. Source interfaces cannot
+            // overload methods by return type, and a generic GetResult<T>() is excluded above, so
+            // the interface's ordinary zero-argument declaration is the slot selected by binding.
             method = BindSourceMethodToConstructedOwner(ownerType, definition.Builder, candidate.Builder)
-            return method != null
+            if method != null {
+                return true
+            }
+            return false
         }
         return false
     }

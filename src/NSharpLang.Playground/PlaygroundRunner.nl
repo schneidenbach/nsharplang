@@ -1123,7 +1123,7 @@ internal sealed class PlaygroundRunner {
         if sourcePattern == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared source awaitable binding has no source awaiter pattern"))
         }
-        isCompletedValue := ReadRuntimeProperty(awaiter, sourcePattern.IsCompletedName, 0)
+        isCompletedValue := ReadSourceAwaiterIsCompleted(awaiter, pattern, sourcePattern, semanticModel)
         if !Convert.ToBoolean(isCompletedValue) {
             completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
             continuation := CreateAwaiterContinuation(completion)
@@ -1131,7 +1131,7 @@ internal sealed class PlaygroundRunner {
             completionArguments[0] = continuation
             completionFunction := sourcePattern.Completion
             if completionFunction == null && semanticModel != null && awaiter.Declaration != null {
-                completionFunction = ResolveSourceCompletionImplementation(awaiter, sourcePattern, semanticModel)
+                completionFunction = ResolveSourceCompletionImplementation(awaiter, sourcePattern, semanticModel, types)
             }
             if completionFunction == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no implementation for its selected completion interface slot"))
@@ -1141,7 +1141,7 @@ internal sealed class PlaygroundRunner {
         }
         getResultFunction := sourcePattern.GetResult
         if getResultFunction.Body == null && getResultFunction.ExpressionBody == null && semanticModel != null && awaiter.Declaration != null {
-            mappedGetResult := ResolveSourceGetResultImplementation(awaiter, sourcePattern, pattern.AwaiterType, semanticModel)
+            mappedGetResult := ResolveSourceGetResultImplementation(awaiter, sourcePattern, pattern.AwaiterType, semanticModel, types)
             if mappedGetResult != null {
                 getResultFunction = mappedGetResult
             }
@@ -1152,7 +1152,30 @@ internal sealed class PlaygroundRunner {
         return InvokeFunction(getResultFunction, new object?[](0), awaiter, 0)
     }
 
-    private static func ResolveSourceCompletionImplementation(awaiter: RuntimeObject, sourcePattern: SourceAwaiterPatternBinding, semanticModel: SemanticModel): FunctionDeclaration? {
+    private func ReadSourceAwaiterIsCompleted(awaiter: RuntimeObject, pattern: AnalyzerAwaitablePatternBinding, sourcePattern: SourceAwaiterPatternBinding, semanticModel: SemanticModel?): object? {
+        if awaiter == null || pattern == null || sourcePattern == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no selected IsCompleted slot"))
+        }
+        selected := pattern.IsCompleted
+        if selected != null && AwaitablePatternBinder.IsSourceInterfaceTypeInfo(selected.Owner) && semanticModel != null && awaiter.Declaration != null {
+            implementation := AwaitablePatternBinder.FindSourceInterfacePropertyImplementationOnDeclaration(awaiter.Declaration, sourcePattern.IsCompleted, pattern.AwaiterType, semanticModel, types)
+            property := implementation as PropertyDeclaration
+            if property != null {
+                return ReadRuntimeProperty(awaiter, property, 0)
+            }
+            field := implementation as FieldDeclaration
+            if field != null {
+                value: object? = null
+                if awaiter.Fields.TryGetValue(field.Name, out value) {
+                    return value
+                }
+            }
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("source awaiter has no implementation for its selected IsCompleted interface slot"))
+        }
+        return ReadRuntimeProperty(awaiter, sourcePattern.IsCompletedName, 0)
+    }
+
+    private static func ResolveSourceCompletionImplementation(awaiter: RuntimeObject, sourcePattern: SourceAwaiterPatternBinding, semanticModel: SemanticModel, sourceTypes: IReadOnlyDictionary<string, Declaration>): FunctionDeclaration? {
         if awaiter == null || awaiter.Declaration == null || sourcePattern == null || semanticModel == null {
             return null
         }
@@ -1161,14 +1184,14 @@ internal sealed class PlaygroundRunner {
         if completionContract != null {
             contractType = new ReflectionTypeInfo(completionContract)
         }
-        return AwaitablePatternBinder.FindSourceInterfaceImplementationOnDeclaration(awaiter.Declaration, null, sourcePattern.CompletionSlot, contractType, semanticModel)
+        return AwaitablePatternBinder.FindSourceInterfaceImplementationOnDeclaration(awaiter.Declaration, null, sourcePattern.CompletionSlot, contractType, semanticModel, sourceTypes)
     }
 
-    private static func ResolveSourceGetResultImplementation(awaiter: RuntimeObject, sourcePattern: SourceAwaiterPatternBinding, awaiterType: NSharpLang.Compiler.TypeInfo, semanticModel: SemanticModel): FunctionDeclaration? {
+    private static func ResolveSourceGetResultImplementation(awaiter: RuntimeObject, sourcePattern: SourceAwaiterPatternBinding, awaiterType: NSharpLang.Compiler.TypeInfo, semanticModel: SemanticModel, sourceTypes: IReadOnlyDictionary<string, Declaration>): FunctionDeclaration? {
         if awaiter == null || awaiter.Declaration == null || sourcePattern == null || awaiterType == null || semanticModel == null {
             return null
         }
-        return AwaitablePatternBinder.FindSourceInterfaceImplementationOnDeclaration(awaiter.Declaration, sourcePattern.GetResult, null, awaiterType, semanticModel)
+        return AwaitablePatternBinder.FindSourceInterfaceImplementationOnDeclaration(awaiter.Declaration, sourcePattern.GetResult, null, awaiterType, semanticModel, sourceTypes)
     }
 
     private static func RethrowInvocationFailure(failure: TargetInvocationException) {
@@ -2057,38 +2080,177 @@ internal sealed class PlaygroundRunner {
         if reflectedTypeInfo == null || !TryResolvePlaygroundRuntimeType(reflectedTypeInfo, out runtimeType) {
             return null
         }
-        for constructor in runtimeType.GetConstructors(BindingFlags.Public | BindingFlags.Instance) {
-            parameters := constructor.GetParameters()
-            if !RuntimeConstructorParametersMatch(parameters, arguments) {
-                continue
-            }
+        selectedBinding: AnalyzerConstructionBinding? = null
+        if !semanticModel.TryGetConstructionBindingAt(newExpression.Line, newExpression.Column, out selectedBinding) || selectedBinding == null || selectedBinding.ReflectedConstructor == null {
+            return null
+        }
+        constructor := ResolveRuntimeConstructor(selectedBinding.ReflectedConstructor, runtimeType)
+        if constructor == null {
+            return null
+        }
+        invocationArguments: object?[] = null
+        if !BuildBoundConstructorArguments(newExpression, arguments, constructor, out invocationArguments) || invocationArguments == null {
+            return null
+        }
+        try {
+            return constructor.Invoke(invocationArguments)
+        } catch invocationFailure: TargetInvocationException {
+            RethrowInvocationFailure(invocationFailure)
+        }
+        return null
+    }
+
+    private static func ResolveRuntimeConstructor(selected: ConstructorInfo, runtimeType: Type): ConstructorInfo? {
+        if selected == null || runtimeType == null {
+            return null
+        }
+        selectedToken: int = 0
+        try {
+            selectedToken = selected.MetadataToken
+        } catch unsupportedMetadata: InvalidOperationException {
+            return null
+        }
+        for candidate in runtimeType.GetConstructors(BindingFlags.Public | BindingFlags.Instance) {
             try {
-                return constructor.Invoke(ToInvocationArguments(arguments))
-            } catch invocationFailure: TargetInvocationException {
-                RethrowInvocationFailure(invocationFailure)
+                if candidate.MetadataToken == selectedToken {
+                    return candidate
+                }
+            } catch unsupportedMetadata: InvalidOperationException {
+                continue
             }
         }
         return null
     }
 
-    private static func RuntimeConstructorParametersMatch(parameters: ParameterInfo[], arguments: IReadOnlyList<object?>): bool {
-        if parameters == null || arguments == null || parameters.Length != arguments.Count {
+    private static func BuildBoundConstructorArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>, constructor: ConstructorInfo, out invocationArguments: object?[]): bool {
+        invocationArguments = null
+        if newExpression == null || arguments == null || constructor == null || newExpression.ConstructorArguments.Count != arguments.Count {
             return false
+        }
+        parameters := constructor.GetParameters()
+        values := new object?[](parameters.Length)
+        assigned := new bool[](parameters.Length)
+        if values == null || assigned == null {
+            return false
+        }
+        positionalIndex := 0
+        paramsIndex := -1
+        if parameters.Length > 0 && parameters[parameters.Length - 1].GetCustomAttributes(typeof(ParamArrayAttribute), false).Length > 0 {
+            paramsIndex = parameters.Length - 1
+        }
+        argumentIndex := 0
+        while argumentIndex < newExpression.ConstructorArguments.Count {
+            argument := newExpression.ConstructorArguments[argumentIndex]
+            parameterIndex := -1
+            if argument.Name != null {
+                index := 0
+                while index < parameters.Length {
+                    if string.Equals(parameters[index].Name, argument.Name, StringComparison.Ordinal) {
+                        parameterIndex = index
+                        break
+                    }
+                    index += 1
+                }
+            } else {
+                while positionalIndex < parameters.Length && assigned[positionalIndex] {
+                    positionalIndex += 1
+                }
+                parameterIndex = positionalIndex
+                if paramsIndex >= 0 && positionalIndex >= paramsIndex {
+                    parameterIndex = paramsIndex
+                }
+                positionalIndex += 1
+            }
+            if parameterIndex < 0 || parameterIndex >= parameters.Length {
+                return false
+            }
+            if parameterIndex == paramsIndex && parameters[parameterIndex].ParameterType.IsArray && arguments.Count > parameters.Length - 1 {
+                elementType := parameters[parameterIndex].ParameterType.GetElementType()
+                if elementType == null {
+                    return false
+                }
+                values[parameterIndex] = AppendConstructorParamsValue(values[parameterIndex], arguments[argumentIndex], elementType)
+            } else {
+                converted: object? = null
+                if !ConvertBoundConstructorArgument(arguments[argumentIndex], parameters[parameterIndex].ParameterType, out converted) {
+                    return false
+                }
+                values[parameterIndex] = converted
+                assigned[parameterIndex] = true
+            }
+            argumentIndex += 1
         }
         index := 0
         while index < parameters.Length {
-            argument := arguments[index]
-            parameterType := parameters[index].ParameterType
-            if argument == null {
-                if parameterType.IsValueType && Nullable.GetUnderlyingType(parameterType) == null {
+            if assigned[index] {
+                index += 1
+                continue
+            }
+            parameter := parameters[index]
+            if index == paramsIndex {
+                elementType := parameter.ParameterType.GetElementType()
+                if elementType == null {
                     return false
                 }
-            } else if !parameterType.IsInstanceOfType(argument) {
+                values[index] = Array.CreateInstance(elementType, 0)
+            } else if parameter.IsOptional {
+                values[index] = parameter.DefaultValue
+            } else {
                 return false
             }
             index += 1
         }
+        invocationArguments = values
         return true
+    }
+
+    private static func AppendConstructorParamsValue(existing: object?, value: object?, elementType: Type): object? {
+        existingArray := existing as Array
+        count := existingArray == null ? 0 : existingArray.Length
+        values := Array.CreateInstance(elementType, count + 1)
+        index := 0
+        if existingArray != null {
+            while index < count {
+                values.SetValue(existingArray.GetValue(index), index)
+                index += 1
+            }
+        }
+        converted: object? = null
+        if !ConvertBoundConstructorArgument(value, elementType, out converted) {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
+        }
+        values.SetValue(converted, count)
+        return values
+    }
+
+    private static func ConvertBoundConstructorArgument(value: object?, parameterType: Type, out converted: object?): bool {
+        converted = value
+        if parameterType == null {
+            return false
+        }
+        if value == null {
+            return !parameterType.IsValueType || Nullable.GetUnderlyingType(parameterType) != null
+        }
+        if parameterType.IsInstanceOfType(value) {
+            return true
+        }
+        targetType := Nullable.GetUnderlyingType(parameterType)
+        if targetType == null {
+            targetType = parameterType
+        }
+        try {
+            if value is IConvertible && typeof(IConvertible).IsAssignableFrom(targetType) {
+                converted = Convert.ChangeType(value, targetType, CultureInfo.InvariantCulture)
+                return converted != null
+            }
+        } catch failure: InvalidCastException {
+            return false
+        } catch failure: FormatException {
+            return false
+        } catch failure: OverflowException {
+            return false
+        }
+        return false
     }
 
     private async func ApplyAsyncInitializer(value: object, initializer: ObjectInitializerExpression, environment: RuntimeEnvironment, depth: int): Task {

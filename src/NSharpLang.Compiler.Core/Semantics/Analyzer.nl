@@ -2385,6 +2385,13 @@ class Analyzer: IDisposable {
             Construction.Supply(state, answer)
             step = Construction.NextStep(state)
         }
+        if state.New != null && state.SelectedReflectedConstructor != null {
+            SemanticModel.RecordConstructionBinding(
+                state.New.Line,
+                state.New.Column,
+                new AnalyzerConstructionBinding(state.SelectedReflectedConstructor)
+            )
+        }
         return Construction.Result(state)
     }
 

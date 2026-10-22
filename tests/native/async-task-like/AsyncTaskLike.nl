@@ -807,6 +807,35 @@ async func AwaitSourceInterfaceAwaiter(source: SourceInterfaceAwaitable): Task<i
     return await source
 }
 
+interface GenericSourceInterfaceAwaiter<T>: INotifyCompletion {
+    IsCompleted: bool
+    func GetResult(): T
+}
+
+class GenericSourceInterfaceAwaiterImplementation(source: Task<int>): GenericSourceInterfaceAwaiter<int> {
+    IsCompleted: bool {
+        get { return source.IsCompleted }
+    }
+
+    func GetResult(): int {
+        return source.GetAwaiter().GetResult()
+    }
+
+    func OnCompleted(continuation: Action) {
+        source.GetAwaiter().OnCompleted(continuation)
+    }
+}
+
+class GenericSourceInterfaceAwaitable(source: Task<int>) {
+    func GetAwaiter(): GenericSourceInterfaceAwaiter<int> {
+        return new GenericSourceInterfaceAwaiterImplementation(source)
+    }
+}
+
+async func AwaitConstructedGenericSourceInterface(source: GenericSourceInterfaceAwaitable): Task<int> {
+    return await source
+}
+
 class GenericExtensionBox<T> {
     Value: T
 

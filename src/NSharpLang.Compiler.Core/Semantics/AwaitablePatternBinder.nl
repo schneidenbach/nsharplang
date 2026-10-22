@@ -172,7 +172,7 @@ class AwaitablePatternBinder {
     // selected extension plus the same reflected awaiter members used by ordinary instance patterns.
     static func TryBindReflectionGetAwaiterExtension(awaitableType: Type, method: MethodInfo, out binding: AwaitablePatternBinding?): bool {
         binding = null
-        if awaitableType == null || method == null || (method.IsGenericMethod && method.ContainsGenericParameters) || !method.IsStatic || !HasExtensionAttribute(method) || method.GetParameters().Length != 1 || method.ReturnType == typeof(void) {
+        if awaitableType == null || method == null || (method.IsGenericMethod && method.ContainsGenericParameters) || !method.IsStatic || !HasExtensionAttribute(method) || method.GetParameters().Length != 1 || method.GetParameters()[0].IsOptional || method.ReturnType == typeof(void) {
             return false
         }
         if !method.GetParameters()[0].ParameterType.IsAssignableFrom(awaitableType) {
@@ -344,12 +344,12 @@ class AwaitablePatternBinder {
         if receiverClrType == null {
             return false
         }
-        extensionCandidates := AwaiterReflectionCandidates(getAwaiterExtension)
+        extensionCandidates := FilterReflectedGetAwaiterExtensions(AwaiterReflectionCandidates(getAwaiterExtension))
         bestExtension: ReflectionPreBoundCandidate? = null
         if !TrySelectReflectedAwaiterInvocation(extensionCandidates, invocation, receiverClrType, awaitableType, reflectionArguments, true, out bestExtension) || bestExtension == null {
             return false
         }
-        if bestExtension.SignatureMethod.GetParameters().Length != 1 {
+        if bestExtension.SignatureMethod.GetParameters().Length != 1 || bestExtension.SignatureMethod.GetParameters()[0].IsOptional {
             return false
         }
         typeArguments := new TypeInfo[](0)
@@ -548,6 +548,23 @@ class AwaitablePatternBinder {
             return group.Methods
         }
         return new MethodInfo[](0)
+    }
+
+    static func FilterReflectedGetAwaiterExtensions(candidates: MethodInfo[]): MethodInfo[] {
+        accepted := new List<MethodInfo>()
+        if candidates == null {
+            return accepted.ToArray()
+        }
+        for candidate in candidates {
+            if candidate == null || !candidate.IsStatic || !HasExtensionAttribute(candidate) {
+                continue
+            }
+            parameters := candidate.GetParameters()
+            if parameters.Length == 1 && !parameters[0].IsOptional {
+                accepted.Add(candidate)
+            }
+        }
+        return accepted.ToArray()
     }
 
     static func AwaiterHasApplicableInstanceCandidate(candidate: TypeInfo, call: CallExpression, receiver: TypeInfo, sourceOverloads: AnalyzerSyntheticCallWalk, reflectionArguments: AnalyzerReflectionArgumentBinder, clrConversion: AnalyzerClrTypeConversion): bool {
@@ -987,7 +1004,7 @@ class AwaitablePatternBinder {
         if selectedProperty == null || selectedGetResultDeclaration == null {
             return false
         }
-        sourceInterfaceAwaiter := resolvedAwaiter as InterfaceTypeInfo != null
+        sourceInterfaceAwaiter := IsSourceInterfaceType(resolvedAwaiter, declarations)
         completionName := critical ? "UnsafeOnCompleted" : "OnCompleted"
         contract := critical ? typeof(ICriticalNotifyCompletion) : typeof(INotifyCompletion)
         completion: FunctionDeclaration? = null
@@ -1002,6 +1019,27 @@ class AwaitablePatternBinder {
         isCompleted = isCompletedSelection
         getResult = getResultSelection
         return true
+    }
+
+    static func IsSourceInterfaceType(candidate: TypeInfo, declarations: AnalyzerDeclarationContext): bool {
+        if candidate == null || declarations == null {
+            return false
+        }
+        resolved := declarations.ResolveDeclaredAlias(candidate)
+        if resolved as InterfaceTypeInfo != null && declarations.ContainsSourceType(resolved) {
+            return true
+        }
+        constructed := resolved as GenericTypeInfo
+        genericDefinition := constructed == null ? null : constructed.GenericDefinition
+        return genericDefinition != null && genericDefinition as InterfaceTypeInfo != null && declarations.ContainsSourceType(genericDefinition)
+    }
+
+    static func IsSourceInterfaceTypeInfo(candidate: TypeInfo): bool {
+        if candidate as InterfaceTypeInfo != null {
+            return true
+        }
+        constructed := candidate as GenericTypeInfo
+        return constructed != null && constructed.GenericDefinition as InterfaceTypeInfo != null
     }
 
     // A source-derived class can inherit its exact completion interface implementation from a
@@ -1147,7 +1185,7 @@ class AwaitablePatternBinder {
     // through the same selected slot: match the slot's exact signature, prefer an explicit source
     // implementation whose qualifier resolves to that interface, then use a public implicit
     // implementation. The emitted path calls the runtime interface slot directly.
-    static func FindSourceInterfaceImplementationOnDeclaration(owner: Declaration, sourceSlot: FunctionDeclaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo?, semanticModel: SemanticModel): FunctionDeclaration? {
+    static func FindSourceInterfaceImplementationOnDeclaration(owner: Declaration, sourceSlot: FunctionDeclaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo?, semanticModel: SemanticModel, sourceTypes: IReadOnlyDictionary<string, Declaration>? = null): FunctionDeclaration? {
         if owner == null || semanticModel == null || sourceSlot == null && runtimeSlot == null {
             return null
         }
@@ -1164,33 +1202,358 @@ class AwaitablePatternBinder {
         if expectedInterface == null && runtimeSlot != null && runtimeSlot.DeclaringType != null {
             expectedInterface = new ReflectionTypeInfo(runtimeSlot.DeclaringType)
         }
-        members := SourceMembers(owner)
-        if members == null {
+        if expectedInterface == null {
             return null
         }
-
-        for member in members {
-            function := member as FunctionDeclaration
-            if function == null || !ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) || ExplicitInterfaceMemberFacts.SimpleNameOf(function.Name) != methodName || !SourceFunctionMatchesInterfaceSlot(function, sourceSlot, runtimeSlot, semanticModel) {
+        selectedInterface := must expectedInterface
+        declarations := SourceDeclarationChain(owner, sourceTypes, semanticModel)
+        for declaration in declarations {
+            members := SourceMembers(declaration)
+            if members == null {
                 continue
             }
-            qualifier := ExplicitInterfaceMemberFacts.QualifierOf(function.Name)
-            if SourceQualifierResolvesToType(semanticModel, qualifier, expectedInterface) {
-                return function
+            for member in members {
+                function := member as FunctionDeclaration
+                if function == null || !ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) || ExplicitInterfaceMemberFacts.SimpleNameOf(function.Name) != methodName || !SourceFunctionMatchesInterfaceSlot(function, sourceSlot, runtimeSlot, selectedInterface, semanticModel) {
+                    continue
+                }
+                qualifier := ExplicitInterfaceMemberFacts.QualifierOf(function.Name)
+                if SourceDeclarationQualifierMapsToSlot(owner, qualifier, selectedInterface, sourceTypes, semanticModel) {
+                    return function
+                }
             }
         }
 
-        for member in members {
-            function := member as FunctionDeclaration
-            if function == null || ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) || function.Name != methodName || !IsPublicSourceFunction(function) || !SourceFunctionMatchesInterfaceSlot(function, sourceSlot, runtimeSlot, semanticModel) {
+        for declaration in declarations {
+            members := SourceMembers(declaration)
+            if members == null {
                 continue
             }
-            return function
+            for member in members {
+                function := member as FunctionDeclaration
+                if function == null || ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) || function.Name != methodName || !IsPublicSourceFunction(function) || !SourceFunctionMatchesInterfaceSlot(function, sourceSlot, runtimeSlot, selectedInterface, semanticModel) {
+                    continue
+                }
+                return function
+            }
         }
         return null
     }
 
-    static func SourceFunctionMatchesInterfaceSlot(function: FunctionDeclaration, sourceSlot: FunctionDeclaration?, runtimeSlot: MethodInfo?, semanticModel: SemanticModel): bool {
+    static func FindSourceInterfacePropertyImplementationOnDeclaration(owner: Declaration, sourceSlot: Declaration, slotOwnerType: TypeInfo, semanticModel: SemanticModel, sourceTypes: IReadOnlyDictionary<string, Declaration>? = null): Declaration? {
+        if owner == null || sourceSlot == null || slotOwnerType == null || semanticModel == null {
+            return null
+        }
+        slotName := SourceAwaiterMemberName(sourceSlot)
+        slotType := SourceAwaiterMemberType(sourceSlot)
+        if slotName == null || slotType == null {
+            return null
+        }
+        slotSubstitution := AnalyzerSourceAwaitSubstitution(slotOwnerType)
+        expectedType: TypeInfo = BuiltInTypes.Unknown
+        if !TryResolveSourceTypeReference(semanticModel, slotType, out expectedType) {
+            return null
+        }
+        expectedType = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expectedType, slotSubstitution)
+        declarations := SourceDeclarationChain(owner, sourceTypes, semanticModel)
+        for declaration in declarations {
+            members := SourceMembers(declaration)
+            if members == null {
+                continue
+            }
+            for member in members {
+                property := member as PropertyDeclaration
+                if property == null || !ExplicitInterfaceMemberFacts.IsExplicitMemberName(property.Name) || ExplicitInterfaceMemberFacts.SimpleNameOf(property.Name) != slotName || !SourcePropertyMatchesInterfaceSlot(property, expectedType, semanticModel) {
+                    continue
+                }
+                qualifier := ExplicitInterfaceMemberFacts.QualifierOf(property.Name)
+                if SourceDeclarationQualifierMapsToSlot(owner, qualifier, slotOwnerType, sourceTypes, semanticModel) {
+                    return property
+                }
+            }
+        }
+        for declaration in declarations {
+            members := SourceMembers(declaration)
+            if members == null {
+                continue
+            }
+            for member in members {
+                property := member as PropertyDeclaration
+                if property == null || ExplicitInterfaceMemberFacts.IsExplicitMemberName(property.Name) || property.Name != slotName || !IsPublicSourceProperty(property) || !SourcePropertyMatchesInterfaceSlot(property, expectedType, semanticModel) {
+                    continue
+                }
+                return property
+            }
+        }
+        return null
+    }
+
+    static func SourceAwaiterMemberName(member: Declaration): string? {
+        field := member as FieldDeclaration
+        if field != null {
+            return field.Name
+        }
+        property := member as PropertyDeclaration
+        if property != null {
+            return property.Name
+        }
+        return null
+    }
+
+    static func SourceAwaiterMemberType(member: Declaration): TypeReference? {
+        field := member as FieldDeclaration
+        if field != null {
+            return field.Type
+        }
+        property := member as PropertyDeclaration
+        if property != null {
+            return property.Type
+        }
+        return null
+    }
+
+    static func SourcePropertyMatchesInterfaceSlot(property: PropertyDeclaration, expectedType: TypeInfo, semanticModel: SemanticModel): bool {
+        if property == null || property.Type == null || expectedType == null || semanticModel == null {
+            return false
+        }
+        actualType: TypeInfo = BuiltInTypes.Unknown
+        return TryResolveSourceTypeReference(semanticModel, property.Type, out actualType) && SourceInterfaceSlotTypesMatch(actualType, expectedType)
+    }
+
+    static func IsPublicSourceProperty(property: PropertyDeclaration): bool {
+        if property == null {
+            return false
+        }
+        modifiers := Convert.ToInt32(property.Modifiers)
+        return (modifiers & Convert.ToInt32(Modifiers.Private)) == 0 && (modifiers & Convert.ToInt32(Modifiers.Protected)) == 0
+    }
+
+    static func SourceDeclarationChain(owner: Declaration, sourceTypes: IReadOnlyDictionary<string, Declaration>?, semanticModel: SemanticModel): List<Declaration> {
+        chain := new List<Declaration>()
+        if owner == null {
+            return chain
+        }
+        current: Declaration? = owner
+        depth := 0
+        while current != null && depth < 32 {
+            chain.Add(current)
+            baseReference: TypeReference? = null
+            classDeclaration := current as ClassDeclaration
+            if classDeclaration != null {
+                baseReference = classDeclaration.BaseClass
+            }
+            if baseReference == null || sourceTypes == null || semanticModel == null {
+                break
+            }
+            baseType: TypeInfo = BuiltInTypes.Unknown
+            if !TryResolveSourceTypeReference(semanticModel, baseReference, out baseType) {
+                break
+            }
+            sourceBase := SourceDeclarationForTypeInfo(baseType, sourceTypes)
+            if sourceBase == null || sourceBase == current {
+                break
+            }
+            current = sourceBase
+            depth += 1
+        }
+        return chain
+    }
+
+    static func SourceDeclarationForTypeInfo(typeInfo: TypeInfo, sourceTypes: IReadOnlyDictionary<string, Declaration>): Declaration? {
+        if typeInfo == null || sourceTypes == null {
+            return null
+        }
+        candidate := typeInfo
+        constructed := typeInfo as GenericTypeInfo
+        if constructed != null && constructed.GenericDefinition != null {
+            candidate = constructed.GenericDefinition
+        }
+        name := AnalyzerDeclarationContext.TypeName(candidate)
+        declaration: Declaration? = null
+        if sourceTypes.TryGetValue(name, out declaration) {
+            return declaration
+        }
+        return null
+    }
+
+    static func SourceDeclarationQualifierMapsToSlot(owner: Declaration, qualifier: string, slotOwnerType: TypeInfo, sourceTypes: IReadOnlyDictionary<string, Declaration>?, semanticModel: SemanticModel): bool {
+        if owner == null || qualifier == null || qualifier.Length == 0 || slotOwnerType == null || semanticModel == null {
+            return false
+        }
+        let rootType: TypeInfo? = null
+        if sourceTypes != null {
+            ownerName := SourceDeclarationName(owner)
+            ownerArity := SourceDeclarationArity(owner)
+            if ownerName != null {
+                key := TypeArityNames.Key(ownerName, ownerArity)
+                semanticModel.TypesByIdentity.TryGetValue(key, out rootType)
+                if rootType == null && ownerArity == 0 {
+                    semanticModel.Types.TryGetValue(ownerName, out rootType)
+                }
+            }
+        }
+        if rootType != null && SourceTypeClosureContainsQualifier(rootType, qualifier, slotOwnerType, semanticModel, 0) {
+            return true
+        }
+        return SourceQualifierResolvesToType(semanticModel, qualifier, slotOwnerType)
+    }
+
+    static func SourceDeclarationName(declaration: Declaration): string? {
+        classDeclaration := declaration as ClassDeclaration
+        if classDeclaration != null {
+            return classDeclaration.Name
+        }
+        interfaceDeclaration := declaration as InterfaceDeclaration
+        if interfaceDeclaration != null {
+            return interfaceDeclaration.Name
+        }
+        structDeclaration := declaration as StructDeclaration
+        if structDeclaration != null {
+            return structDeclaration.Name
+        }
+        recordDeclaration := declaration as RecordDeclaration
+        if recordDeclaration != null {
+            return recordDeclaration.Name
+        }
+        return null
+    }
+
+    static func SourceDeclarationArity(declaration: Declaration): int {
+        classDeclaration := declaration as ClassDeclaration
+        if classDeclaration != null {
+            return classDeclaration.TypeParameters == null ? 0 : classDeclaration.TypeParameters.Count
+        }
+        interfaceDeclaration := declaration as InterfaceDeclaration
+        if interfaceDeclaration != null {
+            return interfaceDeclaration.TypeParameters == null ? 0 : interfaceDeclaration.TypeParameters.Count
+        }
+        structDeclaration := declaration as StructDeclaration
+        if structDeclaration != null {
+            return structDeclaration.TypeParameters == null ? 0 : structDeclaration.TypeParameters.Count
+        }
+        recordDeclaration := declaration as RecordDeclaration
+        if recordDeclaration != null {
+            return recordDeclaration.TypeParameters == null ? 0 : recordDeclaration.TypeParameters.Count
+        }
+        return 0
+    }
+
+    static func SourceTypeClosureContainsQualifier(typeInfo: TypeInfo, qualifier: string, expectedType: TypeInfo, semanticModel: SemanticModel, depth: int): bool {
+        if typeInfo == null || expectedType == null || semanticModel == null || depth > 32 {
+            return false
+        }
+        if TypeInfoIdentityFacts.AreEqual(typeInfo, expectedType) {
+            return false
+        }
+        reflected := typeInfo as ReflectionTypeInfo
+        if reflected != null {
+            expectedReflection := expectedType as ReflectionTypeInfo
+            for implemented in reflected.Type.GetInterfaces() {
+                if expectedReflection != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(implemented, expectedReflection.Type) && (implemented.Name == qualifier || implemented.FullName == qualifier) {
+                    return true
+                }
+                if SourceTypeClosureContainsQualifier(new ReflectionTypeInfo(implemented), qualifier, expectedType, semanticModel, depth + 1) {
+                    return true
+                }
+            }
+            baseType := reflected.Type.BaseType
+            return baseType != null && SourceTypeClosureContainsQualifier(new ReflectionTypeInfo(baseType), qualifier, expectedType, semanticModel, depth + 1)
+        }
+        constructed := typeInfo as GenericTypeInfo
+        substitution := AnalyzerSourceAwaitSubstitution(typeInfo)
+        if constructed != null && constructed.GenericDefinition != null {
+            typeInfo = constructed.GenericDefinition
+        }
+        references := SourceTypeReferences(typeInfo)
+        if references == null {
+            return false
+        }
+        for reference in references {
+            resolved: TypeInfo = BuiltInTypes.Unknown
+            if !TryResolveSourceTypeReference(semanticModel, reference, out resolved) {
+                continue
+            }
+            resolved = AnalyzerSyntheticCallFacts.ApplyGenericBindings(resolved, substitution)
+            if SourceQualifierIdentifiesResolvedReference(semanticModel, reference, qualifier, resolved) && SourceTypeIncludesInterface(resolved, expectedType, semanticModel, 0) {
+                return true
+            }
+            if SourceTypeClosureContainsQualifier(resolved, qualifier, expectedType, semanticModel, depth + 1) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func SourceTypeIncludesInterface(typeInfo: TypeInfo, expectedType: TypeInfo, semanticModel: SemanticModel, depth: int): bool {
+        if typeInfo == null || expectedType == null || semanticModel == null || depth > 32 {
+            return false
+        }
+        if TypeInfoIdentityFacts.AreEqual(typeInfo, expectedType) {
+            return true
+        }
+        reflected := typeInfo as ReflectionTypeInfo
+        if reflected != null {
+            expectedReflection := expectedType as ReflectionTypeInfo
+            if expectedReflection != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(reflected.Type, expectedReflection.Type) {
+                return true
+            }
+            for implemented in reflected.Type.GetInterfaces() {
+                if expectedReflection != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(implemented, expectedReflection.Type) {
+                    return true
+                }
+            }
+            return false
+        }
+        constructed := typeInfo as GenericTypeInfo
+        substitution := AnalyzerSourceAwaitSubstitution(typeInfo)
+        if constructed != null && constructed.GenericDefinition != null {
+            typeInfo = constructed.GenericDefinition
+        }
+        references := SourceTypeReferences(typeInfo)
+        if references == null {
+            return false
+        }
+        for reference in references {
+            resolved: TypeInfo = BuiltInTypes.Unknown
+            if TryResolveSourceTypeReference(semanticModel, reference, out resolved) {
+                resolved = AnalyzerSyntheticCallFacts.ApplyGenericBindings(resolved, substitution)
+                if SourceTypeIncludesInterface(resolved, expectedType, semanticModel, depth + 1) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    static func SourceTypeReferences(typeInfo: TypeInfo): List<TypeReference>? {
+        references := new List<TypeReference>()
+        classType := typeInfo as ClassTypeInfo
+        if classType != null {
+            if classType.BaseClass != null {
+                references.Add(classType.BaseClass)
+            }
+            references.AddRange(classType.Interfaces)
+            return references
+        }
+        structType := typeInfo as StructTypeInfo
+        if structType != null {
+            references.AddRange(structType.Interfaces)
+            return references
+        }
+        recordType := typeInfo as RecordTypeInfo
+        if recordType != null {
+            references.AddRange(recordType.Interfaces)
+            return references
+        }
+        interfaceType := typeInfo as InterfaceTypeInfo
+        if interfaceType != null {
+            references.AddRange(interfaceType.BaseInterfaces)
+            return references
+        }
+        return null
+    }
+
+    static func SourceFunctionMatchesInterfaceSlot(function: FunctionDeclaration, sourceSlot: FunctionDeclaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo?, semanticModel: SemanticModel): bool {
         if function == null || semanticModel == null || sourceSlot == null && runtimeSlot == null || function.TypeParameters != null && function.TypeParameters.Count != 0 {
             return false
         }
@@ -1205,6 +1568,10 @@ class AwaitablePatternBinder {
         }
         if function.Parameters.Count != slotParameterCount {
             return false
+        }
+        slotSubstitution: Dictionary<string, TypeInfo>? = null
+        if slotOwnerType != null {
+            slotSubstitution = AnalyzerSourceAwaitSubstitution(slotOwnerType)
         }
         index := 0
         while index < slotParameterCount {
@@ -1226,6 +1593,7 @@ class AwaitablePatternBinder {
                 }
                 expectedParameter = AnalyzerReflectionTypeConversion.ConvertReflectionType(runtimeSlot.GetParameters()[index].ParameterType)
             }
+            expectedParameter = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expectedParameter, slotSubstitution)
             if !SourceInterfaceSlotTypesMatch(actualParameter, expectedParameter) {
                 return false
             }
@@ -1247,6 +1615,7 @@ class AwaitablePatternBinder {
             }
             expectedReturn = AnalyzerReflectionTypeConversion.ConvertReflectionType(runtimeSlot.ReturnType)
         }
+        expectedReturn = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expectedReturn, slotSubstitution)
         return SourceInterfaceSlotTypesMatch(actualReturn, expectedReturn)
     }
 
