@@ -22727,6 +22727,20 @@ test "an applicable instance GetAwaiter with an invalid result blocks extension 
     assert anchor != "<no-such-code>" && anchor.Contains("@"), anchor
 }
 
+test "an applicable optional instance GetAwaiter blocks a valid extension while extension-only await remains valid" {
+    source := "import System\nimport System.Runtime.CompilerServices\nimport System.Threading.Tasks\n\nclass ContractAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(): int { return 61 }\n    func OnCompleted(continuation: Action) { continuation() }\n}\n\nclass OptionalInstanceCompetesAwaitable {\n    func GetAwaiter(fallback: int = 0): int { return fallback }\n}\n\nfunc GetAwaiter(this value: OptionalInstanceCompetesAwaitable): ContractAwaiter {\n    return new ContractAwaiter()\n}\n\nclass ExtensionOnlyAwaitable {}\n\nfunc GetAwaiter(this value: ExtensionOnlyAwaitable): ContractAwaiter {\n    return new ContractAwaiter()\n}\n\nasync func InvalidUse(value: OptionalInstanceCompetesAwaitable): Task<int> {\n    return await value\n}\n\nasync func ExtensionControl(value: ExtensionOnlyAwaitable): Task<int> {\n    return await value\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+
+    analysis := AcAnalyze(source)
+
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1, AcCensus(analysis)
+    row := AcRow(analysis, 0)
+    assert row.Contains("await expression cannot use") && row.Contains("GetAwaiter()") && row.Contains("INotifyCompletion"), row
+    anchor := AcCodeAnchor(analysis, "TypeMismatch")
+    assert anchor != "<no-such-code>" && anchor.Contains("@"), anchor
+}
+
 test "await diagnoses optional and params GetAwaiter patterns after selecting the ordinary invocation" {
     source := "import System\nimport System.Runtime.CompilerServices\nimport System.Threading.Tasks\n\nclass ContractAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(): int { return 1 }\n    func OnCompleted(continuation: Action) { continuation() }\n}\n\nclass OptionalInstanceAwaitable {\n    func GetAwaiter(fallback: int = 0): ContractAwaiter { return new ContractAwaiter() }\n}\nclass ParamsInstanceAwaitable {\n    func GetAwaiter(params ignored: int[]): ContractAwaiter { return new ContractAwaiter() }\n}\nclass OptionalExtensionAwaitable {}\nclass ParamsExtensionAwaitable {}\nfunc GetAwaiter(this value: OptionalExtensionAwaitable, fallback: int = 0): ContractAwaiter { return new ContractAwaiter() }\nfunc GetAwaiter(this value: ParamsExtensionAwaitable, params ignored: int[]): ContractAwaiter { return new ContractAwaiter() }\n\nclass OptionalResultAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(fallback: int = 0): int { return fallback }\n    func OnCompleted(continuation: Action) { continuation() }\n}\nclass ParamsResultAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(params ignored: int[]): int { return ignored.Length }\n    func OnCompleted(continuation: Action) { continuation() }\n}\nclass OptionalResultAwaitable { func GetAwaiter(): OptionalResultAwaiter { return new OptionalResultAwaiter() } }\nclass ParamsResultAwaitable { func GetAwaiter(): ParamsResultAwaiter { return new ParamsResultAwaiter() } }\n\nasync func OptionalInstance(value: OptionalInstanceAwaitable): Task<int> { return await value }\nasync func ParamsInstance(value: ParamsInstanceAwaitable): Task<int> { return await value }\nasync func OptionalExtension(value: OptionalExtensionAwaitable): Task<int> { return await value }\nasync func ParamsExtension(value: ParamsExtensionAwaitable): Task<int> { return await value }\nasync func OptionalResult(value: OptionalResultAwaitable): Task<int> { return await value }\nasync func ParamsResult(value: ParamsResultAwaitable): Task<int> { return await value }\n"
     assert AcParseCensus(source) == ""

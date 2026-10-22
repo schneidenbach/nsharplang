@@ -536,24 +536,13 @@ internal sealed class PlaygroundRunner {
         }
 
         target := await EvaluateAsync(member.Object, environment, depth)
-        if member.MemberName == "ConfigureAwait" && arguments.Length == 1 {
-            if target != null {
-                configureAwait: MethodInfo? = null
-                for candidate in target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance) {
-                    parameters := candidate.GetParameters()
-                    if candidate.Name == "ConfigureAwait" && !candidate.IsGenericMethod && parameters.Length == 1 && parameters[0].ParameterType == typeof(bool) {
-                        configureAwait = candidate
-                        break
-                    }
-                }
-                if configureAwait != null {
-                    try {
-                        return configureAwait.Invoke(target, arguments)
-                    } catch invocationFailure: TargetInvocationException {
-                        RethrowInvocationFailure(invocationFailure)
-                    }
-                }
+        if member.MemberName == "ConfigureAwait" {
+            selectedBinding: AnalyzerInvocationBinding? = null
+            semanticModel := environment.SemanticModel
+            if semanticModel == null || !semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) || selectedBinding == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("ConfigureAwait has no analyzer-selected invocation binding"))
             }
+            return InvokeBoundConfigureAwait(selectedBinding, target, arguments, depth)
         }
         runtimeObject := target as RuntimeObject
         if runtimeObject != null {
@@ -580,6 +569,60 @@ internal sealed class PlaygroundRunner {
         }
 
         return CallClrLikeMember(target, member.MemberName, arguments)
+    }
+
+    private func InvokeBoundConfigureAwait(binding: AnalyzerInvocationBinding, target: object?, arguments: object?[], depth: int): object? {
+        sourceFunctionType := binding.SourceFunction
+        if sourceFunctionType != null {
+            function := sourceFunctionType.SourceDeclaration
+            if function == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected source ConfigureAwait has no declaration"))
+            }
+            invocationArguments := binding.IsExtension ? PrependRuntimeArgument(target, arguments) : arguments
+            receiver := binding.IsExtension ? null : target as RuntimeObject
+            if !binding.IsExtension && receiver == null && !sourceFunctionType.SourceIsStatic {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected source ConfigureAwait has no runtime receiver"))
+            }
+            if AnalyzerAmbientContext.HasModifier(function, Modifiers.Async) {
+                return InvokeAsyncFunctionValue(function, invocationArguments, receiver, depth)
+            }
+            return InvokeFunction(function, invocationArguments, receiver, depth)
+        }
+
+        selectedMethod := binding.ReflectedMethod
+        if selectedMethod == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("ConfigureAwait has no selected method"))
+        }
+        runtimeMethod: MethodInfo? = null
+        invocationReceiver: object? = target
+        invocationArguments := arguments
+        if binding.IsExtension {
+            runtimeMethod = SelectedRuntimeClosedExtensionMethodFor(selectedMethod)
+            invocationReceiver = null
+            invocationArguments = PrependRuntimeArgument(target, arguments)
+        } else if target != null {
+            runtimeMethod = SelectedRuntimeMethodFor(selectedMethod, target.GetType())
+        }
+        if runtimeMethod == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected ConfigureAwait method has no runtime metadata match"))
+        }
+        try {
+            return runtimeMethod.Invoke(invocationReceiver, invocationArguments)
+        } catch invocationFailure: TargetInvocationException {
+            RethrowInvocationFailure(invocationFailure)
+        }
+        return null
+    }
+
+    private static func PrependRuntimeArgument(receiver: object?, arguments: object?[]): object?[] {
+        result := new object?[](arguments.Length + 1)
+        result[0] = receiver
+        index := 0
+        while index < arguments.Length {
+            result[index + 1] = arguments[index]
+            index += 1
+        }
+        return result
     }
 
     private func InvokeAsyncFunctionValue(function: FunctionDeclaration, arguments: IReadOnlyList<object?>, receiver: RuntimeObject?, depth: int): object {
@@ -769,6 +812,26 @@ internal sealed class PlaygroundRunner {
             }
         }
         return null
+    }
+
+    private static func SelectedRuntimeClosedExtensionMethodFor(selected: MethodInfo?): MethodInfo? {
+        if selected == null || !selected.IsStatic {
+            return null
+        }
+        if !selected.IsGenericMethod {
+            return SelectedRuntimeExtensionMethodFor(selected, new NSharpLang.Compiler.TypeInfo[](0))
+        }
+        if selected.IsGenericMethodDefinition {
+            return null
+        }
+        genericArguments := selected.GetGenericArguments()
+        typeArguments := new NSharpLang.Compiler.TypeInfo[](genericArguments.Length)
+        index := 0
+        while index < genericArguments.Length {
+            typeArguments[index] = new NSharpLang.Compiler.ReflectionTypeInfo(genericArguments[index])
+            index += 1
+        }
+        return SelectedRuntimeExtensionMethodFor(selected.GetGenericMethodDefinition(), typeArguments)
     }
 
     private static func TryResolvePlaygroundRuntimeType(typeInfo: NSharpLang.Compiler.TypeInfo, out runtimeType: Type): bool {

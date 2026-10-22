@@ -75,6 +75,20 @@ class CallAnalysisRequest {
     }
 }
 
+// The analyzer-selected target of a source invocation. Runtime consumers use this member identity
+// directly; they must not choose another overload from the runtime object's reflected surface.
+class AnalyzerInvocationBinding {
+    SourceFunction: FunctionTypeInfo?
+    ReflectedMethod: MethodInfo?
+    IsExtension: bool
+
+    constructor(sourceFunction: FunctionTypeInfo?, reflectedMethod: MethodInfo?, isExtension: bool) {
+        SourceFunction = sourceFunction
+        ReflectedMethod = reflectedMethod
+        IsExtension = isExtension
+    }
+}
+
 // THE CALL WALK'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
 //
 // `Phase` is the walk's program counter and `Pending` names the answer it is waiting for. Everything
@@ -96,6 +110,9 @@ class CallAnalysisState {
     SyntheticExpectedBindings: Dictionary<string, TypeInfo>?
     GroupFunctions: List<FunctionTypeInfo>?
     BoundFunction: FunctionTypeInfo?
+    SelectedSourceFunction: FunctionTypeInfo?
+    SelectedReflectedMethod: MethodInfo?
+    SelectedInvocationIsExtension: bool
     ReceiverType: TypeInfo?
     SourceInstanceExtensionFallbackTried: bool
     ParameterStartIndex: int
@@ -142,6 +159,7 @@ class CallAnalysisState {
     // protocol. `ReflectionErrorsBefore` is the rollback mark for the candidate currently being
     // finalised, and it is re-taken for each candidate.
     ReflectionSingleMethod: MethodInfo?
+    ReflectionIsExtension: bool
     ReflectionMethodGroup: ReflectionMethodGroupInfo?
     ReflectionReceiverTypeInfo: TypeInfo?
     ReflectionReceiverClrType: Type?
@@ -193,6 +211,9 @@ class CallAnalysisState {
         SyntheticExpectedBindings = null
         GroupFunctions = null
         BoundFunction = null
+        SelectedSourceFunction = null
+        SelectedReflectedMethod = null
+        SelectedInvocationIsExtension = false
         ReceiverType = null
         SourceInstanceExtensionFallbackTried = false
         ParameterStartIndex = 0
@@ -211,6 +232,7 @@ class CallAnalysisState {
         RefOutSavedSuppressedFlowTypeNode = null
         RefOutExpressionTypes = null
         ReflectionSingleMethod = null
+        ReflectionIsExtension = false
         ReflectionMethodGroup = null
         ReflectionReceiverTypeInfo = null
         ReflectionReceiverClrType = null
@@ -319,6 +341,19 @@ class AnalyzerCallAnalysis {
 
     func BeginCall(call: CallExpression): CallAnalysisState {
         return new CallAnalysisState(call)
+    }
+
+    func CreateInvocationBinding(state: CallAnalysisState): AnalyzerInvocationBinding? {
+        if state == null {
+            return null
+        }
+        if state.SelectedSourceFunction != null {
+            return new AnalyzerInvocationBinding(state.SelectedSourceFunction, null, state.SelectedInvocationIsExtension)
+        }
+        if state.SelectedReflectedMethod != null {
+            return new AnalyzerInvocationBinding(null, state.SelectedReflectedMethod, state.SelectedInvocationIsExtension)
+        }
+        return null
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when the call's type is decided. Every phase
@@ -1554,6 +1589,8 @@ class AnalyzerCallAnalysis {
             terminatingCalls.Commit(state.Call, finalizeState.TerminatingMethodFacts, terminatingGuardArgument, finalizeState.TerminatingGuardFacts)
 
             state.NotNullIfNotNullArgumentIndex = finalizeState.NotNullIfNotNullArgumentIndex
+            state.SelectedReflectedMethod = finalizeState.RuntimeMethod
+            state.SelectedInvocationIsExtension = state.ReflectionIsExtension
             return CompleteReflectionBind(state, bound)
         }
 
@@ -2640,6 +2677,7 @@ class AnalyzerCallAnalysis {
         if singleMethod != null {
             state.CandidateMethods.Add(singleMethod.Method)
             state.ReflectionSingleMethod = singleMethod.Method
+            state.ReflectionIsExtension = singleMethod.IsExtension
             state.Phase = 30
             return null
         }
@@ -2652,6 +2690,7 @@ class AnalyzerCallAnalysis {
             }
 
             state.ReflectionMethodGroup = methodGroup
+            state.ReflectionIsExtension = methodGroup.IsExtension
             state.Phase = 30
             return null
         }
@@ -2780,6 +2819,8 @@ class AnalyzerCallAnalysis {
         }
 
         state.Result = syntheticCallValidator.ResolveReturnType(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+        state.SelectedSourceFunction = functionType
+        state.SelectedInvocationIsExtension = functionType.SourceHasReceiverParameter
         state.Phase = 99
         return null
     }
@@ -2910,6 +2951,8 @@ class AnalyzerCallAnalysis {
         }
 
         state.Result = syntheticCallValidator.ResolveReturnType(boundFunction, state.Call, state.ArgTypes, state.ReceiverType)
+        state.SelectedSourceFunction = boundFunction
+        state.SelectedInvocationIsExtension = boundFunction.SourceHasReceiverParameter
         state.Phase = 99
         return null
     }
@@ -2968,6 +3011,8 @@ class AnalyzerCallAnalysis {
             if selected != null {
                 syntheticCallValidator.ValidateCall(selected, state.Call, state.ArgTypes, receiverType)
                 state.Result = syntheticCallValidator.ResolveReturnType(selected, state.Call, state.ArgTypes, receiverType)
+                state.SelectedSourceFunction = selected
+                state.SelectedInvocationIsExtension = true
                 state.Phase = 99
                 return null
             }

@@ -6,15 +6,24 @@ import System.Reflection
 class ReflectionMethodInfo: TypeInfo {
     Method: MethodInfo
     displayValue: string
+    IsExtension: bool
 
     constructor(method: MethodInfo) {
         Method = method
         displayValue = "method"
+        IsExtension = false
     }
 
     constructor(method: MethodInfo, displayText: string) {
         Method = method
         displayValue = displayText
+        IsExtension = false
+    }
+
+    constructor(method: MethodInfo, displayText: string, isExtension: bool) {
+        Method = method
+        displayValue = displayText
+        IsExtension = isExtension
     }
 
     override func ToString(): string {
@@ -25,6 +34,7 @@ class ReflectionMethodInfo: TypeInfo {
 class ReflectionMethodGroupInfo: TypeInfo {
     Methods: MethodInfo[]
     displayValue: string
+    IsExtension: bool
 
     // Whether this group was read off a SURROGATE instantiation — a constructed external generic
     // closed over a type the CLR has no handle for while it is being emitted, bound as `object`.
@@ -39,18 +49,28 @@ class ReflectionMethodGroupInfo: TypeInfo {
         Methods = methods
         displayValue = "method group"
         IsSurrogateBinding = false
+        IsExtension = false
     }
 
     constructor(methods: MethodInfo[], displayText: string) {
         Methods = methods
         displayValue = displayText
         IsSurrogateBinding = false
+        IsExtension = false
     }
 
     constructor(methods: MethodInfo[], displayText: string, surrogateBinding: bool) {
         Methods = methods
         displayValue = displayText
         IsSurrogateBinding = surrogateBinding
+        IsExtension = false
+    }
+
+    constructor(methods: MethodInfo[], displayText: string, surrogateBinding: bool, isExtension: bool) {
+        Methods = methods
+        displayValue = displayText
+        IsSurrogateBinding = surrogateBinding
+        IsExtension = isExtension
     }
 
     override func ToString(): string {

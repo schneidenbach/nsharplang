@@ -35,6 +35,8 @@ test('the WebAssembly playground executes async awaiter shapes with runtime sema
       {id: 'implicitDecoy', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadImplicitDecoy(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(66)`, result: 66},
       {id: 'publicExplicit', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadPublicAndExplicit(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(67)`, result: 67},
       {id: 'configured', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadConfigured(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(68)`, result: 68},
+      {id: 'sourceConfigured', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadSourceConfigured(${gate}.Task)`, completion: (gate) => `${gate}.SetResult(84)`, result: 84},
+      {id: 'reflectedConfigured', gateType: 'ReflectedConfiguredAwaitable', call: (gate) => `ReadReflectedConfigured(${gate})`, completion: (gate) => `${gate}.Complete(85)`, result: 85},
       {id: 'inheritedInterface', gateType: 'TaskCompletionSource<int>', call: (gate) => `ReadInheritedInterface(new InheritedInterfaceAwaitable(${gate}.Task))`, completion: (gate) => `${gate}.SetResult(72)`, result: 72},
       {id: 'plainTask', gateType: 'TaskCompletionSource', call: (gate) => `ReadPlainTask(${gate}.Task)`, completion: (gate) => `${gate}.SetResult()`, result: 69},
       {id: 'unitValueTask', gateType: 'TaskCompletionSource', call: (gate) => `ReadUnitValueTask(new ValueTask(${gate}.Task))`, completion: (gate) => `${gate}.SetResult()`, result: 70},
@@ -93,6 +95,14 @@ async func main() {
 import System.Runtime.CompilerServices
 import System.Threading.Tasks
 import NSharpLang.AsyncAwaitablePatternFixtures
+
+class SourceConfiguredAwaitable(source: Task<int>) {
+    func GetSource(): Task<int> { return source }
+}
+
+func ConfigureAwait(this value: SourceConfiguredAwaitable, _continueOnCapturedContext: bool): Task<int> {
+    return value.GetSource()
+}
 
 interface WrongCompletion {
     func OnCompleted(continuation: object)
@@ -286,6 +296,12 @@ async func ReadPublicAndExplicit(source: Task<int>): Task<int> {
     return await new PublicAndExplicitAwaitable(source)
 }
 async func ReadConfigured(source: Task<int>): Task<int> {
+    return await source.ConfigureAwait(false)
+}
+async func ReadSourceConfigured(source: Task<int>): Task<int> {
+    return await new SourceConfiguredAwaitable(source).ConfigureAwait(false)
+}
+async func ReadReflectedConfigured(source: ReflectedConfiguredAwaitable): Task<int> {
     return await source.ConfigureAwait(false)
 }
 async func ReadConstructorShapes(source: Task): Task<int> {
@@ -939,6 +955,16 @@ func GetAwaiter(this _value: InvalidInstanceAwaitable): ExtensionAwaiter {
 
 async func main() {
     print await new InvalidInstanceAwaitable()
+}
+`,
+      },
+      {
+        name: 'a referenced optional instance GetAwaiter blocks a valid extension',
+        expectedDiagnosticText: 'awaiter pattern is incomplete',
+        source: `import NSharpLang.AsyncAwaitablePatternFixtures
+
+async func main() {
+    print await new ReflectedOptionalInstanceCompetesBox()
 }
 `,
       },

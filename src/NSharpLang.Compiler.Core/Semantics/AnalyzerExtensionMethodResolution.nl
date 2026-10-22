@@ -272,7 +272,7 @@ class AnalyzerExtensionMethodResolution {
         if externalExtensions.Count == 1 {
             winner := externalExtensions[0]
             CreditExtensionNamespace(winner)
-            return new ReflectionMethodInfo(winner, winner.Name + "(...)")
+            return new ReflectionMethodInfo(winner, winner.Name + "(...)", true)
         }
 
         if externalExtensions.Count > 1 {
@@ -281,7 +281,7 @@ class AnalyzerExtensionMethodResolution {
                 CreditExtensionNamespace(externalExtension)
             }
 
-            return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), first.Name + "(...)")
+            return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), first.Name + "(...)", false, true)
         }
 
         return BuiltInTypes.Unknown

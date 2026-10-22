@@ -58,6 +58,45 @@ class ReflectedConstructorShapes {
     }
 }
 
+class ReflectedConfiguredAwaitable: INotifyCompletion {
+    private completed: bool
+    private result: int
+    private continuation: Action?
+
+    constructor() {
+        completed = false
+        result = 0
+        continuation = null
+    }
+
+    IsCompleted: bool { get { return completed } }
+
+    func GetAwaiter(): ReflectedConfiguredAwaitable {
+        return this
+    }
+
+    func GetResult(): int {
+        return result
+    }
+
+    func OnCompleted(continuation: Action) {
+        this.continuation = continuation
+    }
+
+    func Complete(value: int) {
+        result = value
+        completed = true
+        pending := continuation
+        if pending != null {
+            pending()
+        }
+    }
+}
+
+func ConfigureAwait(this value: ReflectedConfiguredAwaitable, _continueOnCapturedContext: bool): ReflectedConfiguredAwaitable {
+    return value
+}
+
 class ReflectedOptionalExtensionBox {}
 
 class ReflectedOptionalExtensionAwaiter: INotifyCompletion {
@@ -70,6 +109,16 @@ class ReflectedOptionalExtensionAwaiter: INotifyCompletion {
     func OnCompleted(continuation: Action) {
         continuation()
     }
+}
+
+class ReflectedOptionalInstanceCompetesBox {
+    func GetAwaiter(fallback: int = 0): int {
+        return fallback
+    }
+}
+
+func GetAwaiter(this _value: ReflectedOptionalInstanceCompetesBox): ReflectedOptionalExtensionAwaiter {
+    return new ReflectedOptionalExtensionAwaiter()
 }
 
 func GetAwaiter(this _value: ReflectedOptionalExtensionBox? = null): ReflectedOptionalExtensionAwaiter {

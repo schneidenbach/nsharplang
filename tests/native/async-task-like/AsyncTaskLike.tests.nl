@@ -347,6 +347,24 @@ test "ConfigureAwait(false) resumes without the captured single-thread context" 
     assert pending.Result
 }
 
+test "selected source ConfigureAwait extension resumes a pending task" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    pending := AwaitSourceExtensionConfigured(gate.Task)
+    assert !pending.IsCompleted
+
+    gate.SetResult(91)
+    assert pending.Result == 91
+}
+
+test "selected referenced ConfigureAwait extension resumes a pending task" {
+    configured := new ReflectedConfiguredAwaitable()
+    pending := AwaitReflectedExtensionConfigured(configured)
+    assert !pending.IsCompleted
+
+    configured.Complete(92)
+    assert pending.Result == 92
+}
+
 test "a critical awaiter registers with UnsafeOnCompleted" {
     gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
     trace := new List<string>()

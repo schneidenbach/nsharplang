@@ -65,6 +65,7 @@ class SemanticModel {
     typeReferenceTypesValue: Dictionary<(Line: int, Column: int), TypeInfo>
     awaitablePatternsValue: Dictionary<(Line: int, Column: int), AnalyzerAwaitablePatternBinding>
     constructionBindingsValue: Dictionary<(Line: int, Column: int), AnalyzerConstructionBinding>
+    invocationBindingsValue: Dictionary<(Line: int, Column: int), AnalyzerInvocationBinding>
     variablesValue: Dictionary<string, TypeInfo>
     functionsValue: Dictionary<string, TypeInfo>
     propertiesValue: Dictionary<string, TypeInfo>
@@ -81,6 +82,7 @@ class SemanticModel {
         typeReferenceTypesValue = new Dictionary<(Line: int, Column: int), TypeInfo>()
         awaitablePatternsValue = new Dictionary<(Line: int, Column: int), AnalyzerAwaitablePatternBinding>()
         constructionBindingsValue = new Dictionary<(Line: int, Column: int), AnalyzerConstructionBinding>()
+        invocationBindingsValue = new Dictionary<(Line: int, Column: int), AnalyzerInvocationBinding>()
         variablesValue = new Dictionary<string, TypeInfo>()
         functionsValue = new Dictionary<string, TypeInfo>()
         propertiesValue = new Dictionary<string, TypeInfo>()
@@ -96,6 +98,7 @@ class SemanticModel {
     TypeReferenceTypes: Dictionary<(Line: int, Column: int), TypeInfo> => typeReferenceTypesValue
     AwaitablePatterns: Dictionary<(Line: int, Column: int), AnalyzerAwaitablePatternBinding> => awaitablePatternsValue
     ConstructionBindings: Dictionary<(Line: int, Column: int), AnalyzerConstructionBinding> => constructionBindingsValue
+    InvocationBindings: Dictionary<(Line: int, Column: int), AnalyzerInvocationBinding> => invocationBindingsValue
     Variables: Dictionary<string, TypeInfo> => variablesValue
     Functions: Dictionary<string, TypeInfo> => functionsValue
     Properties: Dictionary<string, TypeInfo> => propertiesValue
@@ -210,6 +213,20 @@ class SemanticModel {
             return false
         }
         return constructionBindingsValue.TryGetValue((Line: line, Column: column), out binding) && binding != null
+    }
+
+    func RecordInvocationBinding(line: int, column: int, binding: AnalyzerInvocationBinding) {
+        if line > 0 && column > 0 && binding != null {
+            invocationBindingsValue[(Line: line, Column: column)] = binding
+        }
+    }
+
+    func TryGetInvocationBindingAt(line: int, column: int, out binding: AnalyzerInvocationBinding?): bool {
+        binding = null
+        if line < 1 || column < 1 {
+            return false
+        }
+        return invocationBindingsValue.TryGetValue((Line: line, Column: column), out binding) && binding != null
     }
 
     func RecordAwaitablePattern(line: int, column: int, binding: AnalyzerAwaitablePatternBinding) {

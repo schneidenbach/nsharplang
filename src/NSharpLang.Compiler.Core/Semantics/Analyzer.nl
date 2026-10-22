@@ -2196,6 +2196,10 @@ class Analyzer: IDisposable {
             CallAnalysis.SupplyCallStep(state, answer, handled)
             step = CallAnalysis.NextCallStep(state)
         }
+        invocationBinding := CallAnalysis.CreateInvocationBinding(state)
+        if invocationBinding != null {
+            SemanticModel.RecordInvocationBinding(call.Line, call.Column, invocationBinding)
+        }
         return state.Result
     }
 

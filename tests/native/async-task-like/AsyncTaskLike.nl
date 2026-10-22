@@ -608,6 +608,24 @@ async func ObserveConfiguredContext(gate: Task<int>, expected: SingleThreadTestC
     return !expected.IsCurrent()
 }
 
+class SourceConfiguredAwaitable(source: Task<int>) {
+    func GetSource(): Task<int> {
+        return source
+    }
+}
+
+func ConfigureAwait(this value: SourceConfiguredAwaitable, _continueOnCapturedContext: bool): Task<int> {
+    return value.GetSource()
+}
+
+async func AwaitSourceExtensionConfigured(source: Task<int>): Task<int> {
+    return await new SourceConfiguredAwaitable(source).ConfigureAwait(false)
+}
+
+async func AwaitReflectedExtensionConfigured(source: ReflectedConfiguredAwaitable): Task<int> {
+    return await source.ConfigureAwait(false)
+}
+
 async func ReadReflectedConstructorShapesAfterGate(gate: Task): Task<int> {
     await gate
     optional := new ReflectedConstructorShapes(1)
