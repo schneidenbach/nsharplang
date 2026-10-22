@@ -183,6 +183,7 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 ### Compiler Diagnostics (900-999)
 
 Under the near-zero-warnings policy these are build-blocking **errors**, not warnings:
+- `NL908`: RefArgumentForInWarning — the one active warning in this range; a `ref` argument for an `in` parameter is accepted under C# 12 rules, and the call reports the warning after overload selection. `NL904` remains retired as ObsoleteUsage and is never reused.
 - `NL903`: VisibilityConvention (promoted from warning to error)
 - `NL905`: PossibleNullAccess — flow-based; unguarded nullable dereference/index/call is an error. Emitted from semantic analysis (visible through `nlc check`, `nlc query diagnostics`, and LSP), not the linter.
 - `NL907`: Nullability — nullability mismatch (promoted from warning to error)

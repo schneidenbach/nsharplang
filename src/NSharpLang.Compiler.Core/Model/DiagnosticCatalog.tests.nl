@@ -154,9 +154,9 @@ test "NL353 is a build-blocking semantic diagnostic for await outside async" {
     assert descriptor.BlocksBuildByDefault
 }
 
-test "NL904 is a non-blocking function warning for ref applied to an in parameter" {
+test "NL908 is a non-blocking function warning for ref applied to an in parameter" {
     descriptor := DiagnosticCatalog.EmptyDescriptor()
-    assert DiagnosticCatalog.TryGetDescriptor("NL904", out descriptor)
+    assert DiagnosticCatalog.TryGetDescriptor("NL908", out descriptor)
     assert descriptor.Source == DiagnosticSource.Compiler
     assert descriptor.Category == DiagnosticCategory.Function
     assert descriptor.DefaultSeverity == DiagnosticSeverity.Warning
@@ -191,7 +191,7 @@ test "NO descriptor stores a docs URL, so the deleted stored-URL arm cannot come
 
 test "EVERY code is distinct, and the catalog is exactly its two builders" {
     codes := DctCodes()
-    // 120 active diagnostics remain, including NL904's C# 12 ref-to-in warning.
+    // 120 active diagnostics remain, including NL908's C# 12 ref-to-in warning.
     // NL111 (an expression nested past what the toolchain reads), NL413 (a member that
     // must be called or passed as a delegate), NL414 (a call two overloads match equally well), NL415
     // (a type named bare before `(`, where N# wants `new`), NL328

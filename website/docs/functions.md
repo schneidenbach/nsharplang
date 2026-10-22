@@ -420,7 +420,7 @@ Three rules follow from "read-only":
 
 `in` is not interchangeable with `out`, and it does not make a `ref` parameter optional: `ref` and
 `out` must be written, and omitting either is refused. A `ref` argument can also bind to an `in`
-parameter; the callee still sees it as read-only. N# reports [NL904](./errors/NL904.md), the same
+parameter; the callee still sees it as read-only. N# reports [NL908](./errors/NL908.md), the same
 advice as C# 12's CS9191, because writing `in` better describes the selected parameter. What `in` adds
 is that *omitting* the modifier is fine — there is nothing for the word to warn a reader about,
 because the callee cannot change what they passed.
@@ -2593,7 +2593,7 @@ candidate beats one that needs optional parameters filled.
 For an unmodified argument, otherwise-identical by-value and `in` parameters are separated by a
 by-value preference. An explicit `in` argument is applicable to an `in` parameter; it is not
 applicable to a by-value parameter. An explicit `ref` argument is also applicable to an `in`
-parameter and reports NL904 after selection. It is not applicable to a by-value parameter. The same
+parameter and reports NL908 after selection. It is not applicable to a by-value parameter. The same
 rules select constructors and methods, for source types and referenced types.
 
 For example, given `Pick(value: string)` and `Pick(value: string, suffix: string = "")`,

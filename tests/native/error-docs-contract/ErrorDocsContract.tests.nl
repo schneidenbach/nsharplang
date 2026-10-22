@@ -139,6 +139,84 @@ func EdcCatalogCodes(): List<string> {
     return codes
 }
 
+func EdcCodesInRetiredTableCell(text: string): List<string> {
+    codes := new List<string>()
+    index := 0
+    while index + 4 < text.Length {
+        if text[index] == 'N' && text[index + 1] == 'L' && char.IsDigit(text[index + 2]) && char.IsDigit(text[index + 3]) && char.IsDigit(text[index + 4]) {
+            codes.Add(text.Substring(index, 5))
+            index += 5
+        } else {
+            index += 1
+        }
+    }
+
+    return codes
+}
+
+func EdcFormatCodeValue(value: int): string {
+    digits := value.ToString()
+    while digits.Length < 3 {
+        digits = "0" + digits
+    }
+    return "NL" + digits
+}
+
+func EdcRetiredDiagnosticCodes(): List<string> {
+    codes := new List<string>()
+    indexPath := EdcPaths.RepositoryPath("website/docs/errors/index.md")
+    inRetiredSection := false
+    for line in File.ReadAllLines(indexPath) {
+        if line.StartsWith("## ", StringComparison.Ordinal) {
+            if inRetiredSection {
+                break
+            }
+            inRetiredSection = line == "## Codes that were retired"
+            continue
+        }
+        if !inRetiredSection || !line.StartsWith("|", StringComparison.Ordinal) {
+            continue
+        }
+
+        columns := line.Split('|')
+        if columns.Length < 3 {
+            continue
+        }
+        cellCodes := EdcCodesInRetiredTableCell(columns[1])
+        if cellCodes.Count == 0 {
+            continue
+        }
+        if cellCodes.Count == 2 && (columns[1].Contains("–") || columns[1].Contains("-")) {
+            first := Int32.Parse(cellCodes[0].Substring(2))
+            last := Int32.Parse(cellCodes[1].Substring(2))
+            value := first
+            while value <= last {
+                codes.Add(EdcFormatCodeValue(value))
+                value += 1
+            }
+        } else {
+            for code in cellCodes {
+                codes.Add(code)
+            }
+        }
+    }
+
+    return codes
+}
+
+func EdcCatalogCodesReusedAfterRetirement(): string {
+    catalogCodes := EdcCatalogCodes()
+    retiredCodes := EdcRetiredDiagnosticCodes()
+    reused := new List<string>()
+    for code in catalogCodes {
+        if EdcContains(retiredCodes, code) {
+            reused.Add(code)
+        }
+    }
+    reused.Sort()
+    return EdcJoin(reused)
+}
+
 func EdcPageCodes(): List<string> {
     codes := new List<string>()
     directory := EdcPaths.ErrorsDirectory()
@@ -485,6 +563,12 @@ test "EVERY diagnostic code the catalog publishes has a documentation page" {
 
 test "EVERY page under website/docs/errors names a code the product can print" {
     assert EdcPagesWithoutCode() == "", EdcPagesWithoutCode()
+}
+
+test "the diagnostic catalog never reuses a code listed as retired" {
+    retiredCodes := EdcRetiredDiagnosticCodes()
+    assert EdcContains(retiredCodes, "NL904")
+    assert EdcCatalogCodesReusedAfterRetirement() == "", EdcCatalogCodesReusedAfterRetirement()
 }
 
 test "the NSYS census is READ OUT OF THE SOURCE, so a new systems code cannot skip its page" {

@@ -647,7 +647,7 @@ test "a ref argument for an in parameter unwraps to storage and emits the CS9191
     owner.ValidateCall(signature, VCall(arguments), VTypes1(new ByRefTypeInfo(BuiltInTypes.Int)), null)
 
     assert errors.Count == 1, VMessages(errors)
-    assert errors[0].DiagnosticId == "NL904"
+    assert errors[0].DiagnosticId == "NL908"
     assert errors[0].Severity == ErrorSeverity.Warning
     assert errors[0].Line == 1 && errors[0].Column == 3 && errors[0].Length == 3
     assert errors[0].Message == "The 'ref' modifier for argument 1 corresponding to 'in' parameter is equivalent to 'in'. Consider using 'in' instead."

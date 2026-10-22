@@ -1197,7 +1197,7 @@ Ref RETURNS (`func F(): &int`) were never emittable (`emit.declaration.function-
 `RefKindCompatibilityFacts.Classify` is the shared direction rule for source signatures, reflected
 signatures, overload applicability, synthetic validation, direct-call planning and playground
 invocation. It returns `RefEquivalentToIn` for `ref x` matched to an `in` parameter so the selected
-call can receive the argument's storage and the analyzer can report NL904 after overload selection.
+call can receive the argument's storage and the analyzer can report NL908 after overload selection.
 The warning has CS9191's wording and recommendation. In better-function comparison, that pair has
 the effective `ref` kind; an unmodified argument still prefers an otherwise-identical by-value
 parameter over `in`.

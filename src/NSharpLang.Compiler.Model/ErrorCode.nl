@@ -99,7 +99,7 @@ enum ErrorCode {
     AbstractInstantiation = 803,
     ConstructorError = 806,
     VisibilityConventionWarning = 903,
-    RefArgumentForInWarning = 904,
+    RefArgumentForInWarning = 908,
     PossibleNullAccess = 905,
     NullabilityWarning = 907,
     ReferenceLoadFailure = 923,

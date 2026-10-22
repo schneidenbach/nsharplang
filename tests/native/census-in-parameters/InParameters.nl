@@ -18,7 +18,7 @@ import NSharpLang.AsyncAwaitablePatternFixtures
 // a promise attached, and it is why the by-value control sits beside it.
 //
 // The call site may write `in` or leave it out. Since C# 12, `ref` is also accepted for an `in`
-// parameter and reports NL904, matching CS9191; the address still reaches a read-only parameter.
+// parameter and reports NL908, matching CS9191; the address still reaches a read-only parameter.
 // `out` remains incompatible in either direction, and `in` still cannot target a by-value parameter.
 //
 // AN INTERFACE SLOT DECLARING A BY-REFERENCE PARAMETER IS NOT COVERED HERE, AND THE REASON IS NOT
