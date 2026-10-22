@@ -529,11 +529,11 @@ test "persisted generic realization rebinds its retained machine-VAR field throu
 }
 
 class IteratorRealizationAsyncBuilderSignatureDecoy {
-    func Start<TStateMachine>(stateMachine: TStateMachine): int {
+    func Start<TStateMachine>(_stateMachine: TStateMachine): int {
         return 1
     }
 
-    func AwaitOnCompleted<TAwaiter, TStateMachine>(awaiter: TAwaiter, stateMachine: TStateMachine): int {
+    func AwaitOnCompleted<TAwaiter, TStateMachine>(_awaiter: TAwaiter, _stateMachine: TStateMachine): int {
         return 1
     }
 }

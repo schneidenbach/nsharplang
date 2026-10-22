@@ -132,13 +132,13 @@ class OperandOptionalPatternAwaiter: INotifyCompletion {
 }
 
 class OperandOptionalGetAwaiterAwaitable {
-    func GetAwaiter(fallback: int = 0): OperandOptionalPatternAwaiter {
+    func GetAwaiter(_fallback: int = 0): OperandOptionalPatternAwaiter {
         return new OperandOptionalPatternAwaiter()
     }
 }
 
 class OperandParamsGetAwaiterAwaitable {
-    func GetAwaiter(params ignored: int[]): OperandOptionalPatternAwaiter {
+    func GetAwaiter(params _ignored: int[]): OperandOptionalPatternAwaiter {
         return new OperandOptionalPatternAwaiter()
     }
 }
@@ -189,11 +189,11 @@ class OperandOptionalExtensionGetAwaiterAwaitable {
 class OperandParamsExtensionGetAwaiterAwaitable {
 }
 
-func GetAwaiter(this value: OperandOptionalExtensionGetAwaiterAwaitable, fallback: int = 0): OperandOptionalPatternAwaiter {
+func GetAwaiter(this _value: OperandOptionalExtensionGetAwaiterAwaitable, _fallback: int = 0): OperandOptionalPatternAwaiter {
     return new OperandOptionalPatternAwaiter()
 }
 
-func GetAwaiter(this value: OperandParamsExtensionGetAwaiterAwaitable, params ignored: int[]): OperandOptionalPatternAwaiter {
+func GetAwaiter(this _value: OperandParamsExtensionGetAwaiterAwaitable, params _ignored: int[]): OperandOptionalPatternAwaiter {
     return new OperandOptionalPatternAwaiter()
 }
 

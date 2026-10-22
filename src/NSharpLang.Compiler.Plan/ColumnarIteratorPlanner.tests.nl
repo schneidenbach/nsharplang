@@ -4001,7 +4001,7 @@ test "source property emission retains the await binder's declaration origin" {
 }
 
 class ColumnarIteratorAsyncBuilderAwaitSignatureDecoy {
-    func AwaitOnCompleted<TAwaiter, TStateMachine>(awaiter: TAwaiter, stateMachine: TStateMachine): int {
+    func AwaitOnCompleted<TAwaiter, TStateMachine>(_awaiter: TAwaiter, _stateMachine: TStateMachine): int {
         return 1
     }
 }
