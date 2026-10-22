@@ -376,6 +376,35 @@ class AnalyzerCallAnalysis {
         return null
     }
 
+    // A method-group expression has no runtime value until this enclosing overload supplies its
+    // delegate target. Record the one applicable source function only after overload selection has
+    // finished, so speculative candidate retries cannot leave a stale method-group choice behind.
+    func RecordSelectedCallableReferenceBindings(state: CallAnalysisState, semanticModel: SemanticModel) {
+        if state == null || semanticModel == null || state.SelectedSourceFunction == null {
+            return
+        }
+
+        functionType := state.SelectedSourceFunction
+        functionName := AnalyzerSyntheticCallFacts.GetCallTargetName(state.Call) ?? functionType.SourceName ?? ""
+        parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, state.Call)
+        placement := AnalyzerSyntheticCallFacts.BindFunctionArguments(functionType, functionName, state.Call, parameterStartIndex)
+        genericBindings := syntheticCallWalk.InferGenericBindings(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+
+        argumentIndex := 0
+        while argumentIndex < state.Call.Arguments.Count && argumentIndex < state.ArgTypes.Count {
+            group := state.ArgTypes[argumentIndex] as NSharpMethodGroupInfo
+            if group != null && argumentIndex < placement.ParameterIndexByArgument.Length {
+                expectedType := syntheticCallValidator.GetExpectedArgumentType(functionType, state.Call, argumentIndex, placement.ParameterIndexByArgument[argumentIndex], genericBindings)
+                selected: FunctionTypeInfo? = null
+                if expectedType != null && assignability.TrySelectNSharpMethodGroupFunction(group, expectedType, out selected) && selected != null {
+                    argumentExpression := state.Call.Arguments[argumentIndex].Value
+                    semanticModel.RecordCallableReferenceBinding(argumentExpression.Line, argumentExpression.Column, selected)
+                }
+            }
+            argumentIndex += 1
+        }
+    }
+
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when the call's type is decided. Every phase
     // either computes something and advances, or emits exactly one request; the walk never advances
     // past a point whose answer it has not been given.

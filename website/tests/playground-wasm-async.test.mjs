@@ -166,6 +166,45 @@ async func main() {
         stdout: '40\n',
       },
       {
+        name: 'pending Task.Delay(TimeSpan) dispatches the selected overload',
+        source: `import System
+import System.Threading.Tasks
+
+async func WaitForDelay(): Task<int> {
+    pending := Task.Delay(new TimeSpan(500000))
+    if pending.IsCompleted { throw new Exception("TimeSpan delay should be pending") }
+    await pending
+    return 80
+}
+
+async func main() {
+    print await WaitForDelay()
+}
+`,
+        stdout: '80\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'pending Task.Delay(TimeSpan, CancellationToken) dispatches the selected overload',
+        source: `import System
+import System.Threading
+import System.Threading.Tasks
+
+async func WaitForDelay(): Task<int> {
+    pending := Task.Delay(new TimeSpan(500000), new CancellationToken(false))
+    if pending.IsCompleted { throw new Exception("TimeSpan cancellation delay should be pending") }
+    await pending
+    return 81
+}
+
+async func main() {
+    print await WaitForDelay()
+}
+`,
+        stdout: '81\n',
+        timeoutMs: 5000,
+      },
+      {
         name: 'pending awaiter binding matrix across source and referenced shapes',
         source: `import System
 import System.Runtime.CompilerServices

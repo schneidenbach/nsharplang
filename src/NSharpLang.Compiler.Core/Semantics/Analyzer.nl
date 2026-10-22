@@ -2207,6 +2207,7 @@ class Analyzer: IDisposable {
         if invocationBinding != null {
             SemanticModel.RecordInvocationBinding(call.Line, call.Column, invocationBinding)
         }
+        CallAnalysis.RecordSelectedCallableReferenceBindings(state, SemanticModel)
         return state.Result
     }
 

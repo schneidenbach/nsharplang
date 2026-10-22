@@ -1923,6 +1923,26 @@ test "playground keeps closed generic duck-interface slots distinct in either de
     assert PgRow(negative, 0).StartsWith("NL202|error|")
 }
 
+test "playground executes the analyzer-selected overloaded top-level method group in either declaration order" {
+    renderInt := "func Render(value: int): string {\n    if value == 42 { return \"int\" }\n    return \"other\"\n}\n\n"
+    renderString := "func Render(value: string): string {\n    return value\n}\n\n"
+    apply := "func Apply(callback: Func<int, string>): string {\n    return callback(42)\n}\n\n"
+    entry := "func main() {\n    print Apply(Render)\n}\n"
+    intFirst := PgRunFiles("import System\n\n" + renderInt + renderString + apply + entry, "Program.nl")
+    stringFirst := PgRunFiles("import System\n\n" + renderString + renderInt + apply + entry, "Program.nl")
+
+    assert PgOk(intFirst) == "True", PgUnsupportedReason(intFirst) + " / " + PgCensus(intFirst) + " / " + PgStderr(intFirst) + " / " + PgRow(intFirst, 0)
+    assert PgExitCode(intFirst) == "0"
+    assert PgStdout(intFirst) == "int\n", PgStdout(intFirst)
+    assert PgStderr(intFirst) == "<null>"
+    assert PgUnsupportedReason(intFirst) == "<null>"
+    assert PgOk(stringFirst) == "True", PgUnsupportedReason(stringFirst)
+    assert PgExitCode(stringFirst) == "0"
+    assert PgStdout(stringFirst) == "int\n", PgStdout(stringFirst)
+    assert PgStderr(stringFirst) == "<null>"
+    assert PgUnsupportedReason(stringFirst) == "<null>"
+}
+
 test "chip playground union shorthand: EVERY shipped example that declares an ExpectedOutput now PRODUCES it — 8 of the 10, named, in corpus order" {
     actual := PgExpectedOutputCensus()
     assert actual == "01-hello-world=MATCH;02-values-functions=MATCH;03-types-visibility=MATCH;04-unions-patterns=MATCH;05-duck-typing=MATCH;06-collections-linq=MATCH;09-testing=MATCH;10-tooling-loop=MATCH;", actual

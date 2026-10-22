@@ -20,6 +20,12 @@
     <type fullname="NSharpLang.Playground.Wasm.PlaygroundVersionResponse" preserve="all" />
   </assembly>
   <assembly fullname="System.Private.CoreLib">
+    <type fullname="System.Threading.Tasks.Task" preserve="all" />
+    <type fullname="System.Threading.Tasks.Task`1" preserve="all" />
+    <type fullname="System.Threading.Tasks.TaskCompletionSource" preserve="all" />
+    <type fullname="System.Threading.Tasks.TaskCompletionSource`1" preserve="all" />
+    <type fullname="System.TimeSpan" preserve="all" />
+    <type fullname="System.Threading.CancellationToken" preserve="all" />
     <type fullname="System.Threading.Tasks.ValueTask" preserve="all" />
     <type fullname="System.Threading.Tasks.ValueTask`1" preserve="all" />
     <type fullname="System.Runtime.CompilerServices.ValueTaskAwaiter" preserve="all" />

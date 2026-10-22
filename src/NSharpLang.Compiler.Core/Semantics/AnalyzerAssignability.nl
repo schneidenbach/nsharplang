@@ -1258,6 +1258,15 @@ class AnalyzerAssignability {
     // directly. The two REFLECTION group shapes do not reach it either — their candidates are
     // `MethodInfo`s, which the call binder selects among with the argument facts it holds.
     func IsMethodGroupAssignableToDelegate(group: NSharpMethodGroupInfo, target: TypeInfo): bool {
+        selected: FunctionTypeInfo? = null
+        return TrySelectNSharpMethodGroupFunction(group, target, out selected)
+    }
+
+    // Return the same unique applicable source method used by delegate conversion. The playground
+    // consumes this semantic result when it executes a method-group value; it must not choose again
+    // from declarations that happen to share the written name.
+    func TrySelectNSharpMethodGroupFunction(group: NSharpMethodGroupInfo, target: TypeInfo, out selected: FunctionTypeInfo?): bool {
+        selected = null
         if !assignabilityFacts.CanBindCallableReferenceToExpectedType(target) {
             return false
         }
@@ -1268,14 +1277,22 @@ class AnalyzerAssignability {
         }
 
         candidates := NSharpMethodGroupInfoFactory.GetFunctions(group)
-        applicable := 0
+        applicable: FunctionTypeInfo? = null
         for candidate in candidates {
             if IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(candidate, delegateSignature) {
-                applicable = applicable + 1
+                if applicable != null {
+                    return false
+                }
+                applicable = candidate
             }
         }
 
-        return applicable == 1
+        if applicable == null {
+            return false
+        }
+
+        selected = applicable
+        return true
     }
 
     // THE REFLECTED HALVES OF THE SAME RULE. The two reflection shapes carry `MethodInfo`s rather

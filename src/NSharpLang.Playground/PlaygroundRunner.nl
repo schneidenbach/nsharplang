@@ -15,7 +15,7 @@ import NSharpLang.Compiler.Ast
 
 internal sealed class PlaygroundRunner {
     private units: List<CompilationUnit>
-    private functions: Dictionary<string, FunctionDeclaration>
+    private entryPointValue: FunctionDeclaration?
     private types: Dictionary<string, Declaration>
     private typeNamespaces: Dictionary<string, string?>
     private semanticModelsByDeclaration: IReadOnlyDictionary<object, SemanticModel>
@@ -26,7 +26,7 @@ internal sealed class PlaygroundRunner {
 
     constructor(sourceUnits: IEnumerable<CompilationUnit>, semanticModels: IReadOnlyDictionary<object, SemanticModel>, asyncDefaultFamily: AsyncTaskFamily) {
         units = sourceUnits.ToList()
-        functions = new Dictionary<string, FunctionDeclaration>(StringComparer.Ordinal)
+        entryPointValue = null
         types = new Dictionary<string, Declaration>(StringComparer.Ordinal)
         typeNamespaces = new Dictionary<string, string?>(StringComparer.Ordinal)
         semanticModelsByDeclaration = semanticModels
@@ -39,7 +39,9 @@ internal sealed class PlaygroundRunner {
             for declaration in unit.Declarations {
                 functionDeclaration := declaration as FunctionDeclaration
                 if functionDeclaration != null {
-                    functions[functionDeclaration.Name] = functionDeclaration
+                    if PlaygroundRunFacts.IsEntryPointFunctionName(functionDeclaration.Name) {
+                        entryPointValue = functionDeclaration
+                    }
                 } else {
                     name := PlaygroundRunFacts.DeclarationName(declaration)
                     if name != null {
@@ -55,14 +57,7 @@ internal sealed class PlaygroundRunner {
     // entry path uses CLR tasks for suspension so the WebAssembly export can return a JavaScript
     // Promise instead of holding the browser thread until an await completes.
     async func RunAsync(): Task<PlaygroundRunResult> {
-        entryPoint: FunctionDeclaration? = null
-        for pair in functions {
-            functionDeclaration := pair.Value
-            if PlaygroundRunFacts.IsEntryPointFunctionName(functionDeclaration.Name) {
-                entryPoint = functionDeclaration
-                break
-            }
-        }
+        entryPoint := entryPointValue
         if entryPoint == null {
             throw Unsupported(PlaygroundRunFacts.NoEntryPoint())
         }
@@ -372,7 +367,14 @@ internal sealed class PlaygroundRunner {
 
         call := expression as CallExpression
         if call != null {
-            return await EvaluateAsyncCall(call, environment, depth)
+            try {
+                return await EvaluateAsyncCall(call, environment, depth)
+            } catch unsupported: PlaygroundRunUnsupportedException {
+                if unsupported.Line > 0 {
+                    throw unsupported
+                }
+                throw new PlaygroundRunUnsupportedException(unsupported.Code, unsupported.Message, call.Line, call.Column, 1)
+            }
         }
 
         member := expression as MemberAccessExpression
@@ -517,48 +519,33 @@ internal sealed class PlaygroundRunner {
             throw Unsupported(PlaygroundRunFacts.UnsupportedCallee())
         }
 
-        taskType := member.Object as IdentifierExpression
-        if taskType != null && taskType.Name == "Task" {
-            if member.MemberName == "Yield" && arguments.Length == 0 {
-                return Task.Yield()
-            }
-            if member.MemberName == "Delay" && arguments.Length == 1 {
-                return Task.Delay(ToInt(arguments[0]))
-            }
-            if member.MemberName == "FromResult" && arguments.Length == 1 {
-                return Task.FromResult(arguments[0])
-            }
-            throw Unsupported(PlaygroundRunFacts.UnsupportedReceiverMember(member.MemberName))
+        selectedBinding: AnalyzerInvocationBinding? = null
+        semanticModel := environment.SemanticModel
+        if semanticModel != null {
+            semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding)
         }
-        valueTaskType := member.Object as IdentifierExpression
-        if valueTaskType != null && valueTaskType.Name == "ValueTask" {
-            if member.MemberName == "CompletedTask" && arguments.Length == 0 {
-                return ValueTask.CompletedTask
+        staticOwner := member.Object as IdentifierExpression
+        if staticOwner != null && (staticOwner.Name == "Task" || staticOwner.Name == "ValueTask") {
+            if selectedBinding == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer did not select a Task or ValueTask overload"))
             }
-            if member.MemberName == "FromResult" && arguments.Length == 1 {
-                return new ValueTask<object?>(arguments[0])
-            }
-            throw Unsupported(PlaygroundRunFacts.UnsupportedReceiverMember(member.MemberName))
+            return InvokeBoundInvocation(selectedBinding, null, arguments, depth, call)
         }
 
         target := await EvaluateAsync(member.Object, environment, depth)
         if member.MemberName == "ConfigureAwait" {
-            selectedBinding: AnalyzerInvocationBinding? = null
-            semanticModel := environment.SemanticModel
-            if semanticModel == null || !semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) || selectedBinding == null {
+            if selectedBinding == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("ConfigureAwait has no analyzer-selected invocation binding"))
             }
             return InvokeBoundConfigureAwait(selectedBinding, target, arguments, depth, call)
         }
-        selectedBinding: AnalyzerInvocationBinding? = null
-        semanticModel := environment.SemanticModel
-        if semanticModel != null && semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) && selectedBinding != null {
+        if selectedBinding != null {
             return InvokeBoundInvocation(selectedBinding, target, arguments, depth, call)
         }
         if member.MemberName == "GetAwaiter" {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("GetAwaiter call lacks an analyzer binding"))
         }
-        return CallClrLikeMember(target, member.MemberName, arguments)
+        throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser runner has no analyzer-selected method for this call"))
     }
 
     private func InvokeBoundConfigureAwait(binding: AnalyzerInvocationBinding, target: object?, arguments: object?[], depth: int, call: CallExpression): object? {
@@ -728,15 +715,45 @@ internal sealed class PlaygroundRunner {
         // shared binder already selected this exact member; map its declaring type and signature
         // to the execution assembly without running overload resolution again.
         selectedOwnerName := RuntimeTypeDefinitionName(selectedOwner)
+        selectedOpen := selected.IsGenericMethod ? selected.GetGenericMethodDefinition() : selected
         for candidate in runtimeOwner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
             candidateOwnerName := RuntimeTypeDefinitionName(candidate.DeclaringType)
-            if candidateOwnerName == selectedOwnerName && RuntimeMethodSignaturesMatch(selected, candidate) {
-                return candidate
+            if candidateOwnerName == selectedOwnerName && RuntimeMethodSignaturesMatch(selectedOpen, candidate) {
+                return CloseRuntimeMethodForSelected(selected, candidate)
             }
         }
         // Never invoke a reference-assembly member from the analyzer's MetadataLoadContext. A
         // missing runtime mapping is surfaced to the playground's bounded-run path instead.
         return null
+    }
+
+    private static func CloseRuntimeMethodForSelected(selected: MethodInfo, runtimeMethod: MethodInfo): MethodInfo? {
+        if selected == null || runtimeMethod == null || !selected.IsGenericMethod {
+            return runtimeMethod
+        }
+        if selected.IsGenericMethodDefinition {
+            return runtimeMethod.IsGenericMethodDefinition ? runtimeMethod : null
+        }
+
+        selectedArguments := selected.GetGenericArguments()
+        if !runtimeMethod.IsGenericMethodDefinition || selectedArguments.Length != runtimeMethod.GetGenericArguments().Length {
+            return null
+        }
+        runtimeArguments := new Type[selectedArguments.Length]
+        index := 0
+        while index < runtimeArguments.Length {
+            resolved: Type = null
+            if !TryResolvePlaygroundRuntimeTypeFromMetadata(selectedArguments[index], out resolved) {
+                return null
+            }
+            runtimeArguments[index] = resolved
+            index += 1
+        }
+        try {
+            return runtimeMethod.MakeGenericMethod(runtimeArguments)
+        } catch failure: ArgumentException {
+            return null
+        }
     }
 
     // The shared binder selected a reflected extension and retained its inferred generic arguments.
@@ -1654,7 +1671,7 @@ internal sealed class PlaygroundRunner {
         }
         identifier := expression as IdentifierExpression
         if identifier != null {
-            return ResolveIdentifier(identifier.Name, environment)
+            return ResolveIdentifierExpression(identifier, environment)
         }
         interpolated := expression as InterpolatedStringExpression
         if interpolated != null {
@@ -1723,15 +1740,30 @@ internal sealed class PlaygroundRunner {
         if environment.TryGet(name, out value) {
             return value
         }
-        function: FunctionDeclaration? = null
-        if functions.TryGetValue(name, out function) {
-            return new RuntimeFunction(function, null)
-        }
         declaration: Declaration? = null
         if types.TryGetValue(name, out declaration) {
             return new RuntimeType(declaration)
         }
         throw Unsupported(PlaygroundRunFacts.UnresolvedName(name))
+    }
+
+    private func ResolveIdentifierExpression(identifier: IdentifierExpression, environment: RuntimeEnvironment): object? {
+        value: object? = null
+        if environment.TryGet(identifier.Name, out value) {
+            return value
+        }
+
+        semanticModel := environment.SemanticModel
+        selected: FunctionTypeInfo? = null
+        if semanticModel != null && semanticModel.TryGetCallableReferenceBindingAt(identifier.Line, identifier.Column, out selected) && selected != null {
+            function := selected.SourceDeclaration as FunctionDeclaration
+            if function == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected source method group has no declaration"))
+            }
+            return new RuntimeFunction(function, null)
+        }
+
+        return ResolveIdentifier(identifier.Name, environment)
     }
 
     private func EvaluateInterpolatedString(interpolated: InterpolatedStringExpression, environment: RuntimeEnvironment, depth: int): string {
@@ -1905,16 +1937,26 @@ internal sealed class PlaygroundRunner {
     }
 
     private func CallMember(member: MemberAccessExpression, arguments: IReadOnlyList<object?>, environment: RuntimeEnvironment, depth: int, call: CallExpression): object? {
-        target := Evaluate(member.Object, environment, depth)
         selectedBinding: AnalyzerInvocationBinding? = null
         semanticModel := environment.SemanticModel
-        if semanticModel != null && semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding) && selectedBinding != null {
+        if semanticModel != null {
+            semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding)
+        }
+        staticOwner := member.Object as IdentifierExpression
+        if staticOwner != null && (staticOwner.Name == "Task" || staticOwner.Name == "ValueTask") {
+            if selectedBinding == null {
+                throw UnsupportedAt(PlaygroundRunFacts.UnsupportedExpression("the analyzer did not select a Task or ValueTask overload"), call)
+            }
+            return InvokeBoundInvocation(selectedBinding, null, arguments, depth, call)
+        }
+        target := Evaluate(member.Object, environment, depth)
+        if selectedBinding != null {
             return InvokeBoundInvocation(selectedBinding, target, arguments, depth, call)
         }
         if member.MemberName == "GetAwaiter" {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("GetAwaiter call lacks an analyzer binding"))
+            throw UnsupportedAt(PlaygroundRunFacts.UnsupportedExpression("GetAwaiter call lacks an analyzer binding"), call)
         }
-        return CallClrLikeMember(target, member.MemberName, arguments)
+        throw UnsupportedAt(PlaygroundRunFacts.UnsupportedExpression("the browser runner has no analyzer-selected method for '" + member.MemberName + "'"), call)
     }
 
     private func BoundInvocationReceiver(binding: AnalyzerInvocationBinding, explicitReceiver: object?, environment: RuntimeEnvironment): object? {
@@ -2043,9 +2085,15 @@ internal sealed class PlaygroundRunner {
             invocationArguments = PrependRuntimeArgument(target, runtimeArguments)
         } else if target != null {
             runtimeMethod = SelectedRuntimeMethodFor(selectedMethod, target.GetType())
+        } else {
+            selectedOwner := selectedMethod.DeclaringType
+            runtimeOwner: Type = null
+            if selectedOwner != null && TryResolvePlaygroundRuntimeTypeFromMetadata(selectedOwner, out runtimeOwner) {
+                runtimeMethod = SelectedRuntimeMethodFor(selectedMethod, runtimeOwner)
+            }
         }
         if runtimeMethod == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected method has no runtime metadata match"))
+            throw UnsupportedAt(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected method '" + selectedMethod.ToString() + "' has no runtime metadata match for its exact signature"), call)
         }
         try {
             return runtimeMethod.Invoke(invocationReceiver, invocationArguments)
@@ -2053,107 +2101,6 @@ internal sealed class PlaygroundRunner {
             RethrowInvocationFailure(invocationFailure)
         }
         return null
-    }
-
-    private static func CallClrLikeMember(target: object?, memberName: string, arguments: IReadOnlyList<object?>): object? {
-        callable := target as Delegate
-        if callable != null {
-            return callable.DynamicInvoke(ToInvocationArguments(arguments))
-        }
-
-        genericCompletionSource := target as TaskCompletionSource<object?>
-        if genericCompletionSource != null && memberName == "SetResult" && arguments.Count == 1 {
-            genericCompletionSource.SetResult(arguments[0])
-            return null
-        }
-        integerCompletionSource := target as TaskCompletionSource<int>
-        if integerCompletionSource != null && memberName == "SetResult" && arguments.Count == 1 {
-            integerCompletionSource.SetResult(Convert.ToInt32(arguments[0]))
-            return null
-        }
-        unitCompletionSource := target as TaskCompletionSource
-        if unitCompletionSource != null && memberName == "SetResult" && arguments.Count == 0 {
-            unitCompletionSource.SetResult()
-            return null
-        }
-
-        criticalAwaiter := target as ICriticalNotifyCompletion
-        if criticalAwaiter != null && memberName == "UnsafeOnCompleted" && arguments.Count == 1 {
-            continuation := arguments[0] as Action
-            if continuation == null {
-                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("awaiter continuation is not an Action"))
-            }
-            criticalAwaiter.UnsafeOnCompleted(continuation)
-            return null
-        }
-
-        notifyAwaiter := target as INotifyCompletion
-        if notifyAwaiter != null && memberName == "OnCompleted" && arguments.Count == 1 {
-            continuation := arguments[0] as Action
-            if continuation == null {
-                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("awaiter continuation is not an Action"))
-            }
-            notifyAwaiter.OnCompleted(continuation)
-            return null
-        }
-
-        text := target as string
-        if text != null {
-            if memberName == "ToUpper" && arguments.Count == 0 {
-                return text.ToUpperInvariant()
-            }
-            if memberName == "ToLower" && arguments.Count == 0 {
-                return text.ToLowerInvariant()
-            }
-            if memberName == "Contains" && arguments.Count == 1 {
-                return text.Contains(FormatValue(arguments[0]), StringComparison.Ordinal)
-            }
-            if memberName == "StartsWith" && arguments.Count == 1 {
-                return text.StartsWith(FormatValue(arguments[0]), StringComparison.Ordinal)
-            }
-            if memberName == "EndsWith" && arguments.Count == 1 {
-                return text.EndsWith(FormatValue(arguments[0]), StringComparison.Ordinal)
-            }
-            if memberName == "IndexOf" && arguments.Count == 1 {
-                return text.IndexOf(FormatValue(arguments[0]), StringComparison.Ordinal)
-            }
-            if memberName == "ToString" && arguments.Count == 0 {
-                return text
-            }
-            throw Unsupported(PlaygroundRunFacts.UnsupportedStringMember(memberName))
-        }
-
-        if IsNumeric(target) {
-            if memberName == "ToString" && arguments.Count == 0 {
-                return FormatValue(target)
-            }
-            if memberName == "CompareTo" && arguments.Count == 1 {
-                leftNumber := ToNumber(target)
-                rightValue := arguments[0]
-                rightNumber := ToNumber(rightValue)
-                leftIsNaN := leftNumber != leftNumber
-                rightIsNaN := rightNumber != rightNumber
-                if leftIsNaN {
-                    if rightIsNaN {
-                        return 0
-                    }
-                    return -1
-                }
-                if rightIsNaN {
-                    return 1
-                }
-                if leftNumber < rightNumber {
-                    return -1
-                }
-                if leftNumber > rightNumber {
-                    return 1
-                }
-                return 0
-            }
-            throw Unsupported(PlaygroundRunFacts.UnsupportedNumericMember(memberName))
-        }
-
-        throw Unsupported(PlaygroundRunFacts.UnsupportedReceiverMember(memberName))
     }
 
     private func EvaluateMemberAccess(member: MemberAccessExpression, environment: RuntimeEnvironment, depth: int): object? {
@@ -3216,6 +3163,10 @@ internal sealed class PlaygroundRunner {
 
     private static func Unsupported(fault: PlaygroundRunFault): PlaygroundRunUnsupportedException {
         return new PlaygroundRunUnsupportedException(fault.Code, fault.Message)
+    }
+
+    private static func UnsupportedAt(fault: PlaygroundRunFault, call: CallExpression): PlaygroundRunUnsupportedException {
+        return new PlaygroundRunUnsupportedException(fault.Code, fault.Message, call.Line, call.Column, 1)
     }
 
     private static func ToInvocationArguments(arguments: IReadOnlyList<object?>): object?[] {

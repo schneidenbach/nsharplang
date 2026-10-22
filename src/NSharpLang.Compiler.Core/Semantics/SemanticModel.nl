@@ -66,6 +66,7 @@ class SemanticModel {
     awaitablePatternsValue: Dictionary<(Line: int, Column: int), AnalyzerAwaitablePatternBinding>
     constructionBindingsValue: Dictionary<(Line: int, Column: int), AnalyzerConstructionBinding>
     invocationBindingsValue: Dictionary<(Line: int, Column: int), AnalyzerInvocationBinding>
+    callableReferenceBindingsValue: Dictionary<(Line: int, Column: int), FunctionTypeInfo>
     variablesValue: Dictionary<string, TypeInfo>
     functionsValue: Dictionary<string, TypeInfo>
     propertiesValue: Dictionary<string, TypeInfo>
@@ -83,6 +84,7 @@ class SemanticModel {
         awaitablePatternsValue = new Dictionary<(Line: int, Column: int), AnalyzerAwaitablePatternBinding>()
         constructionBindingsValue = new Dictionary<(Line: int, Column: int), AnalyzerConstructionBinding>()
         invocationBindingsValue = new Dictionary<(Line: int, Column: int), AnalyzerInvocationBinding>()
+        callableReferenceBindingsValue = new Dictionary<(Line: int, Column: int), FunctionTypeInfo>()
         variablesValue = new Dictionary<string, TypeInfo>()
         functionsValue = new Dictionary<string, TypeInfo>()
         propertiesValue = new Dictionary<string, TypeInfo>()
@@ -99,6 +101,7 @@ class SemanticModel {
     AwaitablePatterns: Dictionary<(Line: int, Column: int), AnalyzerAwaitablePatternBinding> => awaitablePatternsValue
     ConstructionBindings: Dictionary<(Line: int, Column: int), AnalyzerConstructionBinding> => constructionBindingsValue
     InvocationBindings: Dictionary<(Line: int, Column: int), AnalyzerInvocationBinding> => invocationBindingsValue
+    CallableReferenceBindings: Dictionary<(Line: int, Column: int), FunctionTypeInfo> => callableReferenceBindingsValue
     Variables: Dictionary<string, TypeInfo> => variablesValue
     Functions: Dictionary<string, TypeInfo> => functionsValue
     Properties: Dictionary<string, TypeInfo> => propertiesValue
@@ -227,6 +230,20 @@ class SemanticModel {
             return false
         }
         return invocationBindingsValue.TryGetValue((Line: line, Column: column), out binding) && binding != null
+    }
+
+    func RecordCallableReferenceBinding(line: int, column: int, binding: FunctionTypeInfo) {
+        if line > 0 && column > 0 && binding != null {
+            callableReferenceBindingsValue[(Line: line, Column: column)] = binding
+        }
+    }
+
+    func TryGetCallableReferenceBindingAt(line: int, column: int, out binding: FunctionTypeInfo?): bool {
+        binding = null
+        if line < 1 || column < 1 {
+            return false
+        }
+        return callableReferenceBindingsValue.TryGetValue((Line: line, Column: column), out binding) && binding != null
     }
 
     func RecordAwaitablePattern(line: int, column: int, binding: AnalyzerAwaitablePatternBinding) {
