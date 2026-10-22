@@ -4,7 +4,7 @@
   "codeEpochFileCount": 217,
   "codeEpochPathFingerprint": "pathset-v2:8753f45f767649bf",
   "codeEpochFactFingerprint": "epochfacts-v2:bbd44c5fc149a36c",
-  "reviewedHeadFingerprint": "head-v2:7fc9872b76d0ca39",
+  "reviewedHeadFingerprint": "head-v2:5d2eb5a684d9b123",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":446,"currentNonBlankLines":391,"currentBytes":0,"currentFingerprint":"text-v1:c4fff4cafe6f3d2a"},
@@ -289,7 +289,7 @@
     {"path":"src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj","language":"msbuild","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":22,"currentNonBlankLines":19,"currentBytes":0,"currentFingerprint":"text-v1:bcbc324b3084928d"},
     {"path":"src/NSharpLang.Playground.Wasm/PlaygroundExports.cs","language":"csharp","surface":"playground-wasm-host","campaignScope":"permanent-boundary","state":"permanent-boundary","epochLines":62,"currentLines":56,"epochNonBlankLines":49,"currentNonBlankLines":48,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:f5ef25882c54124f"},
     {"path":"src/NSharpLang.Playground.Wasm/Program.cs","language":"csharp","surface":"playground-wasm-host","campaignScope":"permanent-boundary","state":"permanent-boundary","epochLines":9,"currentLines":9,"epochNonBlankLines":8,"currentNonBlankLines":8,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:740b971d9c051249"},
-    {"path":"src/NSharpLang.Playground.Wasm/WasmAsyncLinker.xml","language":"product-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":30,"currentNonBlankLines":30,"currentBytes":0,"currentFingerprint":"text-v1:71e29558056136ae"},
+    {"path":"src/NSharpLang.Playground.Wasm/WasmAsyncLinker.xml","language":"product-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":36,"currentNonBlankLines":36,"currentBytes":0,"currentFingerprint":"text-v1:ed0150ee7a707327"},
     {"path":"src/NSharpLang.Playground.Wasm/main.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":12,"currentLines":9,"epochNonBlankLines":8,"currentNonBlankLines":8,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:1c16271c3748f0a5"},
     {"path":"src/NSharpLang.Playground/NSharpLang.Playground.csproj","language":"msbuild","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":1,"currentNonBlankLines":1,"currentBytes":0,"currentFingerprint":"text-v1:cdc0ce7d1c6a19ce"},
     {"path":"src/NSharpLang.Playground/PlaygroundCompiler.cs","language":"csharp","surface":"playground-web","campaignScope":"closeout","state":"removed","epochLines":614,"currentLines":0,"epochNonBlankLines":556,"currentNonBlankLines":0,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
