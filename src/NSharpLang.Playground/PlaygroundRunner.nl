@@ -9,6 +9,7 @@ import System.Reflection
 import System.Runtime.CompilerServices
 import System.Runtime.ExceptionServices
 import System.Text
+import System.Threading
 import System.Threading.Tasks
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
@@ -20,6 +21,7 @@ internal sealed class PlaygroundRunner {
     private typeNamespaces: Dictionary<string, string?>
     private semanticModelsByDeclaration: IReadOnlyDictionary<object, SemanticModel>
     private asyncDefaultFamilyValue: AsyncTaskFamily
+    private configuredTaskAwaitables: Dictionary<object, RuntimeConfiguredTaskAwaitable>
     private stdout: StringBuilder
     private steps: int
     private outputLines: int
@@ -31,6 +33,7 @@ internal sealed class PlaygroundRunner {
         typeNamespaces = new Dictionary<string, string?>(StringComparer.Ordinal)
         semanticModelsByDeclaration = semanticModels
         asyncDefaultFamilyValue = asyncDefaultFamily
+        configuredTaskAwaitables = new Dictionary<object, RuntimeConfiguredTaskAwaitable>(ReferenceEqualityComparer.Instance)
         stdout = new StringBuilder()
         steps = 0
         outputLines = 0
@@ -591,11 +594,42 @@ internal sealed class PlaygroundRunner {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected ConfigureAwait method has no runtime metadata match"))
         }
         try {
-            return runtimeMethod.Invoke(invocationReceiver, invocationArguments)
+            configuredValue := runtimeMethod.Invoke(invocationReceiver, invocationArguments)
+            if configuredValue != null && IsNonGenericTaskConfigureAwait(binding, selectedMethod) && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(configuredValue.GetType(), typeof(ConfiguredTaskAwaitable)) {
+                task := target as Task
+                if task != null {
+                    RegisterRuntimeConfiguredTaskAwaitable(configuredValue, task, (bool)arguments[0])
+                }
+            } else if configuredValue != null && IsNonGenericValueTaskConfigureAwait(binding, selectedMethod, target) && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(configuredValue.GetType(), typeof(ConfiguredValueTaskAwaitable)) {
+                RegisterRuntimeConfiguredTaskAwaitable(configuredValue, ((ValueTask)target).AsTask(), (bool)arguments[0])
+            }
+            return configuredValue
         } catch invocationFailure: TargetInvocationException {
             RethrowInvocationFailure(invocationFailure)
         }
         return null
+    }
+
+    private static func IsNonGenericTaskConfigureAwait(binding: AnalyzerInvocationBinding, selectedMethod: MethodInfo): bool {
+        if binding == null || binding.IsExtension || selectedMethod == null || selectedMethod.DeclaringType == null || selectedMethod.IsStatic || selectedMethod.Name != "ConfigureAwait" || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(selectedMethod.DeclaringType, typeof(Task)) || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(selectedMethod.ReturnType, typeof(ConfiguredTaskAwaitable)) {
+            return false
+        }
+        return HasSingleBooleanParameter(selectedMethod)
+    }
+
+    private static func IsNonGenericValueTaskConfigureAwait(binding: AnalyzerInvocationBinding, selectedMethod: MethodInfo, target: object?): bool {
+        if binding == null || binding.IsExtension || selectedMethod == null || selectedMethod.DeclaringType == null || selectedMethod.IsStatic || selectedMethod.Name != "ConfigureAwait" || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(selectedMethod.DeclaringType, typeof(ValueTask)) || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(selectedMethod.ReturnType, typeof(ConfiguredValueTaskAwaitable)) || target == null || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(target.GetType(), typeof(ValueTask)) {
+            return false
+        }
+        return HasSingleBooleanParameter(selectedMethod)
+    }
+
+    private static func HasSingleBooleanParameter(method: MethodInfo): bool {
+        if method == null {
+            return false
+        }
+        parameters := method.GetParameters()
+        return parameters.Length == 1 && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(parameters[0].ParameterType, typeof(bool))
     }
 
     private static func PrependRuntimeArgument(receiver: object?, arguments: object?[]): object?[] {
@@ -672,6 +706,10 @@ internal sealed class PlaygroundRunner {
         if semanticBinding.ReflectedAwaiter == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("shared awaitable binding has no reflected awaiter pattern"))
         }
+        configuredTask: RuntimeConfiguredTaskAwaitable? = null
+        if value != null && configuredTaskAwaitables.TryGetValue(value, out configuredTask) && configuredTask != null {
+            return await AwaitConfiguredTaskOperation(configuredTask)
+        }
         pattern := semanticBinding.ReflectedAwaiter
         getAwaiter := pattern.GetAwaiter
         if getAwaiter != null {
@@ -701,6 +739,28 @@ internal sealed class PlaygroundRunner {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("GetAwaiter returned no awaiter"))
         }
         return await AwaitReflectedAwaiter(awaiter, pattern)
+    }
+
+    private func RegisterRuntimeConfiguredTaskAwaitable(value: object?, task: Task, continueOnCapturedContext: bool): void {
+        if value == null {
+            return
+        }
+        configuredTaskAwaitables[value] = new RuntimeConfiguredTaskAwaitable(task, continueOnCapturedContext)
+    }
+
+    private func AwaitConfiguredTaskOperation(value: RuntimeConfiguredTaskAwaitable): Task<object?> {
+        return AwaitTaskOperation(value.Task, value.ContinueOnCapturedContext)
+    }
+
+    private static func AwaitTaskOperation(task: Task, continueOnCapturedContext: bool): Task<object?> {
+        completion := new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously)
+        continuation := PlaygroundTaskCompletionSignal.CreateAction(task, completion)
+        if continueOnCapturedContext {
+            task.GetAwaiter().OnCompleted(continuation)
+        } else {
+            task.GetAwaiter().UnsafeOnCompleted(continuation)
+        }
+        return completion.Task
     }
 
     private static func SelectedRuntimeMethodFor(selected: MethodInfo?, runtimeOwner: Type): MethodInfo? {
@@ -2088,17 +2148,14 @@ internal sealed class PlaygroundRunner {
         if selectedMethod == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected reflected method is unavailable"))
         }
-        if IsSelectedTaskRunFunctionMethod(selectedMethod) && runtimeArguments.Length == 1 {
-            callback := runtimeArguments[0] as RuntimeFunction
-            if callback != null && callback.Declaration.Parameters.Count == 0 && !AnalyzerAmbientContext.HasModifier(callback.Declaration, Modifiers.Async) {
-                callbackArguments := new object?[](0)
-                completion := new TaskCompletionSource<object?>()
-                try {
-                    completion.SetResult(InvokeFunction(callback.Declaration, callbackArguments, callback.Receiver, depth))
-                } catch failure: Exception {
-                    completion.SetException(failure)
+        if IsTaskRunMethod(selectedMethod) && runtimeArguments.Length > 0 {
+            callback := runtimeArguments[0]
+            if callback as RuntimeFunction != null || callback as RuntimeLambda != null {
+                shape := SelectedTaskRunDelegateShape(selectedMethod)
+                if shape == 0 || !TaskRunArgumentsMatch(selectedMethod, runtimeArguments) {
+                    throw UnsupportedAt(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run overload has a source callable shape the browser runner does not support"), call)
                 }
-                return completion.Task
+                return InvokeSelectedTaskRun(selectedMethod, callback, runtimeArguments, depth)
             }
         }
         runtimeMethod: MethodInfo? = null
@@ -2120,6 +2177,9 @@ internal sealed class PlaygroundRunner {
         if runtimeMethod == null {
             throw UnsupportedAt(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected method '" + selectedMethod.ToString() + "' has no runtime metadata match for its exact signature"), call)
         }
+        if runtimeMethod.IsStatic != (invocationReceiver == null) {
+            throw UnsupportedAt(PlaygroundRunFacts.UnsupportedExpression("the selected method '" + selectedMethod.ToString() + "' maps to a runtime method with an incompatible static/instance receiver"), call)
+        }
         try {
             return runtimeMethod.Invoke(invocationReceiver, invocationArguments)
         } catch invocationFailure: TargetInvocationException {
@@ -2128,21 +2188,280 @@ internal sealed class PlaygroundRunner {
         return null
     }
 
-    private static func IsSelectedTaskRunFunctionMethod(selectedMethod: MethodInfo): bool {
-        if selectedMethod == null || selectedMethod.Name != "Run" || !selectedMethod.IsGenericMethod || selectedMethod.ContainsGenericParameters {
+    private static func IsTaskRunMethod(selectedMethod: MethodInfo): bool {
+        if selectedMethod == null || selectedMethod.Name != "Run" || selectedMethod.ContainsGenericParameters {
             return false
         }
         owner := selectedMethod.DeclaringType
+        return owner != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(owner, typeof(Task))
+    }
+
+    // The analyzer has already chosen the Task.Run overload. Classify that exact closed signature
+    // to build a matching CLR delegate around the interpreter callable; no overload resolution is
+    // repeated here. Shapes: Action, Func<TResult>, Func<Task>, Func<Task<TResult>>.
+    private static func SelectedTaskRunDelegateShape(selectedMethod: MethodInfo): int {
+        if !IsTaskRunMethod(selectedMethod) {
+            return 0
+        }
         parameters := selectedMethod.GetParameters()
-        if owner == null || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(owner, typeof(Task)) || parameters.Length != 1 {
+        if parameters.Length < 1 || parameters.Length > 2 || parameters.Length == 2 && !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(parameters[1].ParameterType, typeof(CancellationToken)) {
+            return 0
+        }
+        delegateType := parameters[0].ParameterType
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(delegateType, typeof(Action)) {
+            return IsTaskType(selectedMethod.ReturnType) ? 1 : 0
+        }
+        if !delegateType.IsGenericType || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(delegateType.GetGenericTypeDefinition(), typeof(Func<int>).GetGenericTypeDefinition()) {
+            return 0
+        }
+        delegateResult := delegateType.GetGenericArguments()[0]
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(delegateResult, typeof(Task)) {
+            return IsTaskType(selectedMethod.ReturnType) ? 3 : 0
+        }
+        if IsConstructedTaskType(delegateResult) {
+            return IsConstructedTaskType(selectedMethod.ReturnType) ? 4 : 0
+        }
+        return IsConstructedTaskType(selectedMethod.ReturnType) ? 2 : 0
+    }
+
+    private static func IsConstructedTaskType(candidate: Type): bool {
+        return candidate != null && candidate.IsGenericType && !candidate.IsGenericTypeDefinition && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(candidate.GetGenericTypeDefinition(), typeof(Task<int>).GetGenericTypeDefinition())
+    }
+
+    private static func IsTaskType(candidate: Type): bool {
+        return candidate != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(candidate, typeof(Task))
+    }
+
+    private static func TaskRunArgumentsMatch(selectedMethod: MethodInfo, arguments: object?[]): bool {
+        parameters := selectedMethod.GetParameters()
+        if parameters.Length != arguments.Length {
             return false
         }
-        parameterType := parameters[0].ParameterType
-        if !parameterType.IsGenericType || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(parameterType.GetGenericTypeDefinition(), typeof(Func<int>).GetGenericTypeDefinition()) {
-            return false
+        if parameters.Length == 2 {
+            return arguments[1] is CancellationToken
         }
-        returnType := selectedMethod.ReturnType
-        return returnType.IsGenericType && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(returnType.GetGenericTypeDefinition(), typeof(Task<int>).GetGenericTypeDefinition())
+        return true
+    }
+
+    private func InvokeSelectedTaskRun(selectedMethod: MethodInfo, callback: object, arguments: object?[], depth: int): object {
+        shape := SelectedTaskRunDelegateShape(selectedMethod)
+        hasCancellationToken := arguments.Length == 2
+        cancellationToken := CancellationToken.None
+        if hasCancellationToken {
+            cancellationToken = (CancellationToken)arguments[1]
+        }
+
+        if shape == 1 {
+            work := CreateTaskRunAction(callback, depth)
+            if hasCancellationToken {
+                return Task.Run(work, cancellationToken)
+            }
+            return Task.Run(work)
+        }
+        if shape == 2 {
+            return InvokeTaskRunFuncResult(selectedMethod, callback, depth, cancellationToken, hasCancellationToken)
+        }
+        if shape == 3 {
+            work := CreateTaskRunTaskFunction(callback, depth)
+            if hasCancellationToken {
+                return Task.Run(work, cancellationToken)
+            }
+            return Task.Run(work)
+        }
+        if shape == 4 {
+            return InvokeTaskRunFuncTaskResult(selectedMethod, callback, depth, cancellationToken, hasCancellationToken)
+        }
+        throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run overload cannot be adapted to a browser source callable"))
+    }
+
+    private func CreateTaskRunAction(callback: object, depth: int): Action {
+        action := CreateTaskRunDelegate(callback, depth, typeof(Action), "InvokeAction") as Action
+        if action == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not construct the selected Task.Run Action adapter"))
+        }
+        return action
+    }
+
+    private func CreateTaskRunTaskFunction(callback: object, depth: int): Func<Task> {
+        function := CreateTaskRunDelegate(callback, depth, typeof(Func<Task>), "InvokeTask") as Func<Task>
+        if function == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not construct the selected Task.Run Func<Task> adapter"))
+        }
+        return function
+    }
+
+    private func CreateTaskRunDelegate(callback: object, depth: int, delegateType: Type, methodName: string): Delegate {
+        adapter := new RuntimeTaskRunCallback(this, callback, depth)
+        method := typeof(RuntimeTaskRunCallback).GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance)
+        if method == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not construct the selected Task.Run delegate adapter"))
+        }
+        created := Delegate.CreateDelegate(delegateType, adapter, method)
+        if created == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not construct the selected Task.Run delegate adapter"))
+        }
+        return created
+    }
+
+    private func InvokeTaskRunFuncResult(selectedMethod: MethodInfo, callback: object, depth: int, cancellationToken: CancellationToken, hasCancellationToken: bool): object {
+        runtimeMethod := SelectedRuntimeMethodFor(selectedMethod, typeof(Task))
+        if runtimeMethod == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run(Func<TResult>) overload has no runtime method mapping"))
+        }
+        runtimeParameters := runtimeMethod.GetParameters()
+        if runtimeParameters.Length < 1 || runtimeParameters.Length > 2 {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run(Func<TResult>) overload has an unsupported runtime signature"))
+        }
+        delegateType := runtimeParameters[0].ParameterType
+        resultTypeArguments := delegateType.GetGenericArguments()
+        if resultTypeArguments.Length != 1 {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run(Func<TResult>) overload has an unsupported delegate type"))
+        }
+        adapter := new RuntimeTaskRunCallback(this, callback, depth)
+        callbackMethod := typeof(RuntimeTaskRunCallback).GetMethod("InvokeResult", BindingFlags.Public | BindingFlags.Instance)
+        if callbackMethod == null || !callbackMethod.IsGenericMethodDefinition {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not find the Task.Run generic result adapter"))
+        }
+        closedCallbackMethod := callbackMethod.MakeGenericMethod(resultTypeArguments)
+        callbackDelegate := Delegate.CreateDelegate(delegateType, adapter, closedCallbackMethod)
+        if callbackDelegate == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not construct the selected Task.Run Func<TResult> adapter"))
+        }
+        runtimeArguments := new object?[](runtimeParameters.Length)
+        runtimeArguments[0] = callbackDelegate
+        if runtimeParameters.Length == 2 {
+            if !hasCancellationToken {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run overload requires a cancellation token"))
+            }
+            runtimeArguments[1] = cancellationToken
+        }
+        try {
+            return runtimeMethod.Invoke(null, runtimeArguments)
+        } catch invocationFailure: TargetInvocationException {
+            RethrowInvocationFailure(invocationFailure)
+        }
+        return null
+    }
+
+    private func InvokeTaskRunFuncTaskResult(selectedMethod: MethodInfo, callback: object, depth: int, cancellationToken: CancellationToken, hasCancellationToken: bool): object {
+        runtimeMethod := SelectedRuntimeMethodFor(selectedMethod, typeof(Task))
+        if runtimeMethod == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run(Func<Task<TResult>>) overload has no runtime method mapping"))
+        }
+        runtimeParameters := runtimeMethod.GetParameters()
+        if runtimeParameters.Length < 1 || runtimeParameters.Length > 2 {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run(Func<Task<TResult>>) overload has an unsupported runtime signature"))
+        }
+        delegateType := runtimeParameters[0].ParameterType
+        delegateArguments := delegateType.GetGenericArguments()
+        if delegateArguments.Length != 1 || !delegateArguments[0].IsGenericType {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run(Func<Task<TResult>>) overload has an unsupported delegate type"))
+        }
+        resultTypeArguments := delegateArguments[0].GetGenericArguments()
+        if resultTypeArguments.Length != 1 {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run(Func<Task<TResult>>) overload has an unsupported task result type"))
+        }
+        adapter := new RuntimeTaskRunCallback(this, callback, depth)
+        callbackMethod := typeof(RuntimeTaskRunCallback).GetMethod("InvokeTaskResult", BindingFlags.Public | BindingFlags.Instance)
+        if callbackMethod == null || !callbackMethod.IsGenericMethodDefinition {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not find the Task.Run generic result adapter"))
+        }
+        closedCallbackMethod := callbackMethod.MakeGenericMethod(resultTypeArguments)
+        callbackDelegate := Delegate.CreateDelegate(delegateType, adapter, closedCallbackMethod)
+        if callbackDelegate == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not construct the Task.Run Func<Task<TResult>> adapter"))
+        }
+        runtimeArguments := new object?[](runtimeParameters.Length)
+        runtimeArguments[0] = callbackDelegate
+        if runtimeParameters.Length == 2 {
+            if !hasCancellationToken {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run overload requires a cancellation token"))
+            }
+            runtimeArguments[1] = cancellationToken
+        }
+        try {
+            return runtimeMethod.Invoke(null, runtimeArguments)
+        } catch invocationFailure: TargetInvocationException {
+            RethrowInvocationFailure(invocationFailure)
+        }
+        return null
+    }
+
+    func InvokeTaskRunCallable(callback: object, depth: int): object? {
+        emptyArguments := new object?[](0)
+        runtimeFunction := callback as RuntimeFunction
+        if runtimeFunction != null {
+            if runtimeFunction.Declaration.Parameters.Count != 0 {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("Task.Run source callables must take no arguments"))
+            }
+            if AnalyzerAmbientContext.HasModifier(runtimeFunction.Declaration, Modifiers.Async) {
+                return InvokeAsyncFunctionValue(runtimeFunction.Declaration, emptyArguments, runtimeFunction.Receiver, depth)
+            }
+            return InvokeFunction(runtimeFunction.Declaration, emptyArguments, runtimeFunction.Receiver, depth)
+        }
+        runtimeLambda := callback as RuntimeLambda
+        if runtimeLambda != null {
+            if runtimeLambda.Declaration.Parameters.Count != 0 || runtimeLambda.Declaration.IsAsync {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("Task.Run browser lambdas must take no arguments and use the synchronous lambda form"))
+            }
+            return InvokeLambda(runtimeLambda, emptyArguments, depth)
+        }
+        throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("Task.Run requires a source function or lambda in the browser runner"))
+    }
+
+    func TaskRunCallableTask(callback: object, depth: int): Task {
+        value := InvokeTaskRunCallable(callback, depth)
+        task := value as Task
+        if task == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run(Func<Task>) callable did not return Task"))
+        }
+        return task
+    }
+
+    func TaskRunCallableTaskResult<T>(callback: object, depth: int): Task<T> {
+        completion := new TaskCompletionSource<T>()
+        _completionWork := CompleteTaskRunCallableTaskResult<T>(callback, depth, completion)
+        taskProperty := completion.GetType().GetProperty("Task", BindingFlags.Public | BindingFlags.Instance)
+        if taskProperty == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not read the Task.Run result completion task"))
+        }
+        resultTask := taskProperty.GetValue(completion) as Task<T>
+        if resultTask == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not construct the selected Task.Run result task"))
+        }
+        return resultTask
+    }
+
+    private async func CompleteTaskRunCallableTaskResult<T>(callback: object, depth: int, completion: object): Task {
+        try {
+            task := TaskRunCallableTask(callback, depth)
+            await task
+            resultProperty := task.GetType().GetProperty("Result", BindingFlags.Public | BindingFlags.Instance)
+            if resultProperty == null || resultProperty.GetIndexParameters().Length != 0 {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the selected Task.Run(Func<Task<TResult>>) callable returned a task without a result"))
+            }
+            completionType := completion.GetType()
+            setResult := completionType.GetMethod("TrySetResult", BindingFlags.Public | BindingFlags.Instance)
+            if setResult == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the browser could not complete the selected Task.Run result task"))
+            }
+            resultArguments := new object?[](1)
+            resultArguments[0] = resultProperty.GetValue(task)
+            setResult.Invoke(completion, resultArguments)
+        } catch failure: Exception {
+            completionType := completion.GetType()
+            exceptionParameterTypes := new Type[](1)
+            exceptionParameterTypes[0] = typeof(Exception)
+            setException := completionType.GetMethod("TrySetException", exceptionParameterTypes)
+            if setException == null {
+                throw failure
+            }
+            exceptionValue := failure as TargetInvocationException
+            completionFailure := exceptionValue != null && exceptionValue.InnerException != null ? exceptionValue.InnerException : failure
+            exceptionArguments := new object?[](1)
+            exceptionArguments[0] = completionFailure
+            setException.Invoke(completion, exceptionArguments)
+        }
     }
 
     private static func IsFrameworkTaskStaticInvocation(binding: AnalyzerInvocationBinding?): bool {
@@ -2150,7 +2469,7 @@ internal sealed class PlaygroundRunner {
             return false
         }
         owner := binding.ReflectedMethod.DeclaringType
-        return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(owner, typeof(Task)) || TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(owner, typeof(ValueTask))
+        return binding.ReflectedMethod.IsStatic && (TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(owner, typeof(Task)) || TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(owner, typeof(ValueTask)))
     }
 
     private static func IsFrameworkTaskStaticIdentifier(expression: Expression?, semanticModel: SemanticModel?): bool {
@@ -3439,6 +3758,44 @@ internal sealed class PlaygroundRunner {
     private sealed record RuntimeLambda(Declaration: LambdaExpression, Closure: RuntimeEnvironment) {
     }
 
+    private sealed class RuntimeTaskRunCallback {
+        Owner: PlaygroundRunner
+        Callback: object
+        Depth: int
+
+        constructor(owner: PlaygroundRunner, callback: object, depth: int) {
+            Owner = owner
+            Callback = callback
+            Depth = depth
+        }
+
+        func InvokeAction(): void {
+            Owner.InvokeTaskRunCallable(Callback, Depth)
+        }
+
+        func InvokeResult<T>(): T {
+            return (T)Owner.InvokeTaskRunCallable(Callback, Depth)
+        }
+
+        func InvokeTask(): Task {
+            return Owner.TaskRunCallableTask(Callback, Depth)
+        }
+
+        func InvokeTaskResult<T>(): Task<T> {
+            return Owner.TaskRunCallableTaskResult<T>(Callback, Depth)
+        }
+    }
+
+    private sealed class RuntimeConfiguredTaskAwaitable {
+        Task: Task
+        ContinueOnCapturedContext: bool
+
+        constructor(task: Task, continueOnCapturedContext: bool) {
+            Task = task
+            ContinueOnCapturedContext = continueOnCapturedContext
+        }
+    }
+
     private sealed class RuntimeObject {
         Declaration: Declaration?
         Environment: RuntimeEnvironment
@@ -3539,6 +3896,45 @@ internal sealed class PlaygroundAwaiterCompletionSignal {
         action := callback as Action
         if action == null {
             throw new InvalidOperationException("The playground await continuation could not be bound to Action.")
+        }
+        return action
+    }
+}
+
+internal sealed class PlaygroundTaskCompletionSignal {
+    Source: Task
+    Completion: TaskCompletionSource<object?>
+
+    constructor(source: Task, completion: TaskCompletionSource<object?>) {
+        Source = source
+        Completion = completion
+    }
+
+    func Signal(): void {
+        if !Source.IsCompleted {
+            Completion.TrySetException(new InvalidOperationException("A configured Task continuation ran before its source Task completed."))
+            return
+        }
+        try {
+            Source.GetAwaiter().GetResult()
+            Completion.TrySetResult(null)
+        } catch canceled: OperationCanceledException {
+            Completion.TrySetCanceled()
+        } catch failure: Exception {
+            Completion.TrySetException(failure)
+        }
+    }
+
+    static func CreateAction(source: Task, completion: TaskCompletionSource<object?>): Action {
+        signal := new PlaygroundTaskCompletionSignal(source, completion)
+        method := typeof(PlaygroundTaskCompletionSignal).GetMethod("Signal", BindingFlags.Public | BindingFlags.Instance)
+        if method == null {
+            throw new InvalidOperationException("The configured Task completion signal method is missing.")
+        }
+        callback := Delegate.CreateDelegate(typeof(Action), signal, method)
+        action := callback as Action
+        if action == null {
+            throw new InvalidOperationException("The configured Task completion signal could not be bound to Action.")
         }
         return action
     }

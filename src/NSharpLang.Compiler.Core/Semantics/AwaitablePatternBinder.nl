@@ -1354,7 +1354,17 @@ class AwaitablePatternBinder {
     }
 
     static func SourceFunctionMatchesInterfaceSlot(function: FunctionDeclaration, sourceSlot: FunctionDeclaration?, runtimeSlot: MethodInfo?, slotOwnerType: TypeInfo?, semanticModel: SemanticModel, implementationOwnerType: TypeInfo? = null): bool {
-        if function == null || semanticModel == null || sourceSlot == null && runtimeSlot == null || function.TypeParameters != null && function.TypeParameters.Count != 0 {
+        if function == null || semanticModel == null || sourceSlot == null && runtimeSlot == null {
+            return false
+        }
+        implementationMethodArity := function.TypeParameters == null ? 0 : function.TypeParameters.Count
+        slotMethodArity := 0
+        if sourceSlot != null {
+            slotMethodArity = sourceSlot.TypeParameters == null ? 0 : sourceSlot.TypeParameters.Count
+        } else if runtimeSlot != null && runtimeSlot.IsGenericMethod {
+            slotMethodArity = runtimeSlot.GetGenericArguments().Length
+        }
+        if implementationMethodArity != slotMethodArity {
             return false
         }
         slotParameterCount := 0
@@ -1374,6 +1384,13 @@ class AwaitablePatternBinder {
             slotSubstitution = AnalyzerSourceAwaitSubstitution(slotOwnerType)
         }
         implementationSubstitution := implementationOwnerType == null ? null : AnalyzerSourceAwaitSubstitution(implementationOwnerType)
+        methodPlaceholders := SourceMethodTypeParameterPlaceholders(implementationMethodArity)
+        actualMethodSubstitution := SourceMethodTypeParameterSubstitution(function.TypeParameters, implementationSubstitution, null, methodPlaceholders)
+        expectedMethodParameters: List<TypeParameter>? = null
+        if sourceSlot != null {
+            expectedMethodParameters = sourceSlot.TypeParameters
+        }
+        expectedMethodSubstitution := SourceMethodTypeParameterSubstitution(expectedMethodParameters, slotSubstitution, runtimeSlot, methodPlaceholders)
         index := 0
         while index < slotParameterCount {
             if function.Parameters[index].Type == null {
@@ -1384,7 +1401,7 @@ class AwaitablePatternBinder {
             if !TryResolveSourceTypeReference(semanticModel, function.Parameters[index].Type, out actualParameter) {
                 return false
             }
-            actualParameter = AnalyzerSyntheticCallFacts.ApplyGenericBindings(actualParameter, implementationSubstitution)
+            actualParameter = AnalyzerSyntheticCallFacts.ApplyGenericBindings(actualParameter, actualMethodSubstitution)
             if sourceSlot != null {
                 if sourceSlot.Parameters[index].Type == null || !TryResolveSourceTypeReference(semanticModel, sourceSlot.Parameters[index].Type, out expectedParameter) {
                     return false
@@ -1395,7 +1412,7 @@ class AwaitablePatternBinder {
                 }
                 expectedParameter = AnalyzerReflectionTypeConversion.ConvertReflectionType(runtimeSlot.GetParameters()[index].ParameterType)
             }
-            expectedParameter = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expectedParameter, slotSubstitution)
+            expectedParameter = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expectedParameter, expectedMethodSubstitution)
             if !SourceInterfaceSlotTypesMatch(actualParameter, expectedParameter) {
                 return false
             }
@@ -1406,7 +1423,7 @@ class AwaitablePatternBinder {
         if function.ReturnType != null && !TryResolveSourceTypeReference(semanticModel, function.ReturnType, out actualReturn) {
             return false
         }
-        actualReturn = AnalyzerSyntheticCallFacts.ApplyGenericBindings(actualReturn, implementationSubstitution)
+        actualReturn = AnalyzerSyntheticCallFacts.ApplyGenericBindings(actualReturn, actualMethodSubstitution)
         expectedReturn: TypeInfo = BuiltInTypes.Void
         if sourceSlot != null && sourceSlot.ReturnType != null {
             if !TryResolveSourceTypeReference(semanticModel, sourceSlot.ReturnType, out expectedReturn) {
@@ -1418,8 +1435,67 @@ class AwaitablePatternBinder {
             }
             expectedReturn = AnalyzerReflectionTypeConversion.ConvertReflectionType(runtimeSlot.ReturnType)
         }
-        expectedReturn = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expectedReturn, slotSubstitution)
+        expectedReturn = AnalyzerSyntheticCallFacts.ApplyGenericBindings(expectedReturn, expectedMethodSubstitution)
         return SourceInterfaceSlotTypesMatch(actualReturn, expectedReturn)
+    }
+
+    // Interface implementation signatures have two independent generic scopes: the constructed
+    // owner and the method. Normalize method parameters by position while preserving the closed
+    // owner substitution. This lets `Read<T>` implement `Read<U>` without confusing either method
+    // parameter with a same-named enclosing type parameter.
+    static func SourceMethodTypeParameterSubstitution(parameters: List<TypeParameter>?, ownerSubstitution: Dictionary<string, TypeInfo>?, runtimeSlot: MethodInfo?, placeholders: List<TypeInfo>): Dictionary<string, TypeInfo>? {
+        count := placeholders == null ? 0 : placeholders.Count
+        if count == 0 && (ownerSubstitution == null || ownerSubstitution.Count == 0) {
+            return null
+        }
+        result := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+        if ownerSubstitution != null {
+            for entry in ownerSubstitution {
+                result[entry.Key] = entry.Value
+            }
+        }
+        runtimeParameters := runtimeSlot != null && runtimeSlot.IsGenericMethod ? runtimeSlot.GetGenericArguments() : null
+        index := 0
+        while index < count {
+            parameterName := ""
+            if parameters != null {
+                parameterName = parameters[index].Name
+            } else if runtimeParameters != null {
+                parameterName = runtimeParameters[index].Name
+            }
+            if parameterName.Length == 0 {
+                return null
+            }
+            result[parameterName] = placeholders[index]
+            index += 1
+        }
+        return result
+    }
+
+    static func SourceMethodTypeParameterPlaceholders(count: int): List<TypeInfo> {
+        result := new List<TypeInfo>()
+        index := 0
+        while index < count {
+            result.Add(SourceMethodTypeParameterPlaceholder(index))
+            index += 1
+        }
+        return result
+    }
+
+    static func SourceMethodTypeParameterPlaceholder(index: int): TypeInfo {
+        return new ClassTypeInfo(
+            "<interface-method-type-parameter-" + index.ToString() + ">",
+            0,
+            0,
+            false,
+            null,
+            new TypeReference[](0),
+            new TypeParameter[](0),
+            new ParameterDeclarationInfo[](0),
+            new DeclaredMemberInfo[](0),
+            new NestedTypeInfo[](0),
+            true
+        )
     }
 
     // Build the interface dispatch facts for one constructed source object while its closed owner

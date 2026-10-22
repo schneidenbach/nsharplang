@@ -262,7 +262,7 @@ class OwnershipPolicy {
     static CodeEpochFileCount: int => 217
     static CodeEpochPathFingerprint: string => "pathset-v2:8753f45f767649bf"
     static CodeEpochFactFingerprint: string => "epochfacts-v2:bbd44c5fc149a36c"
-    static ReviewedHeadFingerprint: string => "head-v2:bfb54797627084fd"
+    static ReviewedHeadFingerprint: string => "head-v2:d00826ba73a962ac"
 
     static func IsPermanentBoundaryPath(path: string): bool {
         normalized := NormalizeRelativePath(path)

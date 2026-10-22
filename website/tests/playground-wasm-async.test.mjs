@@ -83,6 +83,24 @@ func main() {
         stdout: 'int\n',
       },
       {
+        name: 'generic duck method dispatch uses positional method type parameters in the WASM playground',
+        source: `duck interface IGenericReader {
+    func Read<T>(value: T): T
+}
+
+class GenericReader {
+    func Read<U>(value: U): U { return value }
+}
+
+func ReadGeneric(reader: IGenericReader): int { return reader.Read(42) }
+
+func main() {
+    print ReadGeneric(new GenericReader())
+}
+`,
+        stdout: '42\n',
+      },
+      {
         name: 'assignment method-group conversion keeps the analyzer selection in the WASM playground',
         source: `import System
 
@@ -307,6 +325,117 @@ async func main() {
 }
 `,
         stdout: '80\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run adapts a source method group to Action',
+        source: `import System.Threading.Tasks
+
+func Work(): void { print "work" }
+
+async func main(): Task {
+    await Task.Run(Work)
+    print "done"
+}
+`,
+        stdout: 'work\ndone\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run adapts a source async method group to Func<Task>',
+        source: `import System.Threading.Tasks
+
+async func Work(): Task {
+    await Task.Yield()
+    print "async-work"
+}
+
+async func main(): Task {
+    await Task.Run(Work)
+    print "done"
+}
+`,
+        stdout: 'async-work\ndone\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run adapts a source async method group to Func<Task<TResult>>',
+        source: `import System.Threading.Tasks
+
+async func Work(): Task<int> {
+    await Task.Yield()
+    return 43
+}
+
+async func main(): Task {
+    print await Task.Run(Work)
+}
+`,
+        stdout: '43\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run preserves the selected Action cancellation-token overload',
+        source: `import System.Threading
+import System.Threading.Tasks
+
+func Work(): void { print "token-work" }
+
+async func main(): Task {
+    await Task.Run(Work, new CancellationToken(false))
+    print "done"
+}
+`,
+        stdout: 'token-work\ndone\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run preserves the selected Func<TResult> cancellation-token overload',
+        source: `import System.Threading
+import System.Threading.Tasks
+
+func Work(): int { return 44 }
+
+async func main(): Task {
+    print await Task.Run(Work, new CancellationToken(false))
+}
+`,
+        stdout: '44\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run preserves the selected Func<Task> cancellation-token overload',
+        source: `import System.Threading
+import System.Threading.Tasks
+
+async func Work(): Task {
+    await Task.Yield()
+    print "token-async-work"
+}
+
+async func main(): Task {
+    await Task.Run(Work, new CancellationToken(false))
+    print "done"
+}
+`,
+        stdout: 'token-async-work\ndone\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run preserves the selected Func<Task<TResult>> cancellation-token overload',
+        source: `import System.Threading
+import System.Threading.Tasks
+
+async func Work(): Task<int> {
+    await Task.Yield()
+    return 45
+}
+
+async func main(): Task {
+    print await Task.Run(Work, new CancellationToken(false))
+}
+`,
+        stdout: '45\n',
         timeoutMs: 5000,
       },
       {
@@ -950,6 +1079,69 @@ async func main() {
 }
 `,
         stdout: '48\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.ConfigureAwait(false) on a pending non-generic Task',
+        source: `import System
+import System.Threading.Tasks
+
+async func Pause(source: Task): Task<int> {
+    await source.ConfigureAwait(false)
+    return 51
+}
+
+async func main(): Task {
+    gate := new TaskCompletionSource
+    if gate.Task.IsCompleted { throw new Exception("the non-generic completion gate started completed") }
+    pending := Pause(gate.Task)
+    if pending.IsCompleted { throw new Exception("Task ConfigureAwait(false) did not suspend") }
+    gate.SetResult()
+    print await pending
+}
+`,
+        stdout: '51\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task<T>.ConfigureAwait(false) on a pending generic Task',
+        source: `import System
+import System.Threading.Tasks
+
+async func ReadConfigured(source: Task<int>): Task<int> {
+    return await source.ConfigureAwait(false)
+}
+
+async func main(): Task {
+    gate := new TaskCompletionSource<int>
+    pending := ReadConfigured(gate.Task)
+    if pending.IsCompleted { throw new Exception("Task<T> ConfigureAwait(false) did not suspend") }
+    gate.SetResult(50)
+    print await pending
+}
+`,
+        stdout: '50\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'ValueTask.ConfigureAwait(false) on a pending non-generic ValueTask',
+        source: `import System
+import System.Threading.Tasks
+
+async func Pause(source: ValueTask): Task {
+    await source.ConfigureAwait(false)
+}
+
+async func main(): Task {
+    gate := new TaskCompletionSource
+    pending := Pause(new ValueTask(gate.Task))
+    if pending.IsCompleted { throw new Exception("ValueTask ConfigureAwait(false) did not suspend") }
+    gate.SetResult()
+    await pending
+    print "value-task-configured"
+}
+`,
+        stdout: 'value-task-configured\n',
         timeoutMs: 5000,
       },
       {
