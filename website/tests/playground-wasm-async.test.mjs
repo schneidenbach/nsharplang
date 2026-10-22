@@ -52,6 +52,26 @@ test('the WebAssembly playground executes async awaiter shapes with runtime sema
 
     const cases = [
       {
+        name: 'non-async main executes the documented error-capture deconstruction form',
+        source: `import System
+
+func Divide(a: int, b: int): int {
+    if b == 0 { throw new Exception("cannot divide by zero") }
+    return a / b
+}
+
+func main() {
+    result, err := Divide(10, 2)
+    if err != null {
+        print "failed"
+    } else {
+        print $"Result: {result}"
+    }
+}
+`,
+        stdout: 'Result: 5\n',
+      },
+      {
         name: 'Task and Task<T>',
         source: `import System.Threading.Tasks
 

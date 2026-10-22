@@ -135,6 +135,7 @@ internal sealed class PlaygroundRunner {
 
         block := statement as BlockStatement
         variable := statement as VariableDeclarationStatement
+        tuple := statement as TupleDeconstructionStatement
         expressionStatement := statement as ExpressionStatement
         printStatement := statement as PrintStatement
         returnStatement := statement as ReturnStatement
@@ -152,6 +153,8 @@ internal sealed class PlaygroundRunner {
                 declaredValue = await EvaluateAsync(variable.Initializer, environment, depth)
             }
             environment.Declare(variable.Name, declaredValue)
+        } else if tuple != null {
+            await ExecuteAsyncTupleDeconstruction(tuple, environment, depth)
         } else if expressionStatement != null {
             await EvaluateAsync(expressionStatement.Expression, environment, depth)
         } else if printStatement != null {
@@ -191,6 +194,34 @@ internal sealed class PlaygroundRunner {
             throw new PlaygroundThrownException(thrownValue)
         } else {
             throw Unsupported(PlaygroundRunFacts.UnsupportedStatement(statement.GetType().Name))
+        }
+    }
+
+    private async func ExecuteAsyncTupleDeconstruction(tuple: TupleDeconstructionStatement, environment: RuntimeEnvironment, depth: int): Task {
+        call := tuple.Initializer as CallExpression
+        if tuple.Names.Count != 2 || call == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedDeconstruction())
+        }
+
+        try {
+            result := await EvaluateAsync(call, environment, depth)
+            if !PlaygroundRunFacts.IsDiscardName(tuple.Names[0]) {
+                environment.Declare(tuple.Names[0], result)
+            }
+            if !PlaygroundRunFacts.IsDiscardName(tuple.Names[1]) {
+                environment.Declare(tuple.Names[1], null)
+            }
+        } catch caught: Exception {
+            thrown := caught as PlaygroundThrownException
+            if thrown == null {
+                throw caught
+            }
+            if !PlaygroundRunFacts.IsDiscardName(tuple.Names[0]) {
+                environment.Declare(tuple.Names[0], null)
+            }
+            if !PlaygroundRunFacts.IsDiscardName(tuple.Names[1]) {
+                environment.Declare(tuple.Names[1], thrown.Value)
+            }
         }
     }
 
