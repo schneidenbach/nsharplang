@@ -390,6 +390,48 @@ func main() {
         stdout: 'constructed\n',
       },
       {
+        name: 'reflected constructor matching preserves array rank inside generic arguments',
+        source: `import NSharpLang.AsyncConstructorReflectionFixtures
+
+func main() {
+    selected := new ReflectedConstructorArrayShapes(matrix: null)
+    print selected.GetShape()
+}
+`,
+        stdout: '22\n',
+      },
+      {
+        name: 'referenced ref and out constructors write back to caller variables',
+        source: `import NSharpLang.AsyncConstructorReflectionFixtures
+
+func main() {
+    refValue := 5
+    refConstructed := new ReflectedRefConstructor(ref refValue)
+    print refValue
+    print refConstructed.GetValue()
+
+    outValue := 0
+    outConstructed := new ReflectedOutConstructor(out outValue)
+    print outValue
+    print outConstructed.GetValue()
+}
+`,
+        stdout: '11\n11\n73\n73\n',
+      },
+      {
+        name: 'referenced in constructors materialize the by-reference type without writing back',
+        source: `import NSharpLang.AsyncConstructorReflectionFixtures
+
+func main() {
+    inValue := 19
+    constructed := new ReflectedInConstructor(in inValue)
+    print inValue
+    print constructed.GetValue()
+}
+`,
+        stdout: '19\n19\n',
+      },
+      {
         name: 'ValueTask and ValueTask<T>',
         source: `import System.Threading.Tasks
 

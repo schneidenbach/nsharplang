@@ -66,6 +66,12 @@ func IdentityRankedArrayType(elementType: Type, rank: int): Type {
     return elementType.MakeArrayType(rank)
 }
 
+func IdentityCloseGenericType(definition: Type, argument: Type): Type {
+    arguments := new Type[](1)
+    arguments[0] = argument
+    return definition.MakeGenericType(arguments)
+}
+
 func IdentityByRefType(elementType: Type): Type {
     return elementType.MakeByRefType()
 }
@@ -691,6 +697,22 @@ test "type info identity compares recursive CLR identities" {
         leftBaked,
         rightBaked
     )
+}
+
+test "CLR signature identity compares array rank and SZ shape recursively through generic arguments" {
+    vector := typeof(int).MakeArrayType()
+    matrix := typeof(int).MakeArrayType(2)
+    nonSzRankOne := typeof(int).MakeArrayType(1)
+    genericDefinition := typeof(List<int>).GetGenericTypeDefinition()
+    vectorBox := IdentityCloseGenericType(genericDefinition, vector)
+    matrixBox := IdentityCloseGenericType(genericDefinition, matrix)
+    nonSzBox := IdentityCloseGenericType(genericDefinition, nonSzRankOne)
+
+    assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vector, matrix)
+    assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vector, nonSzRankOne)
+    assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vectorBox, matrixBox)
+    assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vectorBox, nonSzBox)
+    assert TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vectorBox, IdentityCloseGenericType(genericDefinition, typeof(int).MakeArrayType()))
 }
 
 test "framework reference-pack interfaces match their runtime contract identity" {

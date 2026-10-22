@@ -418,11 +418,14 @@ internal sealed class PlaygroundRunner {
             arguments := new object?[](newExpression.ConstructorArguments.Count)
             i := 0
             while i < arguments.Length {
-                argumentValue := await EvaluateAsync(newExpression.ConstructorArguments[i].Value, environment, depth)
-                SetArrayElement(arguments, i, argumentValue)
+                constructorArgument := newExpression.ConstructorArguments[i]
+                if constructorArgument.Modifier != ArgumentModifier.Out {
+                    argumentValue := await EvaluateAsync(constructorArgument.Value, environment, depth)
+                    SetArrayElement(arguments, i, argumentValue)
+                }
                 i += 1
             }
-        created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel)
+            created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel, environment)
             if newExpression.Initializer != null {
                 await ApplyAsyncInitializer(created, newExpression.Initializer, environment, depth)
             }
@@ -773,7 +776,7 @@ internal sealed class PlaygroundRunner {
             runtimeAssemblyPath := Path.Combine(AppContext.BaseDirectory, selectedAssemblyName + ".dll")
             if File.Exists(runtimeAssemblyPath) {
                 try {
-                    runtimeAssembly := Assembly.LoadFrom(runtimeAssemblyPath)
+                    runtimeAssembly := Assembly.Load(File.ReadAllBytes(runtimeAssemblyPath))
                     runtimeOwner = runtimeAssembly.GetType(selectedOwnerName)
                 } catch loadFailure: Exception {
                     return null
@@ -1098,7 +1101,7 @@ internal sealed class PlaygroundRunner {
         runtimeAssemblyPath := Path.Combine(AppContext.BaseDirectory, assemblyName + ".dll")
         if File.Exists(runtimeAssemblyPath) {
             try {
-                runtimeAssembly := Assembly.LoadFrom(runtimeAssemblyPath)
+                runtimeAssembly := Assembly.Load(File.ReadAllBytes(runtimeAssemblyPath))
                 resolvedAssemblyType := runtimeAssembly.GetType(metadataName)
                 if resolvedAssemblyType != null {
                     runtimeType = resolvedAssemblyType
@@ -1170,6 +1173,13 @@ internal sealed class PlaygroundRunner {
             }
             return runtimeType.IsGenericParameter && selected.GenericParameterPosition == runtimeType.GenericParameterPosition
         }
+        // Use the compiler's shared reflection-identity comparison for identical closed shapes. It
+        // compares array rank and SZ-array identity recursively through generic arguments, by-ref,
+        // and pointer types. The structural path below is only needed when the interpreter's
+        // constructed owner substitutes a different runtime type argument.
+        if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(selected, runtimeType) {
+            return true
+        }
         // The interpreter represents an async `Task<T>` result as `Task<object?>`. Its await
         // members still come from the same generic method definition, with the owner type argument
         // substituted to object at runtime. Match those substitutions by owner-parameter position
@@ -1191,6 +1201,11 @@ internal sealed class PlaygroundRunner {
         if selected.HasElementType || runtimeType.HasElementType {
             selectedElement: Type? = selected.GetElementType()
             runtimeElement: Type? = runtimeType.GetElementType()
+            if selected.IsArray || runtimeType.IsArray {
+                if !selected.IsArray || !runtimeType.IsArray || selected.GetArrayRank() != runtimeType.GetArrayRank() || selected.IsSZArray != runtimeType.IsSZArray {
+                    return false
+                }
+            }
             return selected.HasElementType && runtimeType.HasElementType && selected.IsArray == runtimeType.IsArray && selected.IsByRef == runtimeType.IsByRef && selected.IsPointer == runtimeType.IsPointer && selectedElement != null && runtimeElement != null && RuntimeSignatureTypesMatch(selectedElement, runtimeElement, selectedOwner, runtimeOwner)
         }
         if selected.IsGenericType || runtimeType.IsGenericType {
@@ -2191,10 +2206,13 @@ internal sealed class PlaygroundRunner {
         arguments := new object?[](newExpression.ConstructorArguments.Count)
         i := 0
         while i < newExpression.ConstructorArguments.Count {
-            arguments[i] = Evaluate(newExpression.ConstructorArguments[i].Value, environment, depth)
+            constructorArgument := newExpression.ConstructorArguments[i]
+            if constructorArgument.Modifier != ArgumentModifier.Out {
+                arguments[i] = Evaluate(constructorArgument.Value, environment, depth)
+            }
             i = i + 1
         }
-            created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel)
+        created := EvaluateNewWithArguments(newExpression, arguments, environment.SemanticModel, environment)
         if newExpression.Initializer != null {
             runtimeObject := created as RuntimeObject
             if runtimeObject == null {
@@ -2205,7 +2223,7 @@ internal sealed class PlaygroundRunner {
         return created
     }
 
-    private func EvaluateNewWithArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?): object {
+    private func EvaluateNewWithArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?, environment: RuntimeEnvironment): object {
         typeName := GetTypeName(newExpression.Type)
         if typeName == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
@@ -2252,7 +2270,7 @@ internal sealed class PlaygroundRunner {
         }
         declaration: Declaration? = null
         if !types.TryGetValue(typeName, out declaration) || declaration == null {
-            reflectedObject := TryCreateReflectedObject(newExpression, arguments, semanticModel)
+            reflectedObject := TryCreateReflectedObject(newExpression, arguments, semanticModel, environment)
             if reflectedObject != null {
                 return reflectedObject
             }
@@ -2266,7 +2284,7 @@ internal sealed class PlaygroundRunner {
         return runtimeObject
     }
 
-    private func TryCreateReflectedObject(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?): object? {
+    private func TryCreateReflectedObject(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?, environment: RuntimeEnvironment): object? {
         if newExpression == null || newExpression.Type == null || semanticModel == null {
             return null
         }
@@ -2301,16 +2319,20 @@ internal sealed class PlaygroundRunner {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected reflected constructor has no runtime metadata match"))
         }
         invocationArguments: object?[] = null
+        writeBacks: List<RuntimeConstructorWriteBack> = null
         argumentFailure := "analyzer-bound reflected constructor arguments could not be materialized"
-        if !BuildBoundConstructorArguments(selectedBinding, arguments, out invocationArguments, out argumentFailure) || invocationArguments == null {
+        if !BuildBoundConstructorArguments(selectedBinding, newExpression, arguments, environment, out invocationArguments, out writeBacks, out argumentFailure) || invocationArguments == null || writeBacks == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression(argumentFailure))
         }
+        instance: object? = null
         try {
-            return constructor.Invoke(invocationArguments)
+            instance = constructor.Invoke(invocationArguments)
         } catch invocationFailure: TargetInvocationException {
             RethrowInvocationFailure(invocationFailure)
+        } finally {
+            ApplyConstructorWriteBacks(invocationArguments, writeBacks)
         }
-        return null
+        return instance
     }
 
     private static func ResolveRuntimeConstructor(selected: ConstructorInfo, runtimeType: Type): ConstructorInfo? {
@@ -2350,14 +2372,22 @@ internal sealed class PlaygroundRunner {
         return true
     }
 
-    private func BuildBoundConstructorArguments(binding: AnalyzerConstructionBinding, arguments: IReadOnlyList<object?>, out invocationArguments: object?[], out failureReason: string): bool {
+    private func BuildBoundConstructorArguments(binding: AnalyzerConstructionBinding, newExpression: NewExpression, arguments: IReadOnlyList<object?>, environment: RuntimeEnvironment, out invocationArguments: object?[], out writeBacks: List<RuntimeConstructorWriteBack>, out failureReason: string): bool {
         invocationArguments = null
+        writeBacks = null
         failureReason = "analyzer-bound reflected constructor arguments could not be materialized"
-        if binding == null || arguments == null || binding.ParameterCount < 0 {
+        if binding == null || newExpression == null || arguments == null || environment == null || binding.ParameterCount < 0 {
             return false
         }
+        selectedConstructor := binding.ReflectedConstructor
+        if selectedConstructor == null {
+            failureReason = "the analyzer did not retain the selected reflected constructor"
+            return false
+        }
+        reflectedParameters := selectedConstructor.GetParameters()
         values := new object?[](binding.ParameterCount)
         assigned := new bool[](binding.ParameterCount)
+        pendingWriteBacks := new List<RuntimeConstructorWriteBack>()
         for bound in binding.ArgumentBindings {
             if bound.ParameterIndex < 0 || bound.ParameterIndex >= binding.ParameterCount {
                 failureReason = "analyzer-bound constructor argument refers to an invalid parameter slot"
@@ -2415,8 +2445,54 @@ internal sealed class PlaygroundRunner {
                 failureReason = "analyzer-bound constructor argument has no evaluated source argument"
                 return false
             }
+            if bound.ArgumentIndex >= newExpression.ConstructorArguments.Count {
+                failureReason = "analyzer-bound constructor argument has no matching source argument"
+                return false
+            }
+            sourceArgument := newExpression.ConstructorArguments[bound.ArgumentIndex]
+            byRefParameter := bound.ParameterType as ByRefTypeInfo
+            if bound.ParameterIndex >= reflectedParameters.Length {
+                failureReason = "analyzer-bound constructor parameter is missing from the selected reflected constructor"
+                return false
+            }
+            reflectedParameter := reflectedParameters[bound.ParameterIndex]
+            isByRefParameter := byRefParameter != null || reflectedParameter.ParameterType.IsByRef
+            hasByRefModifier := sourceArgument.Modifier == ArgumentModifier.Ref || sourceArgument.Modifier == ArgumentModifier.Out || sourceArgument.Modifier == ArgumentModifier.In
+            if hasByRefModifier && !isByRefParameter {
+                failureReason = "the source argument modifier does not match the selected reflected constructor parameter"
+                return false
+            }
+            if sourceArgument.Modifier == ArgumentModifier.Ref && (reflectedParameter.IsOut || reflectedParameter.IsIn) || sourceArgument.Modifier == ArgumentModifier.Out && !reflectedParameter.IsOut || sourceArgument.Modifier == ArgumentModifier.In && !reflectedParameter.IsIn {
+                failureReason = "the source argument direction does not match the selected reflected constructor parameter"
+                return false
+            }
+            if isByRefParameter {
+                targetType: Type = null
+                if !TryResolvePlaygroundConstructorValueType(bound.ConversionType, out targetType) {
+                    failureReason = "the selected by-reference constructor parameter type is unavailable in the playground runtime"
+                    return false
+                }
+                converted: object? = null
+                if sourceArgument.Modifier == ArgumentModifier.Out {
+                    converted = DefaultPlaygroundValue(targetType)
+                } else if !ConvertBoundConstructorArgument(arguments[bound.ArgumentIndex], targetType, out converted) {
+                    failureReason = "a by-reference constructor argument could not be converted to its parameter type"
+                    return false
+                }
+                values[parameterIndex] = converted
+                if sourceArgument.Modifier == ArgumentModifier.Ref || sourceArgument.Modifier == ArgumentModifier.Out {
+                    storage: RuntimeConstructorStorage = null
+                    if !TryCreateConstructorStorage(sourceArgument.Value, environment, out storage) || storage == null {
+                        failureReason = "the by-reference constructor argument does not have a supported caller storage location"
+                        return false
+                    }
+                    pendingWriteBacks.Add(new RuntimeConstructorWriteBack(parameterIndex, sourceArgument.Modifier, storage))
+                }
+                assigned[parameterIndex] = true
+                continue
+            }
             targetType: Type = null
-            if !TryResolvePlaygroundRuntimeType(bound.ConversionType, out targetType) {
+            if !TryResolvePlaygroundConstructorValueType(bound.ConversionType, out targetType) {
                 failureReason = "the selected constructor parameter conversion type is unavailable in the playground runtime"
                 return false
             }
@@ -2437,7 +2513,86 @@ internal sealed class PlaygroundRunner {
             index += 1
         }
         invocationArguments = values
+        writeBacks = pendingWriteBacks
         return true
+    }
+
+    private static func TryResolvePlaygroundConstructorValueType(typeInfo: NSharpLang.Compiler.TypeInfo, out runtimeType: Type): bool {
+        byRef := typeInfo as ByRefTypeInfo
+        if byRef != null {
+            typeInfo = byRef.InnerType
+        }
+        oblivious := typeInfo as ObliviousTypeInfo
+        if oblivious != null {
+            return TryResolvePlaygroundConstructorValueType(oblivious.InnerType, out runtimeType)
+        }
+        reflected := typeInfo as ReflectionTypeInfo
+        if reflected != null && reflected.Type.IsByRef {
+            elementType := reflected.Type.GetElementType()
+            if elementType == null {
+                runtimeType = null
+                return false
+            }
+            return TryResolvePlaygroundRuntimeTypeFromMetadata(elementType, out runtimeType)
+        }
+        if !TryResolvePlaygroundRuntimeType(typeInfo, out runtimeType) {
+            return false
+        }
+        if runtimeType.IsByRef {
+            elementType := runtimeType.GetElementType()
+            if elementType == null {
+                runtimeType = null
+                return false
+            }
+            runtimeType = elementType
+        }
+        return true
+    }
+
+
+    private static func DefaultPlaygroundValue(runtimeType: Type): object? {
+        if runtimeType != null && runtimeType.IsValueType {
+            return Activator.CreateInstance(runtimeType)
+        }
+        return null
+    }
+
+    private func TryCreateConstructorStorage(expression: Expression, environment: RuntimeEnvironment, out storage: RuntimeConstructorStorage): bool {
+        storage = null
+        identifier := expression as IdentifierExpression
+        if identifier != null {
+            storage = new RuntimeConstructorStorage(environment, identifier.Name, null, null, null, null)
+            return true
+        }
+        member := expression as MemberAccessExpression
+        if member == null {
+            return false
+        }
+        owner := Evaluate(member.Object, environment, 0)
+        runtimeOwner := owner as RuntimeObject
+        if runtimeOwner != null {
+            storage = new RuntimeConstructorStorage(null, null, runtimeOwner, null, null, member.MemberName)
+            return true
+        }
+        if owner != null {
+            field := owner.GetType().GetField(member.MemberName, BindingFlags.Public | BindingFlags.Instance)
+            if field != null {
+                storage = new RuntimeConstructorStorage(null, null, null, owner, field, member.MemberName)
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func ApplyConstructorWriteBacks(invocationArguments: object?[], writeBacks: List<RuntimeConstructorWriteBack>) {
+        if invocationArguments == null || writeBacks == null {
+            return
+        }
+        for writeBack in writeBacks {
+            if (writeBack.Modifier == ArgumentModifier.Ref || writeBack.Modifier == ArgumentModifier.Out) && writeBack.ParameterIndex >= 0 && writeBack.ParameterIndex < invocationArguments.Length {
+                writeBack.Storage.Write(invocationArguments[writeBack.ParameterIndex])
+            }
+        }
     }
 
     private static func ConvertBoundConstructorArgument(value: object?, parameterType: Type, out converted: object?): bool {
@@ -2975,6 +3130,51 @@ internal sealed class PlaygroundRunner {
     }
 
     private sealed record RuntimeType(Declaration: Declaration) {
+    }
+
+    private sealed class RuntimeConstructorStorage {
+        private variableEnvironment: RuntimeEnvironment?
+        private variableName: string?
+        private runtimeOwner: RuntimeObject?
+        private reflectedOwner: object?
+        private reflectedField: FieldInfo?
+        private memberName: string?
+
+        constructor(environment: RuntimeEnvironment?, name: string?, sourceOwner: RuntimeObject?, externalOwner: object?, field: FieldInfo?, member: string?) {
+            variableEnvironment = environment
+            variableName = name
+            runtimeOwner = sourceOwner
+            reflectedOwner = externalOwner
+            reflectedField = field
+            memberName = member
+        }
+
+        func Write(value: object?) {
+            if variableName != null && variableEnvironment != null {
+                variableEnvironment.Set(variableName, value)
+                return
+            }
+            if runtimeOwner != null && memberName != null {
+                runtimeOwner.Fields[memberName] = value
+                runtimeOwner.Environment.Set(memberName, value)
+                return
+            }
+            if reflectedOwner != null && reflectedField != null {
+                reflectedField.SetValue(reflectedOwner, value)
+            }
+        }
+    }
+
+    private sealed class RuntimeConstructorWriteBack {
+        ParameterIndex: int
+        Modifier: ArgumentModifier
+        Storage: RuntimeConstructorStorage
+
+        constructor(parameterIndex: int, modifier: ArgumentModifier, storage: RuntimeConstructorStorage) {
+            ParameterIndex = parameterIndex
+            Modifier = modifier
+            Storage = storage
+        }
     }
 
     private sealed record RuntimeFunction(Declaration: FunctionDeclaration, Receiver: RuntimeObject?) {

@@ -1649,7 +1649,15 @@ class AnalyzerConstruction {
         }
 
         argument := node.ConstructorArguments[state.ArgIndex]
-        state.ConstructorArgumentTypes.Add(argumentType)
+        selectedArgumentType := argumentType
+        if (argument.Modifier == ArgumentModifier.Ref || argument.Modifier == ArgumentModifier.Out || argument.Modifier == ArgumentModifier.In) && !BuiltInTypes.IsUnknown(selectedArgumentType) {
+            existingByRef := selectedArgumentType as ByRefTypeInfo
+            if existingByRef != null {
+                selectedArgumentType = existingByRef.InnerType
+            }
+            selectedArgumentType = new ByRefTypeInfo(selectedArgumentType, argument.Modifier == ArgumentModifier.Out)
+        }
+        state.ConstructorArgumentTypes.Add(selectedArgumentType)
         state.ArgIndex = state.ArgIndex + 1
         state.Phase = 0
         soaEscapeValue.ReportSoaRowEscapeIfNeeded(argument.Value, argumentType, "passed as a constructor argument")

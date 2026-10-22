@@ -690,8 +690,8 @@ class AnalyzerOverloadFacts {
         return paramsTypeRef
     }
 
-    // A `ref`/`out` source parameter's type is a by-ref type. Idempotent: a signature that already
-    // carries the shell is left alone.
+    // A `ref`/`out`/`in` source parameter's type is a by-ref type. Idempotent: a signature that
+    // already carries the shell is left alone.
     static func ApplySyntheticParameterModifier(functionType: FunctionTypeInfo, parameterIndex: int, parameterType: TypeInfo): TypeInfo {
         modifiers := functionType.ParameterModifiers
         if modifiers == null || parameterIndex < 0 || parameterIndex >= modifiers.Count {
@@ -699,7 +699,7 @@ class AnalyzerOverloadFacts {
         }
 
         modifier := modifiers[parameterIndex]
-        if modifier != Ast.ParameterModifier.Ref && modifier != Ast.ParameterModifier.Out {
+        if modifier != Ast.ParameterModifier.Ref && modifier != Ast.ParameterModifier.Out && modifier != Ast.ParameterModifier.In {
             return parameterType
         }
 

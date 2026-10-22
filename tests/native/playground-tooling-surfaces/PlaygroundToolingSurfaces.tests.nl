@@ -3,6 +3,7 @@ namespace NSharpLang.PlaygroundToolingSurfaces.Tests
 import System
 import System.Collections
 import System.Reflection
+import System.Reflection.Emit
 import System.Threading.Tasks
 
 
@@ -127,6 +128,49 @@ func PgCompilerType(): Type {
     }
 
     return compilerType
+}
+
+func PgConstructorSignatureCtor(owner: TypeBuilder, parameterType: Type, shapeField: FieldBuilder, shapeValue: int): ConstructorBuilder {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = parameterType
+    constructor := owner.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, parameterTypes)
+    il := constructor.GetILGenerator()
+    baseConstructor := typeof(object).GetConstructor(new Type[](0))
+    if baseConstructor == null {
+        throw new InvalidOperationException("The CLR object constructor was not loadable.")
+    }
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Call, baseConstructor)
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Ldc_I4, shapeValue)
+    il.Emit(OpCodes.Stfld, shapeField)
+    il.Emit(OpCodes.Ret)
+    return constructor
+}
+
+func PgRuntimeConstructorMapper(): MethodInfo {
+    runnerType := PgCompilerType().Assembly.GetType("NSharpLang.Playground.PlaygroundRunner")
+    if runnerType == null {
+        throw new InvalidOperationException("The production playground runner was not loadable.")
+    }
+    mapper := runnerType.GetMethod("ResolveRuntimeConstructor", BindingFlags.NonPublic | BindingFlags.Static)
+    if mapper == null {
+        throw new InvalidOperationException("The playground's selected-constructor runtime mapper was not loadable.")
+    }
+    return mapper
+}
+
+func PgMapRuntimeConstructor(mapper: MethodInfo, selected: ConstructorInfo, runtimeType: Type): ConstructorInfo? {
+    arguments := new object?[](2)
+    arguments[0] = selected
+    arguments[1] = runtimeType
+    return mapper.Invoke(null, arguments) as ConstructorInfo
+}
+
+func PgInvokeNullArgumentConstructor(constructor: ConstructorInfo): object {
+    arguments := new object?[](1)
+    arguments[0] = null
+    return constructor.Invoke(arguments)
 }
 
 func PgExamplesType(): Type {
@@ -1549,6 +1593,58 @@ test "020 s38 playground tooling surfaces: T4 — Run selects the final dictiona
     assert PgExitCode(response) == "0"
     assert PgStdout(response) == "second\n"
     assert PgStderr(response) == "<null>"
+}
+
+test "playground reflected constructor mapping distinguishes nested vector and matrix array signatures" {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("PlaygroundArrayConstructorShape"), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("main")
+    boxBuilder := module.DefineType("Fixture.Box`1", TypeAttributes.Public | TypeAttributes.Class)
+    genericNames := new string[](1)
+    genericNames[0] = "T"
+    boxBuilder.DefineGenericParameters(genericNames)
+    boxDefinition := boxBuilder.CreateType()
+    vectorArguments := new Type[](1)
+    vectorArguments[0] = typeof(int).MakeArrayType()
+    matrixArguments := new Type[](1)
+    matrixArguments[0] = typeof(int).MakeArrayType(2)
+    vectorBox := boxDefinition.MakeGenericType(vectorArguments)
+    matrixBox := boxDefinition.MakeGenericType(matrixArguments)
+
+    ownerBuilder := module.DefineType("Fixture.ConstructorShapes", TypeAttributes.Public | TypeAttributes.Class)
+    shapeField := ownerBuilder.DefineField("shape", typeof(int), FieldAttributes.Private)
+    vectorBuilder := PgConstructorSignatureCtor(ownerBuilder, vectorBox, shapeField, 1)
+    matrixBuilder := PgConstructorSignatureCtor(ownerBuilder, matrixBox, shapeField, 2)
+    getter := ownerBuilder.DefineMethod("GetShape", MethodAttributes.Public, typeof(int), new Type[](0))
+    getterIl := getter.GetILGenerator()
+    getterIl.Emit(OpCodes.Ldarg_0)
+    getterIl.Emit(OpCodes.Ldfld, shapeField)
+    getterIl.Emit(OpCodes.Ret)
+    owner := ownerBuilder.CreateType()
+
+    vectorParameters := new Type[](1)
+    vectorParameters[0] = vectorBox
+    matrixParameters := new Type[](1)
+    matrixParameters[0] = matrixBox
+    selectedVector := owner.GetConstructor(vectorParameters)
+    selectedMatrix := owner.GetConstructor(matrixParameters)
+    assert selectedVector != null
+    assert selectedMatrix != null
+    assert vectorBuilder.MetadataToken == selectedVector.MetadataToken
+    assert matrixBuilder.MetadataToken == selectedMatrix.MetadataToken
+
+    mapper := PgRuntimeConstructorMapper()
+    mappedVector := PgMapRuntimeConstructor(mapper, selectedVector, owner)
+    mappedMatrix := PgMapRuntimeConstructor(mapper, selectedMatrix, owner)
+    assert mappedVector != null
+    assert mappedMatrix != null
+    vectorInstance := PgInvokeNullArgumentConstructor(mappedVector)
+    matrixInstance := PgInvokeNullArgumentConstructor(mappedMatrix)
+    getterMethod := owner.GetMethod("GetShape")
+    assert getterMethod != null
+    vectorShape := getterMethod.Invoke(vectorInstance, null)
+    matrixShape := getterMethod.Invoke(matrixInstance, null)
+    assert vectorShape != null && vectorShape.ToString() == "1"
+    assert matrixShape != null && matrixShape.ToString() == "2"
 }
 
 test "020 s38 playground tooling surfaces: T3 — Format over a source WITH a compiler error — the text comes back unchanged and the skip is stated as a warning (T3, a control the C# never had)" {
