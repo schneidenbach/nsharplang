@@ -2114,9 +2114,39 @@ class Analyzer: IDisposable {
             }
         }
 
+        RecordContextualCallableReferenceBinding(expression, result)
         DispatchedExpression = expression
         DispatchedType = result
         return ExpressionTail.Finish(expression, result)
+    }
+
+    // Every contextual conversion reaches expression analysis with its target in the ambient slot:
+    // local and field initializers, assignments, returns, lambda bodies, and arguments all use the
+    // same record point. The selected declaration is stored at the source expression so the
+    // playground executes the analyzer's choice instead of resolving the written name again.
+    private func RecordContextualCallableReferenceBinding(expression: Expression, resolvedType: TypeInfo) {
+        expectedType := Ambient.CurrentExpectedType
+        if expression == null || resolvedType == null || expectedType == null {
+            return
+        }
+
+        selected := resolvedType as FunctionTypeInfo
+        if selected != null {
+            if !AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(selected) || !Assignability.IsAssignable(expectedType, selected) {
+                return
+            }
+            AnalyzerCallAnalysis.RecordCallableReferenceExpression(SemanticModel, expression, selected)
+            return
+        }
+
+        group := resolvedType as NSharpMethodGroupInfo
+        if group == null {
+            return
+        }
+        selectedGroupFunction: FunctionTypeInfo? = null
+        if Assignability.TrySelectNSharpMethodGroupFunction(group, expectedType, out selectedGroupFunction) && selectedGroupFunction != null {
+            AnalyzerCallAnalysis.RecordCallableReferenceExpression(SemanticModel, expression, selectedGroupFunction)
+        }
     }
 
     private func DriveIndexAccess(state: IndexAccessState): TypeInfo {

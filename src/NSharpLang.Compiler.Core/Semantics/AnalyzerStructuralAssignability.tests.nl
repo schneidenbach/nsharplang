@@ -17,7 +17,7 @@ import NSharpLang.Compiler.Ast
 //     because the member list is consulted before the interface's demands are;
 //   * only FUNCTION members are demanded and only function members can satisfy them, in both
 //     directions;
-//   * signature equality is by the RESOLVED type's display form, and an absent return type is
+//   * signature equality is by canonical resolved type identity, and an absent return type is
 //     `void` rather than "unknown";
 //   * the resolution ORDER — a name or arity mismatch resolves NOTHING, so a rejected candidate
 //     writes no semantic-model record;

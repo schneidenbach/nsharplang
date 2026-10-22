@@ -494,7 +494,7 @@ two types alone, and they are kept out of `AnalyzerAssignabilityFacts` so that c
   directions. A source with no declared-member list at all — a CLR type, a built-in, an array, an
   interface — satisfies NOTHING, including the empty duck interface, because the member list is
   consulted before the interface's demands are; a class, struct or record with an EMPTY member list
-  does satisfy it. Signature equality is by the RESOLVED type's display form, an absent return type
+  does satisfy it. Signature equality is by canonical resolved type identity, an absent return type
   means `void`, and the resolution ORDER is behaviour: parameters are resolved in pairs, left to
   right, and the first mismatch stops the walk, so a rejected candidate's later references are never
   resolved and never recorded. Constructed generic duck targets resolve contract members under the

@@ -380,11 +380,11 @@ internal sealed class PlaygroundRunner {
         member := expression as MemberAccessExpression
         if member != null {
             taskType := member.Object as IdentifierExpression
-            if taskType != null && taskType.Name == "Task" && member.MemberName == "CompletedTask" {
+            if member.MemberName == "CompletedTask" && IsStaticFrameworkTypeIdentifier(taskType, environment.SemanticModel, typeof(Task)) {
                 return Task.CompletedTask
             }
             valueTaskType := member.Object as IdentifierExpression
-            if valueTaskType != null && valueTaskType.Name == "ValueTask" && member.MemberName == "CompletedTask" {
+            if member.MemberName == "CompletedTask" && IsStaticFrameworkTypeIdentifier(valueTaskType, environment.SemanticModel, typeof(ValueTask)) {
                 return ValueTask.CompletedTask
             }
             target := await EvaluateAsync(member.Object, environment, depth)
@@ -505,6 +505,10 @@ internal sealed class PlaygroundRunner {
                     }
                     return InvokeFunction(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
                 }
+                runtimeLambda := boundValue as RuntimeLambda
+                if runtimeLambda != null {
+                    return InvokeLambda(runtimeLambda, arguments, depth)
+                }
             }
             selectedBinding: AnalyzerInvocationBinding? = null
             semanticModel := environment.SemanticModel
@@ -524,8 +528,7 @@ internal sealed class PlaygroundRunner {
         if semanticModel != null {
             semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding)
         }
-        staticOwner := member.Object as IdentifierExpression
-        if staticOwner != null && (staticOwner.Name == "Task" || staticOwner.Name == "ValueTask") {
+        if IsFrameworkTaskStaticInvocation(selectedBinding) || selectedBinding == null && IsFrameworkTaskStaticIdentifier(member.Object, semanticModel) {
             if selectedBinding == null {
                 throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer did not select a Task or ValueTask overload"))
             }
@@ -714,11 +717,9 @@ internal sealed class PlaygroundRunner {
         // Reference assemblies and runtime assemblies can assign different metadata tokens. The
         // shared binder already selected this exact member; map its declaring type and signature
         // to the execution assembly without running overload resolution again.
-        selectedOwnerName := RuntimeTypeDefinitionName(selectedOwner)
         selectedOpen := selected.IsGenericMethod ? selected.GetGenericMethodDefinition() : selected
         for candidate in runtimeOwner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
-            candidateOwnerName := RuntimeTypeDefinitionName(candidate.DeclaringType)
-            if candidateOwnerName == selectedOwnerName && RuntimeMethodSignaturesMatch(selectedOpen, candidate) {
+            if RuntimeTypeDefinitionsMatch(selectedOwner, candidate.DeclaringType) && RuntimeMethodSignaturesMatch(selectedOpen, candidate) {
                 return CloseRuntimeMethodForSelected(selected, candidate)
             }
         }
@@ -764,34 +765,8 @@ internal sealed class PlaygroundRunner {
             return null
         }
         selectedOwner := selected.DeclaringType
-        selectedAssemblyName := selectedOwner.Assembly.GetName().Name
-        selectedOwnerName := selectedOwner.FullName
-        if selectedAssemblyName == null || selectedOwnerName == null {
-            return null
-        }
-        runtimeOwner: Type? = null
-        runtimeAssemblies := AppDomain.CurrentDomain.GetAssemblies()
-        for runtimeAssembly in runtimeAssemblies {
-            if runtimeAssembly.GetName().Name != selectedAssemblyName {
-                continue
-            }
-            runtimeOwner = runtimeAssembly.GetType(selectedOwnerName)
-            if runtimeOwner != null {
-                break
-            }
-        }
-        if runtimeOwner == null {
-            runtimeAssemblyPath := Path.Combine(AppContext.BaseDirectory, selectedAssemblyName + ".dll")
-            if File.Exists(runtimeAssemblyPath) {
-                try {
-                    runtimeAssembly := Assembly.Load(File.ReadAllBytes(runtimeAssemblyPath))
-                    runtimeOwner = runtimeAssembly.GetType(selectedOwnerName)
-                } catch loadFailure: Exception {
-                    return null
-                }
-            }
-        }
-        if runtimeOwner == null {
+        runtimeOwner: Type = null
+        if !TryResolvePlaygroundRuntimeTypeFromMetadata(selectedOwner, out runtimeOwner) {
             return null
         }
 
@@ -914,77 +889,71 @@ internal sealed class PlaygroundRunner {
         }
         simpleType := typeInfo as SimpleTypeInfo
         if simpleType != null {
-            if simpleType.Name == "bool" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Bool) {
                 runtimeType = typeof(bool)
                 return true
             }
-            if simpleType.Name == "byte" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Byte) {
                 runtimeType = typeof(byte)
                 return true
             }
-            if simpleType.Name == "sbyte" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.SByte) {
                 runtimeType = typeof(sbyte)
                 return true
             }
-            if simpleType.Name == "short" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Short) {
                 runtimeType = typeof(short)
                 return true
             }
-            if simpleType.Name == "ushort" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.UShort) {
                 runtimeType = typeof(ushort)
                 return true
             }
-            if simpleType.Name == "int" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Int) {
                 runtimeType = typeof(int)
                 return true
             }
-            if simpleType.Name == "uint" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.UInt) {
                 runtimeType = typeof(uint)
                 return true
             }
-            if simpleType.Name == "long" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Long) {
                 runtimeType = typeof(long)
                 return true
             }
-            if simpleType.Name == "ulong" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.ULong) {
                 runtimeType = typeof(ulong)
                 return true
             }
-            if simpleType.Name == "float" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Float) {
                 runtimeType = typeof(float)
                 return true
             }
-            if simpleType.Name == "double" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Double) {
                 runtimeType = typeof(double)
                 return true
             }
-            if simpleType.Name == "decimal" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Decimal) {
                 runtimeType = typeof(decimal)
                 return true
             }
-            if simpleType.Name == "char" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Char) {
                 runtimeType = typeof(char)
                 return true
             }
-            if simpleType.Name == "string" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.String) {
                 runtimeType = typeof(string)
                 return true
             }
-            if simpleType.Name == "object" {
+            if BuiltInTypes.Is(simpleType, BuiltInTypes.Object) {
                 runtimeType = typeof(object)
                 return true
             }
         }
-        rendered := typeInfo.ToString()
-        if rendered == null {
-            return false
-        }
-        resolved := Type.GetType(rendered)
-        if resolved == null {
-            return false
-        }
-        runtimeType = resolved
-        return true
+        // Source and unresolved external names do not carry a CLR Type handle. Do not turn their
+        // display text into a runtime lookup: source declarations are interpreted directly, and an
+        // external type without resolved metadata is unsupported at this execution boundary.
+        return false
     }
 
     private static func TryResolvePlaygroundRuntimeTypeFromMetadata(metadataType: Type, out runtimeType: Type): bool {
@@ -1058,7 +1027,11 @@ internal sealed class PlaygroundRunner {
             if metadataElement == null || !TryResolvePlaygroundRuntimeTypeFromMetadata(metadataElement, out elementType) {
                 return false
             }
-            runtimeType = metadataType.GetArrayRank() == 1 ? elementType.MakeArrayType() : elementType.MakeArrayType(metadataType.GetArrayRank())
+            if metadataType.GetArrayRank() == 1 {
+                runtimeType = metadataType.IsSZArray ? elementType.MakeArrayType() : elementType.MakeArrayType(1)
+            } else {
+                runtimeType = elementType.MakeArrayType(metadataType.GetArrayRank())
+            }
             return true
         }
         if metadataType.IsGenericType && !metadataType.IsGenericTypeDefinition {
@@ -1089,7 +1062,7 @@ internal sealed class PlaygroundRunner {
             return false
         }
         resolvedMetadataType := Type.GetType(metadataName)
-        if resolvedMetadataType != null {
+        if resolvedMetadataType != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, resolvedMetadataType) {
             runtimeType = resolvedMetadataType
             return true
         }
@@ -1100,7 +1073,7 @@ internal sealed class PlaygroundRunner {
         for runtimeAssembly in AppDomain.CurrentDomain.GetAssemblies() {
             if runtimeAssembly.GetName().Name == assemblyName {
                 resolvedAssemblyType := runtimeAssembly.GetType(metadataName)
-                if resolvedAssemblyType != null {
+                if resolvedAssemblyType != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, resolvedAssemblyType) {
                     runtimeType = resolvedAssemblyType
                     return true
                 }
@@ -1111,7 +1084,7 @@ internal sealed class PlaygroundRunner {
             try {
                 runtimeAssembly := Assembly.Load(File.ReadAllBytes(runtimeAssemblyPath))
                 resolvedAssemblyType := runtimeAssembly.GetType(metadataName)
-                if resolvedAssemblyType != null {
+                if resolvedAssemblyType != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(metadataType, resolvedAssemblyType) {
                     runtimeType = resolvedAssemblyType
                     return true
                 }
@@ -1124,9 +1097,12 @@ internal sealed class PlaygroundRunner {
     }
 
     private static func SelectedRuntimeInterfaceMethodFor(selected: MethodInfo, selectedOwner: Type, runtimeOwner: Type): MethodInfo? {
-        selectedOwnerName := RuntimeTypeDefinitionName(selectedOwner)
+        runtimeSelectedOwner: Type = null
+        if !TryResolvePlaygroundRuntimeTypeFromMetadata(selectedOwner, out runtimeSelectedOwner) {
+            return null
+        }
         for runtimeInterface in runtimeOwner.GetInterfaces() {
-            if RuntimeTypeDefinitionName(runtimeInterface) != selectedOwnerName {
+            if !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(runtimeSelectedOwner, runtimeInterface) {
                 continue
             }
             mapping := runtimeOwner.GetInterfaceMap(runtimeInterface)
@@ -1237,15 +1213,13 @@ internal sealed class PlaygroundRunner {
         return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(selected, runtimeType)
     }
 
-    private static func RuntimeTypeDefinitionName(type: Type?): string? {
-        if type == null {
-            return null
+    private static func RuntimeTypeDefinitionsMatch(left: Type?, right: Type?): bool {
+        if left == null || right == null {
+            return left == right
         }
-        if type.IsGenericType {
-            definition := type.GetGenericTypeDefinition()
-            return definition.FullName
-        }
-        return type.FullName
+        leftDefinition := left.IsGenericType ? left.GetGenericTypeDefinition() : left
+        rightDefinition := right.IsGenericType ? right.GetGenericTypeDefinition() : right
+        return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(leftDefinition, rightDefinition)
     }
 
     private async func AwaitReflectedAwaiter(awaiter: object, pattern: AwaitablePatternBinding): Task<object?> {
@@ -1503,6 +1477,37 @@ internal sealed class PlaygroundRunner {
         return null
     }
 
+    private func InvokeLambda(runtimeLambda: RuntimeLambda, arguments: IReadOnlyList<object?>, depth: int): object? {
+        lambda := runtimeLambda.Declaration
+        if depth > PlaygroundRunFacts.MaxCallDepth() {
+            throw Unsupported(PlaygroundRunFacts.CallDepthExceeded())
+        }
+        if lambda.Parameters.Count != arguments.Count {
+            throw Unsupported(PlaygroundRunFacts.WrongArgumentCount("lambda", arguments.Count))
+        }
+        environment := new RuntimeEnvironment(runtimeLambda.Closure)
+        index := 0
+        while index < lambda.Parameters.Count {
+            environment.Declare(lambda.Parameters[index].Name, arguments[index])
+            index += 1
+        }
+        try {
+            if lambda.ExpressionBody != null {
+                return Evaluate(lambda.ExpressionBody, environment, depth + 1)
+            }
+            if lambda.BlockBody != null {
+                ExecuteBlock(lambda.BlockBody, environment, depth + 1)
+            }
+        } catch caught: Exception {
+            signal := caught as ReturnSignal
+            if signal != null {
+                return signal.Value
+            }
+            throw caught
+        }
+        return null
+    }
+
     private func ExecuteBlock(block: BlockStatement, environment: RuntimeEnvironment, depth: int) {
         for statement in block.Statements {
             ExecuteStatement(statement, environment, depth)
@@ -1688,6 +1693,10 @@ internal sealed class PlaygroundRunner {
         parenthesized := expression as ParenthesizedExpression
         if parenthesized != null {
             return Evaluate(parenthesized.Inner, environment, depth)
+        }
+        lambda := expression as LambdaExpression
+        if lambda != null {
+            return new RuntimeLambda(lambda, environment)
         }
         assignment := expression as AssignmentExpression
         if assignment != null {
@@ -1921,6 +1930,10 @@ internal sealed class PlaygroundRunner {
                 if runtimeFunction != null {
                     return InvokeFunction(runtimeFunction.Declaration, arguments, runtimeFunction.Receiver, depth)
                 }
+                runtimeLambda := boundValue as RuntimeLambda
+                if runtimeLambda != null {
+                    return InvokeLambda(runtimeLambda, arguments, depth)
+                }
             }
             selectedBinding: AnalyzerInvocationBinding? = null
             semanticModel := environment.SemanticModel
@@ -1942,8 +1955,7 @@ internal sealed class PlaygroundRunner {
         if semanticModel != null {
             semanticModel.TryGetInvocationBindingAt(call.Line, call.Column, out selectedBinding)
         }
-        staticOwner := member.Object as IdentifierExpression
-        if staticOwner != null && (staticOwner.Name == "Task" || staticOwner.Name == "ValueTask") {
+        if IsFrameworkTaskStaticInvocation(selectedBinding) || selectedBinding == null && IsFrameworkTaskStaticIdentifier(member.Object, semanticModel) {
             if selectedBinding == null {
                 throw UnsupportedAt(PlaygroundRunFacts.UnsupportedExpression("the analyzer did not select a Task or ValueTask overload"), call)
             }
@@ -2076,6 +2088,19 @@ internal sealed class PlaygroundRunner {
         if selectedMethod == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected reflected method is unavailable"))
         }
+        if IsSelectedTaskRunFunctionMethod(selectedMethod) && runtimeArguments.Length == 1 {
+            callback := runtimeArguments[0] as RuntimeFunction
+            if callback != null && callback.Declaration.Parameters.Count == 0 && !AnalyzerAmbientContext.HasModifier(callback.Declaration, Modifiers.Async) {
+                callbackArguments := new object?[](0)
+                completion := new TaskCompletionSource<object?>()
+                try {
+                    completion.SetResult(InvokeFunction(callback.Declaration, callbackArguments, callback.Receiver, depth))
+                } catch failure: Exception {
+                    completion.SetException(failure)
+                }
+                return completion.Task
+            }
+        }
         runtimeMethod: MethodInfo? = null
         invocationReceiver: object? = target
         invocationArguments := runtimeArguments
@@ -2103,8 +2128,97 @@ internal sealed class PlaygroundRunner {
         return null
     }
 
+    private static func IsSelectedTaskRunFunctionMethod(selectedMethod: MethodInfo): bool {
+        if selectedMethod == null || selectedMethod.Name != "Run" || !selectedMethod.IsGenericMethod || selectedMethod.ContainsGenericParameters {
+            return false
+        }
+        owner := selectedMethod.DeclaringType
+        parameters := selectedMethod.GetParameters()
+        if owner == null || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(owner, typeof(Task)) || parameters.Length != 1 {
+            return false
+        }
+        parameterType := parameters[0].ParameterType
+        if !parameterType.IsGenericType || !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(parameterType.GetGenericTypeDefinition(), typeof(Func<int>).GetGenericTypeDefinition()) {
+            return false
+        }
+        returnType := selectedMethod.ReturnType
+        return returnType.IsGenericType && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(returnType.GetGenericTypeDefinition(), typeof(Task<int>).GetGenericTypeDefinition())
+    }
+
+    private static func IsFrameworkTaskStaticInvocation(binding: AnalyzerInvocationBinding?): bool {
+        if binding == null || binding.ReflectedMethod == null || binding.ReflectedMethod.DeclaringType == null {
+            return false
+        }
+        owner := binding.ReflectedMethod.DeclaringType
+        return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(owner, typeof(Task)) || TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(owner, typeof(ValueTask))
+    }
+
+    private static func IsFrameworkTaskStaticIdentifier(expression: Expression?, semanticModel: SemanticModel?): bool {
+        identifier := expression as IdentifierExpression
+        if identifier == null || semanticModel == null {
+            return false
+        }
+        return IsStaticFrameworkTypeIdentifier(identifier, semanticModel, typeof(Task)) || IsStaticFrameworkTypeIdentifier(identifier, semanticModel, typeof(ValueTask))
+    }
+
+    private static func IsStaticFrameworkTypeIdentifier(identifier: IdentifierExpression?, semanticModel: SemanticModel?, expectedType: Type): bool {
+        if identifier == null || semanticModel == null || expectedType == null {
+            return false
+        }
+        resolved: NSharpLang.Compiler.TypeInfo? = null
+        if !semanticModel.ExpressionTypes.TryGetValue((Line: identifier.Line, Column: identifier.Column), out resolved) || resolved == null {
+            return false
+        }
+        return TypeInfoMatchesRuntimeDefinition(resolved, expectedType)
+    }
+
+    private static func TypeInfoMatchesRuntimeDefinition(typeInfo: NSharpLang.Compiler.TypeInfo?, runtimeType: Type): bool {
+        if typeInfo == null || runtimeType == null {
+            return false
+        }
+        oblivious := typeInfo as ObliviousTypeInfo
+        if oblivious != null {
+            return TypeInfoMatchesRuntimeDefinition(oblivious.InnerType, runtimeType)
+        }
+        nullable := typeInfo as NullableTypeInfo
+        if nullable != null {
+            return TypeInfoMatchesRuntimeDefinition(nullable.InnerType, runtimeType)
+        }
+
+        actualType: Type? = null
+        reflected := typeInfo as ReflectionTypeInfo
+        if reflected != null {
+            actualType = reflected.Type
+        } else {
+            generic := typeInfo as GenericTypeInfo
+            if generic != null {
+                genericDefinition := generic.GenericDefinition as ReflectionTypeInfo
+                if genericDefinition != null {
+                    actualType = genericDefinition.Type
+                }
+            }
+        }
+        if actualType == null {
+            return false
+        }
+        actualDefinition := actualType.IsGenericType ? actualType.GetGenericTypeDefinition() : actualType
+        runtimeDefinition := runtimeType.IsGenericType ? runtimeType.GetGenericTypeDefinition() : runtimeType
+        return TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(actualDefinition, runtimeDefinition)
+    }
+
     private func EvaluateMemberAccess(member: MemberAccessExpression, environment: RuntimeEnvironment, depth: int): object? {
         target := Evaluate(member.Object, environment, depth)
+        semanticModel := environment.SemanticModel
+        selectedCallable: FunctionTypeInfo? = null
+        if semanticModel != null && semanticModel.TryGetCallableReferenceBindingAt(member.Line, member.Column, out selectedCallable) && selectedCallable != null {
+            function := selectedCallable.SourceDeclaration as FunctionDeclaration
+            if function == null {
+                throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected source method group has no declaration"))
+            }
+            receiver := target as RuntimeObject
+            selectedFunction := new RuntimeFunction(function, receiver)
+            return selectedFunction
+        }
         runtimeObject := target as RuntimeObject
         if runtimeObject != null {
             value: object? = null
@@ -2244,11 +2358,9 @@ internal sealed class PlaygroundRunner {
     }
 
     private func EvaluateNewWithArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?, environment: RuntimeEnvironment, depth: int): object {
-        typeName := GetTypeName(newExpression.Type)
-        if typeName == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
-        }
-        if typeName == "TaskCompletionSource" {
+        hostConstructionBinding := ConstructionBindingAt(newExpression.Line, newExpression.Column, semanticModel)
+        constructedType: NSharpLang.Compiler.TypeInfo? = hostConstructionBinding == null ? null : hostConstructionBinding.ConstructedType
+        if TypeInfoMatchesRuntimeDefinition(constructedType, typeof(TaskCompletionSource)) || TypeInfoMatchesRuntimeDefinition(constructedType, typeof(TaskCompletionSource<object?>).GetGenericTypeDefinition()) {
             genericType := newExpression.Type as GenericTypeReference
             if genericType != null {
                 // The interpreter carries generic task values as object-valued tasks. This still
@@ -2258,7 +2370,7 @@ internal sealed class PlaygroundRunner {
             }
             return new TaskCompletionSource()
         }
-        if typeName == "ValueTask" {
+        if TypeInfoMatchesRuntimeDefinition(constructedType, typeof(ValueTask)) || TypeInfoMatchesRuntimeDefinition(constructedType, typeof(ValueTask<int>).GetGenericTypeDefinition()) {
             genericType := newExpression.Type as GenericTypeReference
             if genericType != null {
                 if arguments.Count == 1 {
@@ -2277,6 +2389,10 @@ internal sealed class PlaygroundRunner {
                 }
             }
             return ValueTask.CompletedTask
+        }
+        typeName := GetTypeName(newExpression.Type)
+        if typeName == null {
+            throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget())
         }
         if PlaygroundRunFacts.IsExceptionTypeName(typeName) {
             if arguments.Count == 0 {
@@ -2300,6 +2416,7 @@ internal sealed class PlaygroundRunner {
         typeNamespaces.TryGetValue(typeName, out namespaceName)
         constructionBinding := ConstructionBindingAt(newExpression.Line, newExpression.Column, semanticModel)
         runtimeObject := new RuntimeObject(declaration, new RuntimeEnvironment(null), namespaceName, constructionBinding)
+        InitializeSourceFields(runtimeObject, depth)
         if constructionBinding != null {
             sourceConstructor := constructionBinding.SourceConstructor as ConstructorDeclaration
             if sourceConstructor != null {
@@ -2316,6 +2433,45 @@ internal sealed class PlaygroundRunner {
             ApplyPrimaryConstructorArguments(runtimeObject, arguments)
         }
         return runtimeObject
+    }
+
+    private func InitializeSourceFields(runtimeObject: RuntimeObject, depth: int) {
+        if runtimeObject == null || runtimeObject.Declaration == null {
+            return
+        }
+        members: List<Declaration>? = null
+        classDeclaration := runtimeObject.Declaration as ClassDeclaration
+        if classDeclaration != null {
+            members = classDeclaration.Members
+        } else {
+            structDeclaration := runtimeObject.Declaration as StructDeclaration
+            if structDeclaration != null {
+                members = structDeclaration.Members
+            } else {
+                recordDeclaration := runtimeObject.Declaration as RecordDeclaration
+                if recordDeclaration != null {
+                    members = recordDeclaration.Members
+                }
+            }
+        }
+        if members == null {
+            return
+        }
+        for member in members {
+            field := member as FieldDeclaration
+            if field == null || field.Initializer == null || (Convert.ToInt32(field.Modifiers) & Convert.ToInt32(Modifiers.Static)) != 0 {
+                continue
+            }
+            environment := new RuntimeEnvironment(runtimeObject.Environment)
+            semanticModel: SemanticModel? = null
+            if semanticModelsByDeclaration.TryGetValue(field, out semanticModel) && semanticModel != null {
+                environment.SetSemanticModel(semanticModel)
+            }
+            environment.Declare(PlaygroundRunFacts.ReceiverBindingName(), runtimeObject)
+            value := Evaluate(field.Initializer, environment, depth + 1)
+            runtimeObject.Fields[field.Name] = value
+            runtimeObject.Environment.Declare(field.Name, value)
+        }
     }
 
     private func BuildBoundSourceConstructorArguments(binding: AnalyzerConstructionBinding, newExpression: NewExpression, arguments: IReadOnlyList<object?>, out invocationArguments: object?[], out failureReason: string): bool {
@@ -2479,7 +2635,7 @@ internal sealed class PlaygroundRunner {
             return null
         }
         selectedOwner := selected.DeclaringType
-        if selectedOwner == null || RuntimeTypeDefinitionName(selectedOwner) != RuntimeTypeDefinitionName(runtimeType) {
+        if selectedOwner == null || !RuntimeTypeDefinitionsMatch(selectedOwner, runtimeType) {
             return null
         }
         for candidate in runtimeType.GetConstructors(BindingFlags.Public | BindingFlags.Instance) {
@@ -3278,6 +3434,9 @@ internal sealed class PlaygroundRunner {
     }
 
     private sealed record RuntimeFunction(Declaration: FunctionDeclaration, Receiver: RuntimeObject?) {
+    }
+
+    private sealed record RuntimeLambda(Declaration: LambdaExpression, Closure: RuntimeEnvironment) {
     }
 
     private sealed class RuntimeObject {

@@ -20,17 +20,99 @@
     <type fullname="NSharpLang.Playground.Wasm.PlaygroundVersionResponse" preserve="all" />
   </assembly>
   <assembly fullname="System.Private.CoreLib">
-    <type fullname="System.Threading.Tasks.Task" preserve="all" />
-    <type fullname="System.Threading.Tasks.Task`1" preserve="all" />
-    <type fullname="System.Threading.Tasks.TaskCompletionSource" preserve="all" />
-    <type fullname="System.Threading.Tasks.TaskCompletionSource`1" preserve="all" />
-    <type fullname="System.TimeSpan" preserve="all" />
-    <type fullname="System.Threading.CancellationToken" preserve="all" />
-    <type fullname="System.Threading.Tasks.ValueTask" preserve="all" />
-    <type fullname="System.Threading.Tasks.ValueTask`1" preserve="all" />
-    <type fullname="System.Runtime.CompilerServices.ValueTaskAwaiter" preserve="all" />
-    <type fullname="System.Runtime.CompilerServices.ValueTaskAwaiter`1" preserve="all" />
-    <type fullname="System.Runtime.CompilerServices.INotifyCompletion" preserve="all" />
-    <type fullname="System.Runtime.CompilerServices.ICriticalNotifyCompletion" preserve="all" />
+    <!-- The playground maps analyzer-selected framework members to runtime members by reflection.
+         Keep only the Task surface it dispatches; methods called directly by the host are rooted by
+         ordinary IL references. -->
+    <type fullname="System.Threading.Tasks.Task" preserve="nothing">
+      <method name="Delay" />
+      <method name="FromCanceled" />
+      <method name="FromException" />
+      <method name="FromResult" />
+      <method name="get_CompletedTask" />
+      <method name="GetAwaiter" />
+      <method name="get_IsCanceled" />
+      <method name="get_IsCompleted" />
+      <method name="get_IsFaulted" />
+      <method name="Run" />
+      <method name="WhenAll" />
+      <method name="WhenAny" />
+      <method name="Yield" />
+    </type>
+    <type fullname="System.Threading.Tasks.Task`1" preserve="nothing">
+      <method name="get_Result" />
+      <method name="GetAwaiter" />
+    </type>
+    <type fullname="System.Threading.Tasks.TaskCompletionSource" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_Task" />
+      <method name="SetCanceled" />
+      <method name="SetException" />
+      <method name="SetResult" />
+      <method name="TrySetCanceled" />
+      <method name="TrySetException" />
+      <method name="TrySetResult" />
+    </type>
+    <type fullname="System.Threading.Tasks.TaskCompletionSource`1" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_Task" />
+      <method name="SetCanceled" />
+      <method name="SetException" />
+      <method name="SetResult" />
+      <method name="TrySetCanceled" />
+      <method name="TrySetException" />
+      <method name="TrySetResult" />
+    </type>
+    <type fullname="System.TimeSpan" preserve="nothing">
+      <method name=".ctor" />
+      <method name="FromMilliseconds" />
+      <method name="get_Ticks" />
+    </type>
+    <type fullname="System.Threading.CancellationToken" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_CanBeCanceled" />
+      <method name="get_IsCancellationRequested" />
+      <method name="get_None" />
+    </type>
+    <type fullname="System.Threading.Tasks.ValueTask" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_IsCompleted" />
+      <method name="GetAwaiter" />
+    </type>
+    <type fullname="System.Threading.Tasks.ValueTask`1" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_IsCompleted" />
+      <method name="GetAwaiter" />
+      <method name="get_Result" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.TaskAwaiter" preserve="nothing">
+      <method name="get_IsCompleted" />
+      <method name="GetResult" />
+      <method name="OnCompleted" />
+      <method name="UnsafeOnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.TaskAwaiter`1" preserve="nothing">
+      <method name="get_IsCompleted" />
+      <method name="GetResult" />
+      <method name="OnCompleted" />
+      <method name="UnsafeOnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ValueTaskAwaiter" preserve="nothing">
+      <method name="get_IsCompleted" />
+      <method name="GetResult" />
+      <method name="OnCompleted" />
+      <method name="UnsafeOnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ValueTaskAwaiter`1" preserve="nothing">
+      <method name="get_IsCompleted" />
+      <method name="GetResult" />
+      <method name="OnCompleted" />
+      <method name="UnsafeOnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.INotifyCompletion" preserve="nothing">
+      <method name="OnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ICriticalNotifyCompletion" preserve="nothing">
+      <method name="UnsafeOnCompleted" />
+    </type>
   </assembly>
 </linker>

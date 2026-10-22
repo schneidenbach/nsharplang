@@ -25,9 +25,8 @@ import System.Collections.Generic
 // array) satisfies nothing, including the empty interface, which is the C# behaviour this preserves
 // exactly: the member list is consulted before the interface's demands are.
 //
-// SIGNATURE EQUALITY IS BY RESOLVED SPELLING. Two members match when their names, arities, resolved
-// parameter types and resolved return types agree, compared by the resolved type's own display form
-// so that two spellings of one type agree and two types that merely print alike do not diverge. A
+// SIGNATURE EQUALITY IS SEMANTIC. Two members match when their names, arities, resolved parameter
+// types and resolved return types have the same canonical TypeInfo identity. A
 // member with NO declared return type is `void` — which is what makes `func F()` on a class satisfy
 // `func F()` on the interface. The resolution ORDER is load-bearing and preserved: parameters are
 // resolved in pairs, left to right, and the first mismatch stops the walk, so a later parameter of a
@@ -99,9 +98,9 @@ class AnalyzerStructuralAssignability {
         return true
     }
 
-    // Name, arity, parameter types and return type — every one of them compared by the RESOLVED
-    // type's display form, and resolved in the original left-to-right order so the effects of the
-    // resolution walk land exactly where they did before.
+    // Name, arity, parameter types and return type — semantic type identities are compared after the
+    // interface owner's closed generic substitution. Resolution remains in the original
+    // left-to-right order so the effects of the resolution walk land exactly where they did before.
     func MethodSignaturesMatch(method1: DeclaredMemberInfo, method2: DeclaredMemberInfo): bool {
         return MethodSignaturesMatchWithOwner(method1, method2, null, null)
     }
@@ -118,10 +117,9 @@ class AnalyzerStructuralAssignability {
         index := 0
         while index < method1.ParameterCount {
             type1 := typeResolverValue.ResolveType(method1.ParameterTypes[index])
-            text1 := TypeDisplayText(type1)
             if interfaceOwner == null {
                 type2 := typeResolverValue.ResolveType(method2.ParameterTypes[index])
-                if text1 != TypeDisplayText(type2) {
+                if !TypeInfoIdentityFacts.AreEqual(type1, type2) {
                     return false
                 }
             } else {
@@ -131,7 +129,7 @@ class AnalyzerStructuralAssignability {
                 }
 
                 type2 := substitutionFacts.ResolveTypeForSourceOwner(method2.ParameterTypes[index], interfaceOwner, substitution)
-                if text1 != TypeDisplayText(type2) {
+                if !TypeInfoIdentityFacts.AreEqual(type1, type2) {
                     return false
                 }
             }
@@ -140,14 +138,13 @@ class AnalyzerStructuralAssignability {
         }
 
         returnType1 := ResolveDeclaredReturnType(method1)
-        returnText1 := TypeDisplayText(returnType1)
         if method2.ReturnType == null {
-            return returnText1 == TypeDisplayText(BuiltInTypes.Void)
+            return TypeInfoIdentityFacts.AreEqual(returnType1, BuiltInTypes.Void)
         }
 
         if interfaceOwner == null {
             returnType2 := typeResolverValue.ResolveType(method2.ReturnType)
-            return returnText1 == TypeDisplayText(returnType2)
+            return TypeInfoIdentityFacts.AreEqual(returnType1, returnType2)
         }
 
         substitutionFacts := typeSubstitutionValue
@@ -156,7 +153,7 @@ class AnalyzerStructuralAssignability {
         }
 
         returnType2 := substitutionFacts.ResolveTypeForSourceOwner(method2.ReturnType, interfaceOwner, substitution)
-        return returnText1 == TypeDisplayText(returnType2)
+        return TypeInfoIdentityFacts.AreEqual(returnType1, returnType2)
     }
 
     // ASP.NET Core's `ActionResult<T>` accepts any value the non-generic `ActionResult` accepts. The
@@ -189,14 +186,6 @@ class AnalyzerStructuralAssignability {
         }
 
         return AnalyzerConversionFacts.IsReflectionAssignableFrom(actionResult.Type, sourceReflection.Type)
-    }
-
-    // A resolved type's own display form — the comparison key for signature equality. It is read
-    // through an `object`-typed local because `ToString` is declared by the BASE of the TypeInfo
-    // hierarchy rather than by the hierarchy itself.
-    static func TypeDisplayText(resolved: TypeInfo): string {
-        boxed: object = resolved
-        return boxed.ToString() ?? "<unknown type>"
     }
 
     // A declared member's return type, with an ABSENT one meaning `void`.

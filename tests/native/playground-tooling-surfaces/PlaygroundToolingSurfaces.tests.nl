@@ -160,6 +160,93 @@ func PgRuntimeConstructorMapper(): MethodInfo {
     return mapper
 }
 
+func PgReview13Interface(assemblyName: string): Type {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(assemblyName)
+    interfaceBuilder := module.DefineType("Shared.IReader", TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract)
+    emptyParameters := new Type[](0)
+    interfaceBuilder.DefineMethod("Read", MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig, typeof(int), emptyParameters)
+    return interfaceBuilder.CreateType()
+}
+
+func PgReview13ExplicitReader(assemblyName: string, firstInterface: Type, secondInterface: Type): Type {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(assemblyName)
+    owner := module.DefineType("Shared.Reader", TypeAttributes.Public | TypeAttributes.Class)
+    owner.AddInterfaceImplementation(firstInterface)
+    owner.AddInterfaceImplementation(secondInterface)
+    owner.DefineDefaultConstructor(MethodAttributes.Public)
+    emptyParameters := new Type[](0)
+    firstMethod := owner.DefineMethod(firstInterface.FullName + ".Read", MethodAttributes.Private | MethodAttributes.Final | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig, typeof(int), emptyParameters)
+    firstIl := firstMethod.GetILGenerator()
+    firstIl.Emit(OpCodes.Ldc_I4, 11)
+    firstIl.Emit(OpCodes.Ret)
+    firstSlot := firstInterface.GetMethod("Read")
+    if firstSlot == null {
+        throw new InvalidOperationException("The first same-name interface did not expose Read.")
+    }
+    owner.DefineMethodOverride(firstMethod, firstSlot)
+    secondMethod := owner.DefineMethod(secondInterface.FullName + ".Read", MethodAttributes.Private | MethodAttributes.Final | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig, typeof(int), emptyParameters)
+    secondIl := secondMethod.GetILGenerator()
+    secondIl.Emit(OpCodes.Ldc_I4, 22)
+    secondIl.Emit(OpCodes.Ret)
+    secondSlot := secondInterface.GetMethod("Read")
+    if secondSlot == null {
+        throw new InvalidOperationException("The second same-name interface did not expose Read.")
+    }
+    owner.DefineMethodOverride(secondMethod, secondSlot)
+    return owner.CreateType()
+}
+
+func PgSelectedRuntimeInterfaceMethod(selected: MethodInfo, selectedOwner: Type, runtimeOwner: Type): MethodInfo {
+    runnerType := PgCompilerType().Assembly.GetType("NSharpLang.Playground.PlaygroundRunner")
+    if runnerType == null {
+        throw new InvalidOperationException("The production playground runner was not loadable.")
+    }
+    parameterTypes := new Type[](3)
+    parameterTypes[0] = typeof(MethodInfo)
+    parameterTypes[1] = typeof(Type)
+    parameterTypes[2] = typeof(Type)
+    mapper := runnerType.GetMethod("SelectedRuntimeInterfaceMethodFor", BindingFlags.NonPublic | BindingFlags.Static, null, parameterTypes, null)
+    if mapper == null {
+        throw new InvalidOperationException("The playground's interface-slot mapper was not loadable.")
+    }
+    arguments := new object?[](3)
+    SetPgObject(arguments, 0, selected)
+    SetPgObject(arguments, 1, selectedOwner)
+    SetPgObject(arguments, 2, runtimeOwner)
+    mapped := mapper.Invoke(null, arguments) as MethodInfo
+    if mapped == null {
+        throw new InvalidOperationException("The playground did not map the selected interface slot.")
+    }
+    return mapped
+}
+
+func PgInvokeReview13SelectedInterfaceMethod(): int[] {
+    firstInterface := PgReview13Interface("Review13.Interface.First")
+    secondInterface := PgReview13Interface("Review13.Interface.Second")
+    runtimeReader := PgReview13ExplicitReader("Review13.Reader", firstInterface, secondInterface)
+    runtimeInterfaces := runtimeReader.GetInterfaces()
+    selected := runtimeInterfaces[1]
+    selectedMethod := selected.GetMethod("Read")
+    if selectedMethod == null {
+        throw new InvalidOperationException("The second same-name interface did not expose Read.")
+    }
+    mapped := PgSelectedRuntimeInterfaceMethod(selectedMethod, selected, runtimeReader)
+    runtimeInstance := Activator.CreateInstance(runtimeReader)
+    if runtimeInstance == null {
+        throw new InvalidOperationException("The explicit reader was not constructible.")
+    }
+    selectedMap := runtimeReader.GetInterfaceMap(selected)
+    expectedTarget := selectedMap.TargetMethods[0]
+    actualValue := Convert.ToInt32(mapped.Invoke(runtimeInstance, null))
+    expectedValue := Convert.ToInt32(expectedTarget.Invoke(runtimeInstance, null))
+    result := new int[](2)
+    result[0] = actualValue
+    result[1] = expectedValue
+    return result
+}
+
 func PgMapRuntimeConstructor(mapper: MethodInfo, selected: ConstructorInfo, runtimeType: Type): ConstructorInfo? {
     arguments := new object?[](2)
     arguments[0] = selected
@@ -632,6 +719,44 @@ func PgRunFiles(code: string, activeFile: string): object {
         return completedResponse
     }
 
+    return response
+}
+
+func PgSourceFileSet(fileNames: string[], sources: string[]): object {
+    if fileNames.Length != sources.Length {
+        throw new InvalidOperationException("A playground source set needs one name for every source.")
+    }
+    files := PgEmptyFileArray(fileNames.Length)
+    index := 0
+    while index < fileNames.Length {
+        PgSetFile(files, index, PgNewFile(fileNames[index], sources[index]))
+        index += 1
+    }
+    return files
+}
+
+func PgRunFileSet(fileNames: string[], sources: string[], activeFile: string): object {
+    files := PgSourceFileSet(fileNames, sources)
+    runMethod := PgCompilerType().GetMethod("RunProject")
+    if runMethod == null {
+        throw new InvalidOperationException("The production RunProject entry point was not found.")
+    }
+    arguments := new object?[](2)
+    SetPgObject(arguments, 0, files)
+    SetPgObject(arguments, 1, activeFile)
+    response := runMethod.Invoke(PgNewCompiler(), arguments)
+    if response == null {
+        throw new InvalidOperationException("The production RunProject entry point returned no result.")
+    }
+    responseTask := response as Task
+    if responseTask != null {
+        responseTask.GetAwaiter().GetResult()
+        resultProperty := response.GetType().GetProperty("Result")
+        if resultProperty == null {
+            throw new InvalidOperationException("The production RunProject task exposed no result.")
+        }
+        response = resultProperty.GetValue(response)
+    }
     return response
 }
 
@@ -1923,6 +2048,12 @@ test "playground keeps closed generic duck-interface slots distinct in either de
     assert PgRow(negative, 0).StartsWith("NL202|error|")
 }
 
+test "playground reflected interface dispatch distinguishes closed assembly identity for explicit slots" {
+    values := PgInvokeReview13SelectedInterfaceMethod()
+    assert values[0] == values[1], "selected slot returned " + values[0].ToString() + " but the selected interface map returned " + values[1].ToString()
+    assert values[0] == 11 || values[0] == 22, "selected implementation returned an unexpected sentinel: " + values[0].ToString()
+}
+
 test "playground executes the analyzer-selected overloaded top-level method group in either declaration order" {
     renderInt := "func Render(value: int): string {\n    if value == 42 { return \"int\" }\n    return \"other\"\n}\n\n"
     renderString := "func Render(value: string): string {\n    return value\n}\n\n"
@@ -1941,6 +2072,86 @@ test "playground executes the analyzer-selected overloaded top-level method grou
     assert PgStdout(stringFirst) == "int\n", PgStdout(stringFirst)
     assert PgStderr(stringFirst) == "<null>"
     assert PgUnsupportedReason(stringFirst) == "<null>"
+}
+
+test "playground executes a method group selected by a typed local initializer" {
+    source := "import System\n\nfunc Render(value: int): string {\n    if value == 42 { return \"int\" }\n    return \"other\"\n}\nfunc Render(value: string): string { return value }\n\nfunc main() {\n    let renderer: Func<int, string> = Render\n    print renderer(42)\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True", PgCensus(response) + " / " + PgRow(response, 0) + " / " + PgStderr(response) + " / " + PgUnsupportedReason(response)
+    assert PgStdout(response) == "int\n", PgStdout(response)
+    assert PgUnsupportedReason(response) == "<null>"
+}
+
+test "playground carries method-group selections through assignment, returns, lambda results and field initializers" {
+    prefix := "import System\n\nfunc Render(value: int): string {\n    if value == 42 { return \"int\" }\n    return \"other\"\n}\nfunc Render(value: string): string { return value }\n\n"
+    assignment := PgRunFiles(prefix + "func Seed(value: int): string {\n    if value == 0 { return \"seed\" }\n    return \"seed\"\n}\n\nfunc main() {\n    let renderer: Func<int, string> = Seed\n    renderer = Render\n    print renderer(42)\n}", "Program.nl")
+    returned := PgRunFiles(prefix + "func GetRenderer(): Func<int, string> {\n    return Render\n}\n\nfunc main() {\n    let renderer := GetRenderer()\n    print renderer(42)\n}", "Program.nl")
+    lambdaResult := PgRunFiles(prefix + "func main() {\n    let factory: Func<Func<int, string>> = () => Render\n    let renderer := factory()\n    print renderer(42)\n}", "Program.nl")
+    fieldInitializer := PgRunFiles(prefix + "class Holder {\n    Renderer: Func<int, string> = Render\n}\n\nfunc main() {\n    holder := new Holder()\n    renderer := holder.Renderer\n    print renderer(42)\n}", "Program.nl")
+    propertyExpression := PgRunFiles(prefix + "class Holder {\n    Renderer: Func<int, string> => Render\n}\n\nfunc main() {\n    holder := new Holder()\n    renderer := holder.Renderer\n    print renderer(42)\n}", "Program.nl")
+
+    assert PgOk(assignment) == "True", PgCensus(assignment) + " / " + PgRow(assignment, 0) + " / " + PgUnsupportedReason(assignment)
+    assert PgStdout(assignment) == "int\n", PgStdout(assignment)
+    assert PgOk(returned) == "True", PgCensus(returned) + " / " + PgUnsupportedReason(returned)
+    assert PgStdout(returned) == "int\n", PgStdout(returned)
+    assert PgOk(lambdaResult) == "True", PgCensus(lambdaResult) + " / " + PgUnsupportedReason(lambdaResult)
+    assert PgStdout(lambdaResult) == "int\n", PgStdout(lambdaResult)
+    assert PgOk(fieldInitializer) == "True", PgCensus(fieldInitializer) + " / " + PgUnsupportedReason(fieldInitializer)
+    assert PgStdout(fieldInitializer) == "int\n", PgStdout(fieldInitializer)
+    assert PgOk(propertyExpression) == "True", PgCensus(propertyExpression) + " / " + PgUnsupportedReason(propertyExpression)
+    assert PgStdout(propertyExpression) == "int\n", PgStdout(propertyExpression)
+}
+
+test "playground carries the selected method group into a reflected delegate argument" {
+    source := "import System.Threading.Tasks\n\nfunc Work(): int { return 42 }\n\nasync func main(): Task {\n    result := await Task.Run(Work)\n    print result\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True", PgCensus(response) + " / " + PgRow(response, 0) + " / " + PgStderr(response) + " / " + PgUnsupportedReason(response)
+    assert PgStdout(response) == "42\n", PgStdout(response)
+    assert PgUnsupportedReason(response) == "<null>"
+}
+
+test "closed duck slots distinguish same-short-name types and accept the identical nominal control" {
+    fileNames := new string[](4)
+    fileNames[0] = "Alpha.nl"
+    fileNames[1] = "Beta.nl"
+    fileNames[2] = "Contracts.nl"
+    fileNames[3] = "Program.nl"
+    sources := new string[](4)
+    sources[0] = "namespace Alpha\n\nclass Token {\n}\n"
+    sources[1] = "namespace Beta\n\nclass Token {\n}\n"
+    sources[2] = "namespace Contracts\n\nduck interface IReader<T> {\n    func Read(value: T): T\n}\n"
+    sources[3] = "namespace App\n\nclass WrongReader {\n    func Read(value: Beta.Token): Beta.Token { return value }\n}\n\nclass RightReader {\n    func Read(value: Alpha.Token): Alpha.Token { return value }\n}\n\nfunc ReadAlpha(reader: Contracts.IReader<Alpha.Token>): int { reader.Read(new Alpha.Token()); return 1 }\n\nfunc main() {\n    print ReadAlpha(new WrongReader())\n}"
+    negative := PgRunFileSet(fileNames, sources, "Program.nl")
+    assert PgOk(negative) == "False", PgCensus(negative)
+    assert PgCensus(negative).StartsWith("NL202@"), PgCensus(negative) + " / " + PgRow(negative, 0)
+    assert PgRow(negative, 0).StartsWith("NL202|error|"), PgRow(negative, 0)
+
+    sources[3] = "namespace App\n\nclass WrongReader {\n    func Read(value: Beta.Token): Beta.Token { return value }\n}\n\nclass RightReader {\n    func Read(value: Alpha.Token): Alpha.Token { return value }\n}\n\nfunc ReadAlpha(reader: Contracts.IReader<Alpha.Token>): int { reader.Read(new Alpha.Token()); return 1 }\n\nfunc main() {\n    print ReadAlpha(new RightReader())\n}"
+    positive := PgCheckFiles(PgSourceFileSet(fileNames, sources), "Program.nl")
+    assert PgOk(positive) == "True", PgCensus(positive) + " / " + PgUnsupportedReason(positive)
+    assert PgCensus(positive) == "", PgCensus(positive)
+}
+
+test "closed duck slot return types use canonical identity" {
+    fileNames := new string[](4)
+    fileNames[0] = "Alpha.nl"
+    fileNames[1] = "Beta.nl"
+    fileNames[2] = "Contracts.nl"
+    fileNames[3] = "Program.nl"
+    sources := new string[](4)
+    sources[0] = "namespace Alpha\n\nclass Token {\n}\n"
+    sources[1] = "namespace Beta\n\nclass Token {\n}\n"
+    sources[2] = "namespace Contracts\n\nduck interface IReader<T> {\n    func Read(value: T): T\n}\n"
+    sources[3] = "namespace App\n\nclass WrongReturnReader {\n    func Read(_value: Alpha.Token): Beta.Token { return new Beta.Token() }\n}\n\nclass RightReturnReader {\n    func Read(value: Alpha.Token): Alpha.Token { return value }\n}\n\nfunc ReadAlpha(reader: Contracts.IReader<Alpha.Token>): int { reader.Read(new Alpha.Token()); return 1 }\n\nfunc main() {\n    print ReadAlpha(new WrongReturnReader())\n}"
+    wrongReturn := PgRunFileSet(fileNames, sources, "Program.nl")
+    assert PgOk(wrongReturn) == "False", PgCensus(wrongReturn)
+    assert PgCensus(wrongReturn).StartsWith("NL202@"), PgCensus(wrongReturn) + " / " + PgRow(wrongReturn, 0)
+    assert PgRow(wrongReturn, 0).StartsWith("NL202|error|"), PgRow(wrongReturn, 0)
+
+    sources[3] = "namespace App\n\nclass WrongReturnReader {\n    func Read(_value: Alpha.Token): Beta.Token { return new Beta.Token() }\n}\n\nclass RightReturnReader {\n    func Read(value: Alpha.Token): Alpha.Token { return value }\n}\n\nfunc ReadAlpha(reader: Contracts.IReader<Alpha.Token>): int { reader.Read(new Alpha.Token()); return 1 }\n\nfunc main() {\n    print ReadAlpha(new RightReturnReader())\n}"
+    positiveReturn := PgCheckFiles(PgSourceFileSet(fileNames, sources), "Program.nl")
+    assert PgOk(positiveReturn) == "True", PgCensus(positiveReturn) + " / " + PgUnsupportedReason(positiveReturn)
+    assert PgCensus(positiveReturn) == "", PgCensus(positiveReturn)
 }
 
 test "chip playground union shorthand: EVERY shipped example that declares an ExpectedOutput now PRODUCES it — 8 of the 10, named, in corpus order" {

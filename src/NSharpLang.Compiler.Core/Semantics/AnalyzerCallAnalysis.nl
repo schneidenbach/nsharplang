@@ -117,6 +117,7 @@ class CallAnalysisState {
     SelectedSourceFunction: FunctionTypeInfo?
     SelectedReflectedMethod: MethodInfo?
     SelectedReflectedParameterIndexByArgument: int[]?
+    SelectedReflectedMethodGroupArguments: Dictionary<int, FunctionTypeInfo>?
     SelectedInvocationIsExtension: bool
     ReceiverType: TypeInfo?
     SourceInstanceExtensionFallbackTried: bool
@@ -219,6 +220,7 @@ class CallAnalysisState {
         SelectedSourceFunction = null
         SelectedReflectedMethod = null
         SelectedReflectedParameterIndexByArgument = null
+        SelectedReflectedMethodGroupArguments = null
         SelectedInvocationIsExtension = false
         ReceiverType = null
         SourceInstanceExtensionFallbackTried = false
@@ -380,7 +382,21 @@ class AnalyzerCallAnalysis {
     // delegate target. Record the one applicable source function only after overload selection has
     // finished, so speculative candidate retries cannot leave a stale method-group choice behind.
     func RecordSelectedCallableReferenceBindings(state: CallAnalysisState, semanticModel: SemanticModel) {
-        if state == null || semanticModel == null || state.SelectedSourceFunction == null {
+        if state == null || semanticModel == null {
+            return
+        }
+
+        reflectedGroups := state.SelectedReflectedMethodGroupArguments
+        if reflectedGroups != null {
+            for entry in reflectedGroups {
+                argumentIndex := entry.Key
+                if argumentIndex >= 0 && argumentIndex < state.Call.Arguments.Count && entry.Value != null {
+                    RecordCallableReferenceExpression(semanticModel, state.Call.Arguments[argumentIndex].Value, entry.Value)
+                }
+            }
+        }
+
+        if state.SelectedSourceFunction == null {
             return
         }
 
@@ -398,10 +414,24 @@ class AnalyzerCallAnalysis {
                 selected: FunctionTypeInfo? = null
                 if expectedType != null && assignability.TrySelectNSharpMethodGroupFunction(group, expectedType, out selected) && selected != null {
                     argumentExpression := state.Call.Arguments[argumentIndex].Value
-                    semanticModel.RecordCallableReferenceBinding(argumentExpression.Line, argumentExpression.Column, selected)
+                    RecordCallableReferenceExpression(semanticModel, argumentExpression, selected)
                 }
             }
             argumentIndex += 1
+        }
+    }
+
+    static func RecordCallableReferenceExpression(semanticModel: SemanticModel, expression: Expression, selected: FunctionTypeInfo) {
+        if semanticModel == null || expression == null || selected == null {
+            return
+        }
+        parenthesized := expression as ParenthesizedExpression
+        if parenthesized != null {
+            RecordCallableReferenceExpression(semanticModel, parenthesized.Inner, selected)
+            return
+        }
+        if expression as IdentifierExpression != null || expression as MemberAccessExpression != null {
+            semanticModel.RecordCallableReferenceBinding(expression.Line, expression.Column, selected)
         }
     }
 
@@ -1713,6 +1743,7 @@ class AnalyzerCallAnalysis {
 
             state.NotNullIfNotNullArgumentIndex = finalizeState.NotNullIfNotNullArgumentIndex
             state.SelectedReflectedMethod = finalizeState.RuntimeMethod
+            state.SelectedReflectedMethodGroupArguments = finalizeState.MethodGroupArguments
             state.SelectedInvocationIsExtension = state.ReflectionIsExtension
             return CompleteReflectionBind(state, bound)
         }
@@ -2127,7 +2158,7 @@ class AnalyzerCallAnalysis {
                 return TypeCalleeKind.Enum
             }
 
-            if clrType.IsPrimitive || clrType.FullName == "System.Decimal" {
+            if clrType.IsPrimitive || TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(clrType, typeof(decimal)) {
                 return TypeCalleeKind.Primitive
             }
 

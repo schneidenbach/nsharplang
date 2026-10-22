@@ -733,7 +733,7 @@ class AwaitablePatternBinder {
             return false
         }
         for attribute in method.GetCustomAttributesData() {
-            if attribute != null && attribute.AttributeType != null && attribute.AttributeType.FullName == "System.Runtime.CompilerServices.ExtensionAttribute" {
+            if attribute != null && attribute.AttributeType != null && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(attribute.AttributeType, typeof(ExtensionAttribute)) {
                 return true
             }
         }

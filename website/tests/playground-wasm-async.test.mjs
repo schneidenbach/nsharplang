@@ -55,6 +55,131 @@ test('the WebAssembly playground executes async awaiter shapes with runtime sema
 
     const cases = [
       {
+        name: 'typed local method-group conversion selects the overload in the WASM playground',
+        source: `import System
+
+func Render(_value: int): string { return "int" }
+func Render(value: string): string { return value }
+
+func main() {
+    let renderer: Func<int, string> = Render
+    print renderer(42)
+}
+`,
+        stdout: 'int\n',
+      },
+      {
+        name: 'source call argument method-group conversion uses the analyzer selection in the WASM playground',
+        source: `import System
+
+func Render(_value: int): string { return "int" }
+func Render(value: string): string { return value }
+func Apply(callback: Func<int, string>): string { return callback(42) }
+
+func main() {
+    print Apply(Render)
+}
+`,
+        stdout: 'int\n',
+      },
+      {
+        name: 'assignment method-group conversion keeps the analyzer selection in the WASM playground',
+        source: `import System
+
+func Render(_value: int): string { return "int" }
+func Render(value: string): string { return value }
+func Seed(_value: int): string { return "seed" }
+
+func main() {
+    let renderer: Func<int, string> = Seed
+    renderer = Render
+    print renderer(42)
+}
+`,
+        stdout: 'int\n',
+      },
+      {
+        name: 'return method-group conversion keeps the analyzer selection in the WASM playground',
+        source: `import System
+
+func Render(_value: int): string { return "int" }
+func Render(value: string): string { return value }
+func GetRenderer(): Func<int, string> { return Render }
+
+func main() {
+    renderer := GetRenderer()
+    print renderer(42)
+}
+`,
+        stdout: 'int\n',
+      },
+      {
+        name: 'lambda result method-group conversion keeps the analyzer selection in the WASM playground',
+        source: `import System
+
+func Render(_value: int): string { return "int" }
+func Render(value: string): string { return value }
+
+func main() {
+    let factory: Func<Func<int, string>> = () => Render
+    renderer := factory()
+    print renderer(42)
+}
+`,
+        stdout: 'int\n',
+      },
+      {
+        name: 'field initializer method-group conversion keeps the analyzer selection in the WASM playground',
+        source: `import System
+
+func Render(_value: int): string { return "int" }
+func Render(value: string): string { return value }
+
+class Holder {
+    Renderer: Func<int, string> = Render
+}
+
+func main() {
+    holder := new Holder()
+    renderer := holder.Renderer
+    print renderer(42)
+}
+`,
+        stdout: 'int\n',
+      },
+      {
+        name: 'property initializer method-group conversion keeps the analyzer selection in the WASM playground',
+        source: `import System
+
+func Render(_value: int): string { return "int" }
+func Render(value: string): string { return value }
+
+class Holder {
+    Renderer: Func<int, string> => Render
+}
+
+func main() {
+    holder := new Holder()
+    renderer := holder.Renderer
+    print renderer(42)
+}
+`,
+        stdout: 'int\n',
+      },
+      {
+        name: 'reflected delegate argument method-group conversion keeps the analyzer selection in the WASM playground',
+        source: `import System.Threading.Tasks
+
+func Work(): int { return 42 }
+
+async func main(): Task {
+    result := await Task.Run(Work)
+    print result
+}
+`,
+        stdout: '42\n',
+      },
+      {
         name: 'source and referenced constructors and methods share in overload resolution',
         source: `import NSharpLang.AsyncAwaitablePatternFixtures
 
