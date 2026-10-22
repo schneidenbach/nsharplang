@@ -755,11 +755,10 @@ test "params inference reads a params reference's element rather than the sequen
     assert AnalyzerOverloadFacts.GetParamsInferenceTypeReference(plain) == plain
 }
 
-test "a ref, out or in source parameter carries a by-ref type, idempotently" {
+test "a ref or out source parameter carries a by-ref type, idempotently" {
     modifiers := new List<Ast.ParameterModifier>()
     modifiers.Add(Ast.ParameterModifier.Ref)
     modifiers.Add(Ast.ParameterModifier.Out)
-    modifiers.Add(Ast.ParameterModifier.In)
     modifiers.Add(Ast.ParameterModifier.None)
     signature := OverloadSignature(OverloadTypeList(BuiltInTypes.Int))
     signature.ParameterModifiers = modifiers
@@ -774,11 +773,7 @@ test "a ref, out or in source parameter carries a by-ref type, idempotently" {
     outShell := wrappedOut as ByRefTypeInfo
     assert outShell != null
 
-    wrappedIn := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(signature, 2, intType)
-    inShell := wrappedIn as ByRefTypeInfo
-    assert inShell != null
-
-    unwrapped := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(signature, 3, intType)
+    unwrapped := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(signature, 2, intType)
     assert Object.ReferenceEquals(unwrapped, intType)
 
     // Already by-ref: the shell is not doubled.

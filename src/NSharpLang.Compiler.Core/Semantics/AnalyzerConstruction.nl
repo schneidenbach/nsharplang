@@ -1650,7 +1650,11 @@ class AnalyzerConstruction {
 
         argument := node.ConstructorArguments[state.ArgIndex]
         selectedArgumentType := argumentType
-        if (argument.Modifier == ArgumentModifier.Ref || argument.Modifier == ArgumentModifier.Out || argument.Modifier == ArgumentModifier.In) && !BuiltInTypes.IsUnknown(selectedArgumentType) {
+        // `in` binds the value type for overload comparison, just like an omitted `in` modifier on
+        // an ordinary call. Its storage location remains on the syntax argument and is consumed by
+        // the selected constructor binding when the playground materializes the reflected call.
+        // `ref` and `out` require by-ref argument identity during overload selection.
+        if (argument.Modifier == ArgumentModifier.Ref || argument.Modifier == ArgumentModifier.Out) && !BuiltInTypes.IsUnknown(selectedArgumentType) {
             existingByRef := selectedArgumentType as ByRefTypeInfo
             if existingByRef != null {
                 selectedArgumentType = existingByRef.InnerType
