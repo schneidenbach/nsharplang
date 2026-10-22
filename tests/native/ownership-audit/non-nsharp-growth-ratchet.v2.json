@@ -4,7 +4,7 @@
   "codeEpochFileCount": 217,
   "codeEpochPathFingerprint": "pathset-v2:8753f45f767649bf",
   "codeEpochFactFingerprint": "epochfacts-v2:bbd44c5fc149a36c",
-  "reviewedHeadFingerprint": "head-v2:963f1b61f3b5f71c",
+  "reviewedHeadFingerprint": "head-v2:315aa6287c67aa86",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":446,"currentNonBlankLines":391,"currentBytes":0,"currentFingerprint":"text-v1:c4fff4cafe6f3d2a"},
@@ -425,7 +425,6 @@
     {"path":"tests/scripts/test-release-workflows.py","language":"python","surface":"gate-infrastructure","campaignScope":"closeout","state":"existing-debt","epochLines":131,"currentLines":131,"epochNonBlankLines":125,"currentNonBlankLines":125,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:8a6af33ac5a05009"},
     {"path":"tests/scripts/test-vscode-headless.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":36,"currentNonBlankLines":27,"currentBytes":0,"currentFingerprint":"text-v1:f217a977a4dcd017"},
     {"path":"tests/scripts/test-vscode-integration.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":261,"currentNonBlankLines":223,"currentBytes":0,"currentFingerprint":"text-v1:8818a727f799d42c"},
-    {"path":"tests/xunit.runner.json","language":"json-config","surface":"compiler-tests","campaignScope":"closeout","state":"removed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
-    {"path":"website/static/playground/wasm/references.zip","language":"package-binary","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":1520891,"currentFingerprint":"binary-v1:00221f674b1a7f77"}
+    {"path":"tests/xunit.runner.json","language":"json-config","surface":"compiler-tests","campaignScope":"closeout","state":"removed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"}
   ]
 }

@@ -2,6 +2,7 @@ namespace NSharpLang.OwnershipAudit
 
 import System
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Text
 import System.Text.Json
@@ -261,7 +262,7 @@ class OwnershipPolicy {
     static CodeEpochFileCount: int => 217
     static CodeEpochPathFingerprint: string => "pathset-v2:8753f45f767649bf"
     static CodeEpochFactFingerprint: string => "epochfacts-v2:bbd44c5fc149a36c"
-    static ReviewedHeadFingerprint: string => "head-v2:963f1b61f3b5f71c"
+    static ReviewedHeadFingerprint: string => "head-v2:315aa6287c67aa86"
 
     static func IsPermanentBoundaryPath(path: string): bool {
         normalized := NormalizeRelativePath(path)
@@ -991,12 +992,89 @@ class OwnershipAudit {
             return observed
         }
 
-        ScanDirectory(root, root, observed, result)
+        if !TryScanGitFiles(root, observed, result) {
+            ScanDirectory(root, root, observed, result)
+        }
         SortObserved(observed)
         if observed.Count == 0 {
             result.Add("OWN010", "", "repository scan found no non-N# ownership files")
         }
         return observed
+    }
+
+    // The live audit measures repository files, not ignored build output. `git ls-files` includes
+    // indexed files plus unignored working-tree additions, so it sees new source while remaining
+    // stable when a local build creates files covered by .gitignore. Temporary fixture roots have
+    // no .git marker and continue through the filesystem scanner above.
+    static func TryScanGitFiles(root: string, observed: List<OwnershipObservedFile>, result: OwnershipAuditResult): bool {
+        gitMarker := Path.Combine(root, ".git")
+        if !Directory.Exists(gitMarker) && !File.Exists(gitMarker) {
+            return false
+        }
+
+        process: Process? = null
+        try {
+            startInfo := new ProcessStartInfo {
+                FileName: "git",
+                Arguments: "ls-files --cached --others --exclude-standard -z",
+                WorkingDirectory: root,
+                UseShellExecute: false,
+                RedirectStandardOutput: true
+            }
+            process = Process.Start(startInfo)
+            if process == null {
+                result.Add("OWN010", "", "git could not enumerate repository files")
+                return true
+            }
+
+            output := process.StandardOutput.ReadToEnd()
+            process.WaitForExit()
+            if process.ExitCode != 0 {
+                result.Add("OWN010", "", "git could not enumerate repository files")
+                return true
+            }
+
+            start := 0
+            i := 0
+            while i <= output.Length {
+                if i == output.Length || output[i] == '\0' {
+                    if i > start {
+                        relative := OwnershipPolicy.NormalizeRelativePath(output.Substring(start, i - start))
+                        fullPath := Path.Combine(root, relative)
+                        if File.Exists(fullPath) {
+                            classification := OwnershipPolicy.Classify(relative)
+                            if classification.Unknown {
+                                result.Add(
+                                    "OWN009",
+                                    relative,
+                                    "unknown product-adjacent file type; classify it in N# or remove it before it can enter the ownership epoch"
+                                )
+                            } else if classification.Included {
+                                if OwnershipPolicy.IsBinaryLanguage(classification.Language) {
+                                    observed.Add(OwnershipFacts.ObserveBinary(
+                                        relative,
+                                        classification,
+                                        OwnershipManagedFile.ReadAllBytes(fullPath)
+                                    ))
+                                } else {
+                                    observed.Add(OwnershipFacts.Observe(relative, classification, File.ReadAllText(fullPath)))
+                                }
+                            }
+                        }
+                    }
+                    start = i + 1
+                }
+                i = i + 1
+            }
+            return true
+        } catch caught: Exception {
+            result.Add("OWN010", "", "git could not enumerate repository files: " + caught.Message)
+            return true
+        } finally {
+            if process != null {
+                process.Dispose()
+            }
+        }
     }
 
     static func ScanDirectory(

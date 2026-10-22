@@ -958,6 +958,31 @@ test "multi-error reports are deterministic complete and actionable" {
     assert result.Report() == expected
 }
 
+test "repository scan excludes ignored generated files without changing their classification" {
+    root := OwnershipAudit.FindRepositoryRoot(Environment.CurrentDirectory) ?? ""
+    relative := "website/static/playground/wasm/ownership-audit-ignored-probe-" + Guid.NewGuid().ToString("N") + ".zip"
+    path := Path.Combine(root, relative)
+    Directory.CreateDirectory(Path.GetDirectoryName(path) ?? root)
+    try {
+        File.WriteAllBytes(path, new byte[](1))
+        result := new OwnershipAuditResult()
+        observed := OwnershipAudit.ScanRepository(root, result)
+        assert result.Succeeded
+        found := false
+        for item in observed {
+            if item.Path == relative {
+                found = true
+            }
+        }
+        assert !found
+        assert OwnershipPolicy.Classify(relative).Language == "package-binary"
+    } finally {
+        if File.Exists(path) {
+            File.Delete(path)
+        }
+    }
+}
+
 test "repository non-NSharp ownership matches the E1 growth baseline" {
     result := OwnershipAudit.AuditLiveRepository()
     if !result.Succeeded {
