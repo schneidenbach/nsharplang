@@ -1205,7 +1205,7 @@ class AwaitablePatternBinder {
         if expectedInterface == null {
             return null
         }
-        selectedInterface := must expectedInterface
+        selectedInterface := expectedInterface
         declarations := SourceDeclarationChain(owner, sourceTypes, semanticModel)
         for declaration in declarations {
             members := SourceMembers(declaration)
