@@ -53,8 +53,12 @@ fi
 rm -rf "$STATIC_DIR"
 mkdir -p "$(dirname "$STATIC_DIR")"
 cp -R "$BUNDLE_ROOT" "$STATIC_DIR"
-# The ownership snapshot covers this generated archive. Omit host-specific extended attributes
-# (including access times and UID/GID) so identical reference assemblies produce identical bytes.
-zip -q -9 -j -X "$STATIC_DIR/references.zip" "$REFERENCE_PACK"/*.dll
+# The ownership snapshot covers this generated archive. Stage flat basenames and normalize ZIP's
+# two-second-resolution timestamp before omitting host-specific extra fields with -X.
+REFERENCE_STAGE="$(mktemp -d)"
+trap 'rm -rf "$REFERENCE_STAGE"' EXIT
+cp "$REFERENCE_PACK"/*.dll "$REFERENCE_STAGE/"
+touch -t 202001010000.00 "$REFERENCE_STAGE"/*.dll
+(cd "$REFERENCE_STAGE" && zip -q -9 -X "$STATIC_DIR/references.zip" *.dll)
 
 echo "Playground WASM assets copied to website/static/playground/wasm"
