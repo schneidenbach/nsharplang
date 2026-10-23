@@ -2678,35 +2678,12 @@ internal sealed class PlaygroundRunner {
     private func EvaluateNewWithArguments(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?, environment: RuntimeEnvironment, depth: int): object {
         hostConstructionBinding := ConstructionBindingAt(newExpression.Line, newExpression.Column, semanticModel)
         constructedType: NSharpLang.Compiler.TypeInfo? = hostConstructionBinding == null ? null : hostConstructionBinding.ConstructedType
-        if TypeInfoMatchesRuntimeDefinition(constructedType, typeof(TaskCompletionSource)) || TypeInfoMatchesRuntimeDefinition(constructedType, typeof(TaskCompletionSource<object?>).GetGenericTypeDefinition()) {
-            genericType := newExpression.Type as GenericTypeReference
-            if genericType != null {
-                // The interpreter carries generic task values as object-valued tasks. This still
-                // gives pending await tests a real CLR completion source; the bound await pattern
-                // determines the source result type and the set result remains boxed unchanged.
-                return new TaskCompletionSource<object?>()
+        if TypeInfoMatchesRuntimeDefinition(constructedType, typeof(TaskCompletionSource)) || TypeInfoMatchesRuntimeDefinition(constructedType, typeof(TaskCompletionSource<object?>).GetGenericTypeDefinition()) || TypeInfoMatchesRuntimeDefinition(constructedType, typeof(ValueTask)) || TypeInfoMatchesRuntimeDefinition(constructedType, typeof(ValueTask<int>).GetGenericTypeDefinition()) {
+            boundTaskLikeValue := TryCreateReflectedObject(newExpression, arguments, hostConstructionBinding, environment)
+            if boundTaskLikeValue != null {
+                return boundTaskLikeValue
             }
-            return new TaskCompletionSource()
-        }
-        if TypeInfoMatchesRuntimeDefinition(constructedType, typeof(ValueTask)) || TypeInfoMatchesRuntimeDefinition(constructedType, typeof(ValueTask<int>).GetGenericTypeDefinition()) {
-            genericType := newExpression.Type as GenericTypeReference
-            if genericType != null {
-                if arguments.Count == 1 {
-                    taskValue := arguments[0] as Task<object?>
-                    if taskValue != null {
-                        return new ValueTask<object?>(taskValue)
-                    }
-                    return new ValueTask<object?>(arguments[0])
-                }
-                return new ValueTask<object?>(null)
-            }
-            if arguments.Count == 1 {
-                taskValue := arguments[0] as Task
-                if taskValue != null {
-                    return new ValueTask(taskValue)
-                }
-            }
-            return ValueTask.CompletedTask
+            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("the analyzer-selected task-like constructor could not be executed"))
         }
         typeName := GetTypeName(newExpression.Type)
         if typeName == null {
@@ -2724,7 +2701,7 @@ internal sealed class PlaygroundRunner {
         }
         declaration: Declaration? = null
         if !types.TryGetValue(typeName, out declaration) || declaration == null {
-            reflectedObject := TryCreateReflectedObject(newExpression, arguments, semanticModel, environment)
+            reflectedObject := TryCreateReflectedObject(newExpression, arguments, hostConstructionBinding, environment)
             if reflectedObject != null {
                 return reflectedObject
             }
@@ -2897,32 +2874,13 @@ internal sealed class PlaygroundRunner {
         ExecuteBlock(constructor.Body, environment, depth + 1)
     }
 
-    private func TryCreateReflectedObject(newExpression: NewExpression, arguments: IReadOnlyList<object?>, semanticModel: SemanticModel?, environment: RuntimeEnvironment): object? {
-        if newExpression == null || newExpression.Type == null || semanticModel == null {
+    private func TryCreateReflectedObject(newExpression: NewExpression, arguments: IReadOnlyList<object?>, selectedBinding: AnalyzerConstructionBinding?, environment: RuntimeEnvironment): object? {
+        if newExpression == null || newExpression.Type == null || selectedBinding == null {
             return null
         }
-        line := 0
-        column := 0
-        genericReference := newExpression.Type as GenericTypeReference
-        if genericReference != null {
-            line = genericReference.Line
-            column = genericReference.Column
-        } else {
-            simpleReference := newExpression.Type as SimpleTypeReference
-            if simpleReference == null {
-                return null
-            }
-            line = simpleReference.Line
-            column = simpleReference.Column
-        }
-        reflectedTypeInfo := semanticModel.LookupTypeReferenceAtPosition(line, column)
         runtimeType: Type = null
-        if reflectedTypeInfo == null || !TryResolvePlaygroundRuntimeType(reflectedTypeInfo, out runtimeType) {
+        if selectedBinding.ConstructedType == null || !TryResolvePlaygroundRuntimeType(selectedBinding.ConstructedType, out runtimeType) {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("selected reflected constructor type is not available to the playground runtime"))
-        }
-        selectedBinding := ConstructionBindingAt(newExpression.Line, newExpression.Column, semanticModel)
-        if selectedBinding == null {
-            throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("analyzer did not retain the selected constructor binding for '" + runtimeType.ToString() + "'"))
         }
         if selectedBinding.ReflectedConstructor == null {
             throw Unsupported(PlaygroundRunFacts.UnsupportedExpression("analyzer did not select a reflected constructor for this external type"))

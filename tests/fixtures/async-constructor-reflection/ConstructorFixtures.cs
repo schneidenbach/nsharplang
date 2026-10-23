@@ -6,6 +6,27 @@ namespace NSharpLang.AsyncConstructorReflectionFixtures;
 
 public sealed class CancellationTokenTestFacts
 {
+    public TaskCreationOptions RunContinuationsAsynchronouslyOptions() =>
+        TaskCreationOptions.RunContinuationsAsynchronously;
+
+    public string FrameworkTrimSmoke()
+    {
+        var source = new TaskCompletionSource<int>();
+        source.SetException(new AggregateException("outer", new Exception("inner")));
+        var failure = source.Task.Exception!;
+        var nestedFailure = (AggregateException)failure.InnerExceptions[0];
+        var innerCount = nestedFailure.InnerExceptions.Count;
+        var firstMessage = nestedFailure.InnerExceptions[0].Message;
+        var messages = new string[innerCount];
+        var index = 0;
+        foreach (Exception inner in nestedFailure.InnerExceptions)
+        {
+            messages[index++] = inner.Message;
+        }
+
+        return $"exceptions={innerCount}:{firstMessage}:{string.Join(",", messages)}|join={string.Join("|", new[] { "alpha", "beta" })}|clamp={Math.Clamp(9, 0, 5)}";
+    }
+
     public bool Matches(Exception exception, CancellationToken expected) =>
         exception is OperationCanceledException canceled && canceled.CancellationToken == expected;
 

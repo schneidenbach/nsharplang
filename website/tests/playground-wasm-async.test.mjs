@@ -69,6 +69,32 @@ func main() {
         stdout: 'int\n',
       },
       {
+        name: 'TaskCompletionSource uses its selected generic constructor and arguments in the WASM playground',
+        source: `import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+func main() {
+    options := new CancellationTokenTestFacts().RunContinuationsAsynchronouslyOptions()
+    gate := new TaskCompletionSource<int>(42, options)
+    print gate.Task.CreationOptions
+    print gate.Task.AsyncState
+    gate.SetResult(77)
+    print gate.Task.Result
+}
+`,
+        stdout: 'RunContinuationsAsynchronously\n42\n77\n',
+      },
+      {
+        name: 'trimmed WASM keeps dynamically used framework exception and collection members',
+        source: `import NSharpLang.AsyncConstructorReflectionFixtures
+
+func main() {
+    print new CancellationTokenTestFacts().FrameworkTrimSmoke()
+}
+`,
+        stdout: 'exceptions=1:inner:inner|join=alpha|beta|clamp=5\n',
+      },
+      {
         name: 'source call argument method-group conversion uses the analyzer selection in the WASM playground',
         source: `import System
 
