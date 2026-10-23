@@ -28,13 +28,7 @@
       <method name="InvokeTask" />
       <method name="InvokeTaskResult" />
     </type>
-    <type fullname="NSharpLang.Playground.PlaygroundTaskCompletionSignal" preserve="nothing">
-      <method name="Signal" />
-    </type>
     <type fullname="NSharpLang.Playground.PlaygroundAwaiterCompletionSignal" preserve="nothing">
-      <method name="Signal" />
-    </type>
-    <type fullname="NSharpLang.Playground.RuntimeTaskRunResultSignal" preserve="nothing">
       <method name="Signal" />
     </type>
   </assembly>
@@ -62,6 +56,9 @@
       <method name="get_Result" />
       <method name="GetAwaiter" />
       <method name="ConfigureAwait" />
+    </type>
+    <type fullname="System.AggregateException" preserve="nothing">
+      <method name=".ctor" signature="System.Void .ctor(System.String,System.Exception)" />
     </type>
     <type fullname="System.Threading.Tasks.TaskCompletionSource" preserve="nothing">
       <method name=".ctor" />
@@ -169,6 +166,10 @@
     </type>
     <type fullname="System.Runtime.CompilerServices.INotifyCompletion" preserve="nothing">
       <method name="OnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.IAsyncStateMachine" preserve="nothing">
+      <method name="MoveNext" />
+      <method name="SetStateMachine" />
     </type>
     <type fullname="System.Runtime.CompilerServices.ICriticalNotifyCompletion" preserve="nothing">
       <method name="UnsafeOnCompleted" />

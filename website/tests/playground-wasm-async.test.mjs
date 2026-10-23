@@ -556,6 +556,130 @@ async func main(): Task {
         timeoutMs: 5000,
       },
       {
+        name: 'Task.Run result preserves the original OperationCanceledException after Task.Yield',
+        source: `import System
+import System.Threading
+import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+async func ThrowAfterYield(token: CancellationToken): Task<int> {
+    await Task.Yield()
+    throw new OperationCanceledException("marker", token)
+}
+
+async func main(): Task {
+    token := new CancellationToken(true)
+    pending := Task.Run(() => ThrowAfterYield(token))
+    try {
+        _value := await pending
+        throw new Exception("expected Task.Run result to be canceled")
+    } catch failure: Exception {
+        facts := new CancellationTokenTestFacts()
+        if !facts.MatchesExactCancellation(failure, "marker", token) { throw new Exception("Task.Run changed the original cancellation exception") }
+        print "original-cancellation-preserved"
+    }
+}
+`,
+        stdout: 'original-cancellation-preserved\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run preserves an original canceled CLR task exception after Task.Yield',
+        source: `import System
+import System.Threading
+import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+async func main(): Task {
+    facts := new CancellationTokenTestFacts()
+    token := new CancellationToken(true)
+    pending := Task.Run(() => facts.CreateCanceledTaskAfterYield(token))
+    try {
+        _value := await pending
+        throw new Exception("expected Task.Run result to be canceled")
+    } catch failure: Exception {
+        if !facts.MatchesExactCancellation(failure, "marker", token) { throw new Exception("Task.Run changed the canceled CLR task exception: " + facts.DescribeCancellation(failure, token)) }
+        print "clr-task-run-cancellation-preserved"
+    }
+}
+`,
+        stdout: 'clr-task-run-cancellation-preserved\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'ConfigureAwait(false) preserves the original OperationCanceledException after Task.Yield',
+        source: `import System
+import System.Threading
+import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+async func ThrowAfterYield(token: CancellationToken): Task {
+    await Task.Yield()
+    throw new OperationCanceledException("marker", token)
+}
+
+async func main(): Task {
+    token := new CancellationToken(true)
+    pending := ThrowAfterYield(token)
+    try {
+        await pending.ConfigureAwait(false)
+        throw new Exception("expected configured operation to be canceled")
+    } catch failure: Exception {
+        if !new CancellationTokenTestFacts().MatchesExactCancellation(failure, "marker", token) { throw new Exception("ConfigureAwait(false) changed the original cancellation exception") }
+        print "configured-cancellation-preserved"
+    }
+}
+`,
+        stdout: 'configured-cancellation-preserved\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'ConfigureAwait(false) preserves an original canceled CLR task exception after Task.Yield',
+        source: `import System
+import System.Threading
+import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+async func main(): Task {
+    facts := new CancellationTokenTestFacts()
+    token := new CancellationToken(true)
+    pending := facts.CreateCanceledTaskWithoutResultAfterYield(token)
+    try {
+        await pending.ConfigureAwait(false)
+        throw new Exception("expected configured CLR task to be canceled")
+    } catch failure: Exception {
+        if !facts.MatchesExactCancellation(failure, "marker", token) { throw new Exception("ConfigureAwait(false) changed the canceled CLR task exception: " + facts.DescribeCancellation(failure, token)) }
+        print "clr-configured-cancellation-preserved"
+    }
+}
+`,
+        stdout: 'clr-configured-cancellation-preserved\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run result preserves a nested AggregateException fault',
+        source: `import System
+import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+async func main(): Task {
+    facts := new CancellationTokenTestFacts()
+    source := facts.CreateFaultedTaskWithNestedAggregate()
+    if !facts.HasNestedAggregateFailure(source) { throw new Exception("the source task does not contain a nested aggregate fault") }
+    pending := Task.Run(() => source)
+    try {
+        _value := await pending
+        throw new Exception("expected nested aggregate task to fault")
+    } catch failure: Exception {
+        if !facts.PreservesTaskFailureShape(source, pending) { throw new Exception("Task.Run changed the nested aggregate fault") }
+        print "nested-aggregate-preserved"
+    }
+}
+`,
+        stdout: 'nested-aggregate-preserved\n',
+        timeoutMs: 5000,
+      },
+      {
         name: 'Task.Run keeps the synchronous lambda adapter working',
         source: `import System.Threading.Tasks
 
