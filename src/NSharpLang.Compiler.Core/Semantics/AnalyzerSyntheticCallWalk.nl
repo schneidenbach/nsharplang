@@ -153,7 +153,7 @@ class AnalyzerSyntheticCallWalk {
             column := 0
             while column < count {
                 if row != column {
-                    comparisons[row * count + column] = CompareNSharpCandidates(applicable[row], applicable[column], scores[row], scores[column], comparisonsByCandidate[row], comparisonsByCandidate[column], call, argTypes)
+                    comparisons[row * count + column] = CompareNSharpCandidates(applicable[row], applicable[column], scores[row], scores[column], comparisonsByCandidate[row], comparisonsByCandidate[column], call, argTypes, receiverType)
                 }
 
                 column = column + 1
@@ -180,7 +180,7 @@ class AnalyzerSyntheticCallWalk {
     //
     // The score decides first for the same reason it does in the reflected world: it is the
     // applicability ladder, and specificity separates the candidates it rated the same.
-    func CompareNSharpCandidates(left: FunctionTypeInfo, right: FunctionTypeInfo, leftScore: int, rightScore: int, leftComparisons: SyntheticArgumentComparison?[], rightComparisons: SyntheticArgumentComparison?[], call: CallExpression, argTypes: IReadOnlyList<TypeInfo>): int {
+    func CompareNSharpCandidates(left: FunctionTypeInfo, right: FunctionTypeInfo, leftScore: int, rightScore: int, leftComparisons: SyntheticArgumentComparison?[], rightComparisons: SyntheticArgumentComparison?[], call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): int {
         if leftScore != rightScore {
             if leftScore > rightScore {
                 return AnalyzerOverloadSpecificity.LeftIsBetter
@@ -188,6 +188,11 @@ class AnalyzerSyntheticCallWalk {
 
             return AnalyzerOverloadSpecificity.RightIsBetter
         }
+
+        leftParameterIndexByArgument: int[] = new int[0]
+        rightParameterIndexByArgument: int[] = new int[0]
+        TryGetScoringPlacement(left, call, argTypes, out leftParameterIndexByArgument)
+        TryGetScoringPlacement(right, call, argTypes, out rightParameterIndexByArgument)
 
         verdicts := new List<int>()
         index := 0
@@ -226,6 +231,42 @@ class AnalyzerSyntheticCallWalk {
                 assignability.IsAssignable(rightExpected, leftExpected),
                 assignability.IsAssignable(leftExpected, rightExpected)
             ))
+
+            if currentIndex < call.Arguments.Count && TypeInfoIdentityFacts.AreEqual(leftExpected, rightExpected) {
+                leftParameterIndex := leftParameterIndexByArgument[currentIndex]
+                rightParameterIndex := rightParameterIndexByArgument[currentIndex]
+                directionPreference := AnalyzerOverloadFacts.CompareInputParameterPreference(
+                    AnalyzerOverloadFacts.SyntheticParameterModifier(left, leftParameterIndex),
+                    AnalyzerOverloadFacts.SyntheticParameterModifier(right, rightParameterIndex),
+                    call.Arguments[currentIndex].Modifier
+                )
+                if directionPreference != AnalyzerOverloadSpecificity.NeitherIsBetter {
+                    verdicts.Add(directionPreference)
+                }
+            }
+        }
+
+        // A receiver-style invocation supplies its receiver as argument zero for overload
+        // resolution even though it is absent from the written argument list. Compare those
+        // conversions alongside explicit arguments so a receiver convertible to both Base and
+        // Derived selects Derived, exactly as an ordinary extension call does.
+        if receiverType != null && AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(left, call) > 0 && AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(right, call) > 0 {
+            leftParameters := left.ParameterTypes
+            rightParameters := right.ParameterTypes
+            if leftParameters != null && rightParameters != null && leftParameters.Count > 0 && rightParameters.Count > 0 {
+                leftBindings := InferGenericBindings(left, call, argTypes, receiverType)
+                rightBindings := InferGenericBindings(right, call, argTypes, receiverType)
+                leftReceiverType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(leftParameters[0], leftBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(left.GenericConstraints))
+                rightReceiverType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(rightParameters[0], rightBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(right.GenericConstraints))
+                if !BuiltInTypes.IsUnknown(receiverType) && !BuiltInTypes.IsUnknown(leftReceiverType) && !BuiltInTypes.IsUnknown(rightReceiverType) {
+                    verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
+                        TypeInfoIdentityFacts.AreEqual(leftReceiverType, receiverType),
+                        TypeInfoIdentityFacts.AreEqual(rightReceiverType, receiverType),
+                        assignability.IsAssignable(rightReceiverType, leftReceiverType),
+                        assignability.IsAssignable(leftReceiverType, rightReceiverType)
+                    ))
+                }
+            }
         }
 
         conversionVerdict := AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
@@ -361,6 +402,13 @@ class AnalyzerSyntheticCallWalk {
             parameterIndex := parameterIndexByArgument[currentArgument]
             if parameterIndex < 0 || parameterIndex >= expectedCount {
                 continue
+            }
+
+            if !AnalyzerOverloadFacts.IsSyntheticArgumentModifierApplicable(
+                AnalyzerOverloadFacts.SyntheticParameterModifier(functionType, parameterIndex),
+                call.Arguments[currentArgument].Modifier
+            ) {
+                return -1
             }
 
             comparison := binder.GetArgumentComparisonTypes(functionType, call, argTypes, currentArgument, parameterIndex, paramsParameterIndex, parameterStartIndex, genericBindings)
@@ -641,6 +689,35 @@ class AnalyzerSyntheticCallWalk {
             }
         }
 
+        return bindings
+    }
+
+    // The receiver-only half of generic inference for a selected extension invocation. This is
+    // used when the compiler needs the closed method identity itself (for example, a pattern-based
+    // GetAwaiter call): no positional arguments exist to contribute bounds, so reuse the same
+    // receiver matcher and bound collector that extension applicability uses.
+    func InferReceiverTypeBindings(functionType: FunctionTypeInfo, receiverType: TypeInfo): Dictionary<string, TypeInfo>? {
+        if functionType == null || receiverType == null || !functionType.SourceHasReceiverParameter {
+            return null
+        }
+        typeParameters := functionType.TypeParameters
+        sourceParameterTypes := functionType.SourceParameterTypes
+        if typeParameters == null || typeParameters.Count == 0 || sourceParameterTypes == null || sourceParameterTypes.Count == 0 {
+            return null
+        }
+
+        let matchedReceiverType: TypeInfo? = null
+        bindings := new Dictionary<string, TypeInfo>()
+        if !binder.TryInferReceiverParameterBindings(
+            sourceParameterTypes[0],
+            receiverType,
+            typeParameters,
+            typeResolver,
+            out matchedReceiverType,
+            out bindings
+        ) || matchedReceiverType == null {
+            return null
+        }
         return bindings
     }
 

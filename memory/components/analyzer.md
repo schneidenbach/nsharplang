@@ -4,6 +4,7 @@
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerDeclarationContext.nl`,
 `src/NSharpLang.Compiler.Model/TypeInfoIdentityFacts.nl`,
 `src/NSharpLang.Compiler.Model/AnalyzerConversionFacts.nl`,
+`src/NSharpLang.Compiler.Model/RefKindCompatibility.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerCallableReferenceFacts.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerWellKnownTypes.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerWellKnownTypeFacts.nl`,
@@ -449,17 +450,15 @@ declared member read off a type's member table (optionally as seen from a declar
   base member matches". The emitter's half is `ColumnarAsyncWrapperSelection` (see the async local
   function note below); the native projects `async-slot-inference` and `async-default-type` and the
   `AnalyzerAsyncReturnFamily` estate rows hold the two halves to one answer.
-- THERE IS NO POOLED-ASYNC SETTING, AND `language.pooledAsync` IS REFUSED BY NAME. The key was
-  parsed for a long time and consumed by nothing. Pooling (`PoolingAsyncValueTaskMethodBuilder`)
-  recycles the box a SUSPENDED async method lives in; an ordinary N# `async func` never suspends —
-  `await` is the blocking `TryEmitBlockingAwait` lowering in `ColumnarIlEmitter`, and
-  `EmitWrappedAsyncCompletedReturn` builds a generic result through `ValueTask.FromResult<T>(value)` /
-  `default(ValueTask)` — so a `ValueTask` call allocates 0 bytes already (measured: 100,000 calls,
-  0 bytes; `Task<int>` 72 bytes per call). With nothing to pool, `LanguageConfig.RemovedPooledAsync`
-  binds the key (`[YamlMember(Alias = "pooledAsync")]`) only so `ProjectFileParser.ValidateConfig`
-  refuses any value with that reason instead of YamlDotNet's "not found on type". `async-task-like`
-  pins both premises (completed on return across a delay; fewer bytes than calls) — if async bodies
-  ever become real state machines those rows fail and pooling becomes a real question again.
+- THERE IS NO POOLED-ASYNC SETTING, AND `language.pooledAsync` IS REFUSED BY NAME. The key remains
+  reserved by `LanguageConfig.RemovedPooledAsync` (`[YamlMember(Alias = "pooledAsync")]`) so
+  `ProjectFileParser.ValidateConfig` can explain that pooled builders are not configurable instead
+  of reporting YamlDotNet's "not found on type". Async bodies now use the compiler's resumable task
+  state-machine path: the kickoff returns an incomplete task at the first incomplete await, and a
+  completed await continues inline. `ColumnarAsyncWrapperSelection` still selects the Task or
+  ValueTask builder family. The `async-task-like` native project pins suspension, completion,
+  exception and allocation behavior; old measurements that assumed every call completed before
+  returning are historical and must not be used as current performance claims.
 
 ### CLR type → TypeInfo conversion
 
@@ -495,10 +494,13 @@ two types alone, and they are kept out of `AnalyzerAssignabilityFacts` so that c
   directions. A source with no declared-member list at all — a CLR type, a built-in, an array, an
   interface — satisfies NOTHING, including the empty duck interface, because the member list is
   consulted before the interface's demands are; a class, struct or record with an EMPTY member list
-  does satisfy it. Signature equality is by the RESOLVED type's display form, an absent return type
+  does satisfy it. Signature equality is by canonical resolved type identity, an absent return type
   means `void`, and the resolution ORDER is behaviour: parameters are resolved in pairs, left to
   right, and the first mismatch stops the walk, so a rejected candidate's later references are never
-  resolved and never recorded.
+  resolved and never recorded. Constructed generic duck targets resolve contract members under the
+  closed type-argument substitution before comparing the source signature; `IReader<int>` and
+  `IReader<string>` are distinct dispatch slots even though both originate at one `IReader<T>.Read`
+  declaration.
 - THE ACTIONRESULT ARM answers that ASP.NET Core's `ActionResult<T>` accepts whatever the
   non-generic `ActionResult` accepts. It refuses unless the target is a one-argument generic named
   `ActionResult` or `Microsoft.AspNetCore.Mvc.ActionResult`, the source is a CLR type, and the
@@ -1145,8 +1147,8 @@ meet. Putting the flag on the argument's type is what makes overload scoring, th
 and the reflected binder agree without three copies of the rule.
 
 ONLY A REFERENCE ANNOTATION IS DROPPED (`WithoutReferenceNullability`): `int?` is `Nullable<int>` and
-`int` is not, so an `int?` variable is still not an `out int` argument. N# has no `in` modifier, so
-that third C# case does not arise.
+`int` is not, so an `int?` variable is still not an `out int` argument. `in` arguments use a separate
+read-only-reference rule described below.
 
 A TARGET THAT IS ALREADY A REFERENCE IS PASSED ON, NOT RE-REFERENCED (2026-09-27). A `p: &T` parameter
 reads as `&T`, so `CompleteArgument` wrapping `ref p`'s answer typed it `&&T` and refused it NL202 —
@@ -1192,6 +1194,21 @@ Ref RETURNS (`func F(): &int`) were never emittable (`emit.declaration.function-
 `return v` for `v: &int` being refused NL202 there regresses nothing. Pinned by
 `AnalyzerBindingFacts.tests.nl` (both spellings side by side), `Linter.tests.nl` (NL012) and
 `tests/native/census-by-ref-forwarding/ValuePosition`.
+
+### C# 12 `ref` arguments for `in` parameters
+
+`RefKindCompatibilityFacts.Classify` is the shared direction rule for source signatures, reflected
+signatures, overload applicability, synthetic validation, direct-call planning and playground
+invocation. It returns `RefEquivalentToIn` for `ref x` matched to an `in` parameter so the selected
+call can receive the argument's storage and the analyzer can report NL908 after overload selection.
+The warning has CS9191's wording and recommendation. In better-function comparison, that pair has
+the effective `ref` kind; an unmodified argument still prefers an otherwise-identical by-value
+parameter over `in`.
+
+`in x` applies only to an `in` parameter. `ref x` and `out x` do not apply to by-value parameters,
+and `out` does not apply to `in`. `ClassifyReflectedParameter` translates reflection metadata into
+the same result, including `ref readonly` location requirements. The emitter and playground consume
+the shared result rather than maintaining their own direction tables.
 
 ### A referenced type's object initializer and member writes (2026-09-27, carving prep)
 
@@ -1725,11 +1742,10 @@ on the new owner. `StrongBox<T>` construction and field access use `TypeBuilder.
 `TypeBuilder.GetField` when T is builder-bound, because reflection cannot query that instantiation
 before bake. The generic ones ride a SEPARATE map on `ColumnarLocalFunctionLowering`
 (`GenericLocalFuncs`) because the direct map's entries are handles a call site dispatches without
-closing. The same model applies inside a generic method on a non-generic source type. An `async`
-generic local function remains refused (`emit.local-function.generic-async`). Generic async METHODS (static and instance) resolve
-their task return through `ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope`; async lowering is
-synchronous, so no state-machine type needs the type arguments. A generic async free function is refused at
-`emit.declaration.function-return`.
+closing. The same model applies inside a generic method on a non-generic source type. Generic async
+free functions, methods, local functions and lambdas carry their type parameters on real state-machine
+types. Nested state machines copy the owner's parameter metadata and constraints onto their own
+generic owners, then close their kickoff methods over the generated capture display.
 
 **THE CONTEXTUAL-TIER GATE ASKS ALL THREE METHOD-GROUP SHAPES** (2026-09-14, stream CAPTURE3).
 `ColumnarIlEmitter.IsContextualDelegateValueNode` — the predicate `HasContextualDelegateArgument`
@@ -3391,8 +3407,11 @@ position.
 its construction state. Required-member analysis consumes that identity directly when it checks
 `[SetsRequiredMembers]`; it does not rescan constructors by arity. This matters when same-arity
 overloads differ by reference or numeric specificity, named placement, defaults, `params`, or
-`ref`/`out`: only the constructor ordinary overload resolution selected may exempt the creation.
-An unknown argument suppresses the exemption and does not add a secondary ambiguity diagnostic.
+`ref`/`out`/`in`: only the constructor ordinary overload resolution selected may exempt the creation.
+The shared synthetic-call binder applies the same argument-modifier applicability and better-member
+rules to constructors and methods. A bare argument can bind to `in`, with a matching by-value
+parameter preferred; an explicit `in` argument selects an `in` parameter. An unknown argument
+suppresses the exemption and does not add a secondary ambiguity diagnostic.
 
 An `init` setter is identified in CLR metadata by `modreq(IsExternalInit)` on its return position.
 Reflection.Emit drops custom modifiers when it creates a `MemberRef` for a method on a constructed
@@ -5086,10 +5105,9 @@ parameter list, the contextual typing, the display class — is unchanged.
   (`AsyncWrappedReturnType`). Both halves are load-bearing: without the first the body is measured
   against the task, and without the second `Task.Run(async () => await F())` cannot fix `TResult`,
   because folding `Task<TResult>` against `Task<TResult>` fixes nothing.
-- **There is NO `async void`, deliberately.** N#'s `await` is sync-lowered, so an async body with no
-  task to carry its result or fault IS its own body — the keyword would mean nothing, and the C#
-  meaning (the exception posted to a synchronization context) is not on offer. **NL334** reports a
-  non-task-like target and a target-less lambda. Refusing it is also what keeps overload selection
+- **There is NO `async void`, deliberately.** Even with resumable lowering, an `Action` has no task
+  for callers to await or observe. **NL334** reports a non-task-like target and a target-less lambda.
+  Refusing it is also what keeps overload selection
   honest: `AnalyzerReflectionArgumentBinder` drops a non-task candidate for an `async` lambda outright
   and scores the value-keeping task position higher, so `Task.Run(async () => …)` cannot bind to
   `Task.Run(Action)` and silently discard what the body awaited. The emitter agrees through
@@ -5097,8 +5115,8 @@ parameter list, the contextual typing, the display class — is unchanged.
   own shape rather than by a fixed table row.
 - **NL335 IS NL334'S MIRROR** and is reported from the expression-body phase: the target's return IS
   task-like and the body's value is NOT a task, so no conversion exists and the missing `async` is
-  the fix. It is a rule about the CONVERSION rather than about `await` — N# allows `await` in a body
-  that is not declared `async`, so "you awaited without saying async" is not a rule this language has.
+  the fix. Await placement is a separate semantic rule: **NL353** reports `await` outside an async
+  function or lambda, and also covers implicit suspension in `await using` and `await foreach`.
   A block body is not asked: a lambda does not infer a block's return type, and its `return`s are
   measured against the signature by the nested-body boundary, which reports their mismatch there.
 - **An `async` LOCAL FUNCTION is the same shape in a local function's method.** It declares its INNER
@@ -5113,11 +5131,9 @@ parameter list, the contextual typing, the display class — is unchanged.
   the inner type plus the async return shape. `emit.local-function.async` — the decline that said "its
   body is not routed through the async return planner" — is gone.
 - **Emission is the async function's shape, in a lambda's method.** `TryEmitLambdaLiteral` keeps the
-  DELEGATE's signature on the synthesized method and hands the sub-emitter the unwrapped type plus
-  `asyncReturnType`, so `EmitBody`'s async fault guard runs for a block body and
-  `EmitAsyncLambdaExpressionBody` writes the same guard around a single expression. That guard is the
-  observable contract: an exception raised in the body becomes a FAULTED TASK rather than reaching the
-  caller.
+  DELEGATE's signature on the synthesized kickoff method and routes its body through the same task
+  state-machine realization as a source function. The builder records exceptions on the returned
+  task, and the kickoff returns before an incomplete await resumes.
 
 ### A bare `throw` is the rethrow, and its placement is an ambient question
 
@@ -5201,14 +5217,38 @@ question.
 ### `await`, for any awaitable, in any BOUND position
 
 The `await Task.Delay(<int>)`-only admission is gone. `ColumnarIteratorPlanner.WalkAwait` counts the
-suspension and walks the operand as an ordinary expression;
-`ColumnarIteratorBodyPlanner.AppendAwait` then asks the operand's PLANNED type for `GetAwaiter()`, and
-that awaiter for `get_IsCompleted`, `OnCompleted(Action)` and `GetResult()` — ordinary CLR member
-lookup, no table of known tasks. A `Task`, a `Task<T>`, a `ValueTask<T>` and a user awaitable all
-answer; a struct awaitable is called through the address of a temporary, and a struct awaiter through
-the address of its own field (a copy would throw the continuation state away). The awaiter field is
-hoisted UNRESOLVED (role 5) and defined from that awaiter type when the lowering reaches the
-suspension, so a machine with two awaits of different awaitables carries two differently-typed slots.
+suspension and walks the operand as an ordinary expression. The analyzer binds the await pattern once
+through `AwaitablePatternBinder`: `GetAwaiter()` uses ordinary instance member lookup, overload
+resolution and, only when no applicable instance call binds, the ordinary extension resolver; its
+result carries closed generic methods and inferred type arguments. `IsCompleted` and `GetResult()` use
+ordinary member-group and accessibility rules across the base chain. Completion uses the exact
+`INotifyCompletion.OnCompleted(Action)` or `ICriticalNotifyCompletion.UnsafeOnCompleted(Action)`
+interface slot and its implementation map, including explicit and inherited implementations.
+
+That selected `AnalyzerAwaitablePatternBinding` is stored at the await source position. The planner's
+`SelectedAwaitablePatternForNode` and the playground's `AwaitablePatternAt` both call the binder's
+shared lookup helper to retrieve that same record. Emission maps its selected source declaration or
+reflected method identity to a `MethodBuilder` or execution `MethodInfo`; it does not choose another
+overload by name. The browser runner consumes the same binding, maps metadata methods to the runtime
+type by owner and signature, and registers through the runtime interface slot. It never selects an
+`OnCompleted` implementation by a name suffix. The interpreter uses the source declarations retained
+in the binding for unbaked N# objects.
+
+A struct awaitable is called through the address of a temporary, and a struct awaiter through the
+address of its own field (a copy would throw the continuation state away). The awaiter field is hoisted
+UNRESOLVED (role 5) and defined from that awaiter type when lowering reaches the suspension, so a
+machine with two awaits of different awaitables carries two differently-typed slots. Generic methods
+with zero invocation arguments cannot infer their own method type parameters and are rejected, while
+receiver-inferred generic extensions keep their closed methods and type arguments in the binding.
+The binder does not lift through `Nullable<T>`. `AnalyzerPassThroughOperands.TryAwaitResultType` consumes
+the bound `GetResult()` type. An incomplete pattern reports NL202 at the awaited operand instead of
+reaching an unpositioned async-emitter decline. Synthetic nominal types without an attached source
+declaration remain unresolved here, as do types whose declaration belongs to an earlier diagnostic.
+
+Compiler-synthesized awaits for `await foreach` and `await using` have no written await node to index.
+Their produced `MoveNextAsync()` or `DisposeAsync()` return types go through the shared reflection
+pattern binder and the scope's normal extension resolver; they share the same selected members,
+interface-slot dispatch and state-machine suspension writer as a written await.
 
 An ASYNC machine may enumerate a sequence source too: the hoisted `<>__enum{k}` field is the same one
 the synchronous machine reserves, and only its RELEASE differs — a synchronous machine has a FAULT
@@ -5216,11 +5256,22 @@ handler for the exceptional path, and the async step core rides the `catch (Exce
 (an exception must reach the pending call's promise) plus `DisposeAsync` for the abandonment path.
 
 An `await` may be the WHOLE value of a declaration, an assignment or a `yield`
-(`ColumnarIteratorPlanner.WalkBoundValue` / `ColumnarIteratorBodyPlanner.AppendBoundFieldStore`), and
-nothing else: a suspension branches out of the step core and ECMA requires an EMPTY evaluation stack
-at that branch, so the awaited value is produced FIRST, parked in a plan local, and only then is
-`this` loaded and the field written. An `await` nested inside a larger expression needs a spill this
-owner does not yet hold and declines saying so.
+(`ColumnarIteratorPlanner.WalkBoundValue` / `ColumnarIteratorBodyPlanner.AppendBoundFieldStore`), or
+it may be nested in a larger expression. A suspension branches out of the step core and ECMA requires
+an EMPTY evaluation stack at that branch, so the planner spills earlier values that must survive:
+call receivers and arguments, a binary's left operand, an indexed receiver, and interpolation holes.
+The expression owner stores these values on the machine and reloads them in written evaluation order
+after each await. Ordinary async functions and async iterators use the same spill and await core.
+
+Ordinary async functions and methods use the C#-shaped task state machine from
+`ColumnarIteratorRealization.EmitTask`: a synthesized value type implements `IAsyncStateMachine`,
+stores the state, builder, live parameters/locals/receiver and one awaiter field per awaiter type, and
+has `MoveNext` plus `SetStateMachine`. The kickoff constructs it, calls `builder.Start`, and returns
+`builder.Task`; it does not call `GetResult` to wait. Suspension uses `AwaitUnsafeOnCompleted` for
+critical awaiters and `AwaitOnCompleted` otherwise; completion and faults go through `SetResult` and
+`SetException`. The only synchronous task wait is the synthesized CLR entry wrapper for async `main`.
+Async iterator machines remain a separate consumer protocol, but their await core shares the same
+awaiter pattern and spill planner.
 
 ### Lambda captures in a generator
 
@@ -5249,18 +5300,18 @@ accepts a complete external DELEGATE type as a hoisted field type; the general s
 has not been widened, because that is a question about the whole value surface.
 
 An async lambda inside a generator uses its selected machine or per-iteration display as its closure
-and writes a synthesized method returning the target's exact Task/ValueTask family. Its own awaits use the current
-blocking-await lowering within the generator lambda's supported expression forms, including binary
-operands, call arguments and indexes, and never consume a resume state from
-the enclosing iterator. Successful results are wrapped and synchronous body exceptions become faulted
-tasks. The delegate may return `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>`.
+and writes a synthesized method returning the target's exact Task/ValueTask family. Its own awaits
+use a separate resumable state machine and never consume a resume state from the enclosing iterator.
+The delegate may return `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>`.
 
-Not yet lowered inside a generator body, each with its own decline: `return <value>`
-(`emit.iterator.unsupported-shape`), `lock`, an `await` nested in a larger expression of the
-enclosing async iterator, an `await` inside a `catch` handler and an awaiting `finally` beside a
-`catch` on the same `try` (both `emit.iterator.async-await-unsupported`). Generic async iterator
-methods now carry their method type parameters on the state machine, and async instance methods capture
-their receiver and enclosing fields through the same body scope as synchronous instance iterators.
+Inside a generator body, `return <value>` remains invalid because a generator produces values with
+`yield`, and `lock` cannot contain a suspension. Nested awaits in expressions are supported by the
+spill fields above. Async iterators support an `await` in a `catch` body and an awaiting `finally`,
+including a `try` that declares both `catch` and `finally`; those handlers are hoisted and re-entered
+through the same resume-region machinery.
+Generic async iterator methods now carry their method type parameters on the state machine, and async
+instance methods capture their receiver and enclosing fields through the same body scope as
+synchronous instance iterators.
 `GetAsyncEnumerator(CancellationToken)` still ignores its token; N# has no
 `[EnumeratorCancellation]`-equivalent parameter annotation. The existing generator-lambda expression
 boundary still excludes non-literal unary negation, such as `() => -value`, with or without an await.
@@ -5324,16 +5375,12 @@ those are released by the machine's blanket SYNCHRONOUS disposal, which is the w
 `IAsyncDisposable`. `AppendAwait` is split at `AppendAwaitOfStackValue` so a synthesized suspension
 runs the identical rows a written `await` does.
 
-Two shapes remain declined, and the reason is one sentence: the hoisted form replaces the statement's
-own handlers with ONE catch-all, so a `catch` clause would have to be re-matched by hand against the
-parked exception. An `await` inside a `catch`, and an awaiting `finally` on a `try` that also declares
-a `catch`, therefore decline with their own messages.
-
-⚠ THE REPO'S "DECLINING SHAPE" SENTINEL is now an async iterator with an `await` nested in a larger
-expression. The planner declines at `emit.iterator.async-await-unsupported` because the current state
-machine lowering has no spill slot for that composition. A generic async iterator is supported and
-must not be reused as a negative sentinel. An async lambda inside an ordinary generator is also
-supported and must not be reused as a negative sentinel.
+Awaiting `catch` bodies and `finally` handlers on a `try` that also declares a `catch` use the
+hoisted form above. Catch filters remain synchronous and are diagnosed by `NL352`; a filter runs
+before the handler is selected, so it cannot suspend while the runtime is matching the exception.
+The former nested-await declining sentinel is obsolete: nested call arguments, binary operands,
+indexed receivers and async-iterator expressions now have runtime coverage in `async-task-like` and
+`census-iterators`.
 
 ### The branch-merge value forms on the plan side (census ITER3)
 

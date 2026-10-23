@@ -1332,6 +1332,30 @@ test "a rollback to a mark withdraws exactly the reports taken after it" {
     assert errors[0].Message == "kept"
 }
 
+test "only invocation binding errors from a target-typed lambda make a reflected overload inapplicable" {
+    errors := CallWalkErrors()
+    sink := new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
+    sink.Warn(ErrorCode.InvalidSyntax, "warning in lambda", 1, 1, null, 0)
+    mark := sink.ErrorCount
+
+    sink.Report(ErrorCode.FeatureNotImplemented, "lambda body feature", 2, 1, null, 0)
+    assert !sink.HasLambdaInvocationBindingFailureSince(mark)
+
+    sink.Report(ErrorCode.WrongArgumentCount, "wrong call arity", 3, 1, null, 0)
+    assert sink.HasLambdaInvocationBindingFailureSince(mark)
+
+    sink.RollbackErrorsTo(mark)
+    sink.Report(ErrorCode.NoMatchingOverload, "no inner overload", 4, 1, null, 0)
+    assert sink.HasLambdaInvocationBindingFailureSince(mark)
+
+    sink.RollbackErrorsTo(mark)
+    sink.Report(ErrorCode.UndefinedFunction, "unknown name in lambda body", 5, 1, null, 0)
+    assert !sink.HasLambdaInvocationBindingFailureSince(mark)
+    bodyErrors := sink.CandidateDiagnosticsSince(mark)
+    assert bodyErrors.Count == 1
+    assert bodyErrors[0].Code == ErrorCode.UndefinedFunction
+}
+
 test "a rollback to the CURRENT mark withdraws nothing" {
     errors := CallWalkErrors()
     harness := CallWalkHarnessOf(errors)

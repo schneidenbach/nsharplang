@@ -199,13 +199,25 @@ class AnalyzerMemberResolution {
     // combinations, never `private`, and never `assembly`, because the member lives in another
     // assembly and N# models no `InternalsVisibleTo`.
     func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool, inheritedProtectedAccess: bool): TypeInfo {
-        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, 0)
+        return ResolveMemberCore(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, true, 0)
+    }
+
+    // The await-pattern binder first asks whether an instance invocation binds, then consults the
+    // ordinary extension resolver only when it does not. Keeping this entry on the same member
+    // lookup implementation prevents the first pass from accidentally folding an extension group
+    // into the instance method group before ordinary overload resolution has run.
+    func ResolveMemberWithoutExtensionFallback(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool): TypeInfo {
+        return ResolveMemberCore(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, false, false, 0)
     }
 
     // An explicit generic invocation filters each source type's declared method group by arity before
     // deciding whether that declaration hides the inherited group. Zero means that no explicit
     // arity was supplied and keeps the ordinary member read unchanged.
     func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool, inheritedProtectedAccess: bool, writtenTypeArgumentCount: int): TypeInfo {
+        return ResolveMemberCore(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, true, writtenTypeArgumentCount)
+    }
+
+    private func ResolveMemberCore(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool, inheritedProtectedAccess: bool, allowExtensionFallback: bool, writtenTypeArgumentCount: int): TypeInfo {
         current: TypeInfo = objectType
 
         oblivious := current as ObliviousTypeInfo
@@ -497,7 +509,10 @@ class AnalyzerMemberResolution {
             }
 
             // Nothing on the metadata surface; the extension surface still sees the SOURCE receiver.
-            return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
+            if allowExtensionFallback {
+                return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
+            }
+            return BuiltInTypes.Unknown
         }
 
         // A DECLARED SHAPE'S OWN MEMBERS. Value members before function members, then the primary
@@ -576,7 +591,7 @@ class AnalyzerMemberResolution {
 
             declaredBaseType := sourceShape.BaseType
             if declaredBaseType != null {
-                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, writtenTypeArgumentCount)
+                baseMember := ResolveMemberCore(declaredBaseType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, false, writtenTypeArgumentCount)
                 if !BuiltInTypes.IsUnknown(baseMember) {
                     return baseMember
                 }
@@ -588,7 +603,7 @@ class AnalyzerMemberResolution {
             // walk is a full re-resolution per base, in written order, exactly as the base-class walk
             // above is, so generic substitution and the base's OWN bases are carried along.
             for baseInterface2 in sourceShape.BaseInterfaces {
-                baseInterfaceMember := ResolveMember(baseInterface2, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, writtenTypeArgumentCount)
+                baseInterfaceMember := ResolveMemberCore(baseInterface2, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, false, writtenTypeArgumentCount)
                 if !BuiltInTypes.IsUnknown(baseInterfaceMember) {
                     return baseInterfaceMember
                 }
@@ -676,7 +691,10 @@ class AnalyzerMemberResolution {
                 return BuiltInTypes.Object
             }
 
-            return extensionMethodResolution.TryResolveExtensionMethod(current, memberName, currentTypeName)
+            if allowExtensionFallback {
+                return extensionMethodResolution.TryResolveExtensionMethod(current, memberName, currentTypeName)
+            }
+            return BuiltInTypes.Unknown
         }
 
         // A DECLARED UNION ANSWERS WITH ITSELF for every name: the arms are resolved by the match
@@ -711,7 +729,10 @@ class AnalyzerMemberResolution {
             }
         }
 
-        return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
+        if allowExtensionFallback {
+            return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
+        }
+        return BuiltInTypes.Unknown
     }
 
     static func MethodGroupHasArity(member: TypeInfo, arity: int): bool {

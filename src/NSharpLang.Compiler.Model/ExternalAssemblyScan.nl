@@ -837,6 +837,17 @@ class ExternalAssemblyScan {
             AddUniquePath(directories, seen, runtimeDirectory)
         }
 
+        // Browser runtimes can report a runtime directory that contains no physical assemblies.
+        // When the core facade is absent there, allow the host's deployed assembly directory to
+        // supply framework metadata. Native hosts keep the runtime directory as the sole framework
+        // source, preserving its version precedence over both application and project references.
+        if CommonAssemblyMetadataPath(directories.ToArray(), "System.Runtime").Length == 0 {
+            baseDirectory := AppContext.BaseDirectory
+            if baseDirectory != null && baseDirectory.Length > 0 {
+                AddUniquePath(directories, seen, baseDirectory)
+            }
+        }
+
         if referenceAssemblyPaths != null {
             for path in referenceAssemblyPaths {
                 if path != null && path.Length > 0 {

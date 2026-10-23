@@ -73,7 +73,7 @@ class AnalyzerThrowability {
 
         reflected := resolved as ReflectionTypeInfo
         if reflected != null {
-            return AnalyzerConversionFacts.IsReflectionAssignableFrom(ExceptionRoot(), reflected.Type)
+            return IsReflectionExceptionType(reflected.Type)
         }
 
         simple := resolved as SimpleTypeInfo
@@ -91,6 +91,30 @@ class AnalyzerThrowability {
             return IsThrowable(typeSubstitutionValue.ResolveTypeForSourceOwner(baseClass, classType, null), clrTypeConversion)
         }
 
+        return false
+    }
+
+    private func IsReflectionExceptionType(candidate: Type): bool {
+        if AnalyzerConversionFacts.IsReflectionAssignableFrom(ExceptionRoot(), candidate) {
+            return true
+        }
+
+        // A reference-pack Exception and its runtime implementation are distinct reflection
+        // objects. Walk the loaded metadata hierarchy and bridge only the framework contract pair
+        // proved by TypeInfoIdentityFacts; unrelated same-named types remain non-throwable.
+        current: Type? = candidate
+        depth := 0
+        while current != null && depth < 64 {
+            if TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(current, ExceptionRoot()) {
+                return true
+            }
+            baseType := current.BaseType
+            if baseType == null {
+                return false
+            }
+            current = baseType
+            depth += 1
+        }
         return false
     }
 

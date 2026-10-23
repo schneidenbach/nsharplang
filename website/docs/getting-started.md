@@ -176,9 +176,9 @@ language:
 Every `nlc` command, the language server and the MSBuild SDK read the same section, so a hover in
 VS Code shows the same task type `nlc build` emits.
 
-There is no `pooledAsync` key. An `async func` that returns `ValueTask` already completes without
-allocating, so there is nothing for a pooled builder to recycle, and a `project.yml` that still sets
-`pooledAsync` is refused with that reason. See [Implicit Task Wrapping](./functions.md#implicit-task-wrapping).
+There is no `pooledAsync` key. Pooled async builders are not currently configurable, and a
+`project.yml` that sets `pooledAsync` is refused. See
+[Implicit Task Wrapping](./functions.md#implicit-task-wrapping).
 
 ## VS Code Setup
 

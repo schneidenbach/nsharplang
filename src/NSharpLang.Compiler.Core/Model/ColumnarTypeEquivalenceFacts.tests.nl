@@ -49,6 +49,19 @@ test "type equivalence separates distinct declarations and matches a type with i
     assert !ColumnarTypeEquivalenceFacts.TypesEquivalent(typeof(int), builder)
 }
 
+test "type equivalence compares generic parameter owners and positions" {
+    owner := TypeEquivalenceBuilder("EquivalenceGenericOwner", "ColumnarTypeEquivalenceTests.GenericOwner", 2)
+    ownerParameters := owner.GetGenericArguments()
+    rereadParameters := owner.GetGenericArguments()
+    otherOwner := TypeEquivalenceBuilder("EquivalenceOtherGenericOwner", "ColumnarTypeEquivalenceTests.OtherGenericOwner", 2).GetGenericArguments()
+
+    assert ownerParameters.Length == 2
+    assert ColumnarTypeEquivalenceFacts.TypesEquivalent(ownerParameters[0], rereadParameters[0])
+    assert ColumnarTypeEquivalenceFacts.TypesEquivalent(ownerParameters[1], rereadParameters[1])
+    assert !ColumnarTypeEquivalenceFacts.TypesEquivalent(ownerParameters[0], ownerParameters[1])
+    assert !ColumnarTypeEquivalenceFacts.TypesEquivalent(ownerParameters[0], otherOwner[0])
+}
+
 // THE REASON THE FUNCTION EXISTS. `MakeGenericType` over a `TypeBuilder` does not cache and
 // `TypeBuilderInstantiation` equality is referential, so two independent closures of one definition are
 // DISTINCT objects describing the SAME type. The `assert !SameObject` line is the premise, measured

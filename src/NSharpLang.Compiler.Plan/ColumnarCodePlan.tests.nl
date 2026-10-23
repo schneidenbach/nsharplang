@@ -268,6 +268,7 @@ test "recursive schemas pin only callable Reflection Emit opcode wire values" {
     assert ColumnarCodePlanContract.StelemRef() == 162
     assert ColumnarCodePlanContract.Ldelem() == 163
     assert ColumnarCodePlanContract.Stelem() == 164
+    assert ColumnarCodePlanContract.Stobj() == 129
     assert ColumnarCodePlanContract.Ldtoken() == 208
 }
 

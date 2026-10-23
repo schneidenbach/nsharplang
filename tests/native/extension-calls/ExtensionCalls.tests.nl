@@ -226,6 +226,22 @@ func CleanupExtensionCompilation(compilation: ExtensionCallCompilation) {
     }
 }
 
+// This integration checks the runner's returned values. Metadata shape is covered by the emitter
+// contracts, so accept either the bootstrap compiler's field or the current compiler's property.
+func ExtensionCallResultMember(result: object, name: string): object? {
+    property := result.GetType().GetProperty(name)
+    if property != null {
+        return property.GetValue(result)
+    }
+
+    field := result.GetType().GetField(name)
+    if field != null {
+        return field.GetValue(result)
+    }
+
+    return null
+}
+
 func RunGenericCallProgram(outputPath: string, workingDirectory: string): ExtensionCallRunResult {
     runnerType := Type.GetType(
         "NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Driver"
@@ -259,16 +275,10 @@ func RunGenericCallProgram(outputPath: string, workingDirectory: string): Extens
     if result == null {
         throw new InvalidOperationException("The production dotnet runner returned no result.")
     }
-    resultType := result.GetType()
-    exitCodeField := resultType.GetField("ExitCode")
-    stdoutField := resultType.GetField("Stdout")
-    if exitCodeField == null || stdoutField == null {
-        throw new InvalidOperationException("The production dotnet runner result contract was incomplete.")
-    }
-    exitCodeValue := exitCodeField.GetValue(result)
-    stdoutValue := stdoutField.GetValue(result)
+    exitCodeValue := ExtensionCallResultMember(result, "ExitCode")
+    stdoutValue := ExtensionCallResultMember(result, "Stdout")
     if exitCodeValue == null || stdoutValue == null {
-        throw new InvalidOperationException("The production dotnet runner result values were incomplete.")
+        throw new InvalidOperationException("The production dotnet runner result contract was incomplete.")
     }
     exitCodeText := exitCodeValue.ToString() ?? ""
     return new ExtensionCallRunResult(int.Parse(exitCodeText), stdoutValue.ToString() ?? "")

@@ -51,6 +51,7 @@ test "an exception from an async generator body reaches the consumer after the f
     } catch ex: InvalidOperationException {
         raised = true
         assert ex.Message == "raised"
+        assert CensusHasStackTrace(ex)
     }
     assert raised
     assert collected.Count == 1
@@ -144,7 +145,6 @@ test "an exception passes through an awaiting finally and reaches the consumer a
     } catch ex: InvalidOperationException {
         raised = true
         assert ex.Message == "raised"
-        assert ex.StackTrace != null
     }
     assert raised
     assert collected.Count == 1

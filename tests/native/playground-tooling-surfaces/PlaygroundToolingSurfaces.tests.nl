@@ -3,6 +3,8 @@ namespace NSharpLang.PlaygroundToolingSurfaces.Tests
 import System
 import System.Collections
 import System.Reflection
+import System.Reflection.Emit
+import System.Threading.Tasks
 
 
 // THE PLAYGROUND'S FOUR NON-CHECK RESPONSE RECORDS, IN N#.
@@ -65,14 +67,14 @@ func SetPgInt(values: object?[], index: int, value: int) {
 }
 
 func PgMember(owner: object, memberName: string): object? {
-    property := owner.GetType().GetProperty(memberName)
-    if property != null {
-        return property.GetValue(owner)
-    }
-
     field := owner.GetType().GetField(memberName)
     if field != null {
         return field.GetValue(owner)
+    }
+
+    property := owner.GetType().GetProperty(memberName)
+    if property != null {
+        return property.GetValue(owner)
     }
 
     throw new InvalidOperationException("The production type exposed no member named " + memberName)
@@ -88,14 +90,14 @@ func PgText(owner: object, memberName: string): string {
 }
 
 func PgStaticMember(owner: Type, memberName: string): object? {
-    property := owner.GetProperty(memberName)
-    if property != null {
-        return property.GetValue(null)
-    }
-
     field := owner.GetField(memberName)
     if field != null {
         return field.GetValue(null)
+    }
+
+    property := owner.GetProperty(memberName)
+    if property != null {
+        return property.GetValue(null)
     }
 
     throw new InvalidOperationException("The production type exposed no static member named " + memberName)
@@ -126,6 +128,136 @@ func PgCompilerType(): Type {
     }
 
     return compilerType
+}
+
+func PgConstructorSignatureCtor(owner: TypeBuilder, parameterType: Type, shapeField: FieldBuilder, shapeValue: int): ConstructorBuilder {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = parameterType
+    constructor := owner.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, parameterTypes)
+    il := constructor.GetILGenerator()
+    baseConstructor := typeof(object).GetConstructor(new Type[](0))
+    if baseConstructor == null {
+        throw new InvalidOperationException("The CLR object constructor was not loadable.")
+    }
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Call, baseConstructor)
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Ldc_I4, shapeValue)
+    il.Emit(OpCodes.Stfld, shapeField)
+    il.Emit(OpCodes.Ret)
+    return constructor
+}
+
+func PgRuntimeConstructorMapper(): MethodInfo {
+    runnerType := PgCompilerType().Assembly.GetType("NSharpLang.Playground.PlaygroundRunner")
+    if runnerType == null {
+        throw new InvalidOperationException("The production playground runner was not loadable.")
+    }
+    mapper := runnerType.GetMethod("ResolveRuntimeConstructor", BindingFlags.NonPublic | BindingFlags.Static)
+    if mapper == null {
+        throw new InvalidOperationException("The playground's selected-constructor runtime mapper was not loadable.")
+    }
+    return mapper
+}
+
+func PgReview13Interface(assemblyName: string): Type {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(assemblyName)
+    interfaceBuilder := module.DefineType("Shared.IReader", TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract)
+    emptyParameters := new Type[](0)
+    interfaceBuilder.DefineMethod("Read", MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig, typeof(int), emptyParameters)
+    return interfaceBuilder.CreateType()
+}
+
+func PgReview13ExplicitReader(assemblyName: string, firstInterface: Type, secondInterface: Type): Type {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(assemblyName)
+    owner := module.DefineType("Shared.Reader", TypeAttributes.Public | TypeAttributes.Class)
+    owner.AddInterfaceImplementation(firstInterface)
+    owner.AddInterfaceImplementation(secondInterface)
+    owner.DefineDefaultConstructor(MethodAttributes.Public)
+    emptyParameters := new Type[](0)
+    firstMethod := owner.DefineMethod(firstInterface.FullName + ".Read", MethodAttributes.Private | MethodAttributes.Final | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig, typeof(int), emptyParameters)
+    firstIl := firstMethod.GetILGenerator()
+    firstIl.Emit(OpCodes.Ldc_I4, 11)
+    firstIl.Emit(OpCodes.Ret)
+    firstSlot := firstInterface.GetMethod("Read")
+    if firstSlot == null {
+        throw new InvalidOperationException("The first same-name interface did not expose Read.")
+    }
+    owner.DefineMethodOverride(firstMethod, firstSlot)
+    secondMethod := owner.DefineMethod(secondInterface.FullName + ".Read", MethodAttributes.Private | MethodAttributes.Final | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig, typeof(int), emptyParameters)
+    secondIl := secondMethod.GetILGenerator()
+    secondIl.Emit(OpCodes.Ldc_I4, 22)
+    secondIl.Emit(OpCodes.Ret)
+    secondSlot := secondInterface.GetMethod("Read")
+    if secondSlot == null {
+        throw new InvalidOperationException("The second same-name interface did not expose Read.")
+    }
+    owner.DefineMethodOverride(secondMethod, secondSlot)
+    return owner.CreateType()
+}
+
+func PgSelectedRuntimeInterfaceMethod(selected: MethodInfo, selectedOwner: Type, runtimeOwner: Type): MethodInfo {
+    runnerType := PgCompilerType().Assembly.GetType("NSharpLang.Playground.PlaygroundRunner")
+    if runnerType == null {
+        throw new InvalidOperationException("The production playground runner was not loadable.")
+    }
+    parameterTypes := new Type[](3)
+    parameterTypes[0] = typeof(MethodInfo)
+    parameterTypes[1] = typeof(Type)
+    parameterTypes[2] = typeof(Type)
+    mapper := runnerType.GetMethod("SelectedRuntimeInterfaceMethodFor", BindingFlags.NonPublic | BindingFlags.Static, null, parameterTypes, null)
+    if mapper == null {
+        throw new InvalidOperationException("The playground's interface-slot mapper was not loadable.")
+    }
+    arguments := new object?[](3)
+    SetPgObject(arguments, 0, selected)
+    SetPgObject(arguments, 1, selectedOwner)
+    SetPgObject(arguments, 2, runtimeOwner)
+    mapped := mapper.Invoke(null, arguments) as MethodInfo
+    if mapped == null {
+        throw new InvalidOperationException("The playground did not map the selected interface slot.")
+    }
+    return mapped
+}
+
+func PgInvokeReview13SelectedInterfaceMethod(): int[] {
+    firstInterface := PgReview13Interface("Review13.Interface.First")
+    secondInterface := PgReview13Interface("Review13.Interface.Second")
+    runtimeReader := PgReview13ExplicitReader("Review13.Reader", firstInterface, secondInterface)
+    runtimeInterfaces := runtimeReader.GetInterfaces()
+    selected := runtimeInterfaces[1]
+    selectedMethod := selected.GetMethod("Read")
+    if selectedMethod == null {
+        throw new InvalidOperationException("The second same-name interface did not expose Read.")
+    }
+    mapped := PgSelectedRuntimeInterfaceMethod(selectedMethod, selected, runtimeReader)
+    runtimeInstance := Activator.CreateInstance(runtimeReader)
+    if runtimeInstance == null {
+        throw new InvalidOperationException("The explicit reader was not constructible.")
+    }
+    selectedMap := runtimeReader.GetInterfaceMap(selected)
+    expectedTarget := selectedMap.TargetMethods[0]
+    actualValue := Convert.ToInt32(mapped.Invoke(runtimeInstance, null))
+    expectedValue := Convert.ToInt32(expectedTarget.Invoke(runtimeInstance, null))
+    result := new int[](2)
+    result[0] = actualValue
+    result[1] = expectedValue
+    return result
+}
+
+func PgMapRuntimeConstructor(mapper: MethodInfo, selected: ConstructorInfo, runtimeType: Type): ConstructorInfo? {
+    arguments := new object?[](2)
+    arguments[0] = selected
+    arguments[1] = runtimeType
+    return mapper.Invoke(null, arguments) as ConstructorInfo
+}
+
+func PgInvokeNullArgumentConstructor(constructor: ConstructorInfo): object {
+    arguments := new object?[](1)
+    arguments[0] = null
+    return constructor.Invoke(arguments)
 }
 
 func PgExamplesType(): Type {
@@ -573,6 +705,58 @@ func PgRunFiles(code: string, activeFile: string): object {
         throw new InvalidOperationException("The production RunProject entry point returned no result.")
     }
 
+    responseTask := response as Task
+    if responseTask != null {
+        responseTask.GetAwaiter().GetResult()
+        resultProperty := response.GetType().GetProperty("Result")
+        if resultProperty == null {
+            throw new InvalidOperationException("The production RunProject task returned no result property.")
+        }
+        completedResponse := resultProperty.GetValue(response)
+        if completedResponse == null {
+            throw new InvalidOperationException("The production RunProject task returned no response.")
+        }
+        return completedResponse
+    }
+
+    return response
+}
+
+func PgSourceFileSet(fileNames: string[], sources: string[]): object {
+    if fileNames.Length != sources.Length {
+        throw new InvalidOperationException("A playground source set needs one name for every source.")
+    }
+    files := PgEmptyFileArray(fileNames.Length)
+    index := 0
+    while index < fileNames.Length {
+        PgSetFile(files, index, PgNewFile(fileNames[index], sources[index]))
+        index += 1
+    }
+    return files
+}
+
+func PgRunFileSet(fileNames: string[], sources: string[], activeFile: string): object {
+    files := PgSourceFileSet(fileNames, sources)
+    runMethod := PgCompilerType().GetMethod("RunProject")
+    if runMethod == null {
+        throw new InvalidOperationException("The production RunProject entry point was not found.")
+    }
+    arguments := new object?[](2)
+    SetPgObject(arguments, 0, files)
+    SetPgObject(arguments, 1, activeFile)
+    response := runMethod.Invoke(PgNewCompiler(), arguments)
+    if response == null {
+        throw new InvalidOperationException("The production RunProject entry point returned no result.")
+    }
+    responseTask := response as Task
+    if responseTask != null {
+        responseTask.GetAwaiter().GetResult()
+        resultProperty := response.GetType().GetProperty("Result")
+        if resultProperty == null {
+            throw new InvalidOperationException("The production RunProject task exposed no result.")
+        }
+        response = resultProperty.GetValue(response)
+    }
     return response
 }
 
@@ -627,13 +811,30 @@ func PgRunDuplicateEntryPoint(): object {
     if constructors.Length != 1 {
         throw new InvalidOperationException("The production playground runner constructor shape changed.")
     }
-    constructorArguments := new object?[](1)
+    semanticModelType := Type.GetType("NSharpLang.Compiler.SemanticModel, NSharpLang.Compiler.Core")
+    asyncFamilyType := Type.GetType("NSharpLang.Compiler.AsyncTaskFamily, NSharpLang.Compiler.Model")
+    dictionaryDefinitionType := Type.GetType("System.Collections.Generic.Dictionary`2")
+    if semanticModelType == null || asyncFamilyType == null || dictionaryDefinitionType == null {
+        throw new InvalidOperationException("The semantic model, async task family, or generic dictionary type was not loadable.")
+    }
+    dictionaryTypeArguments := new Type[](2)
+    dictionaryTypeArguments[0] = typeof(object)
+    dictionaryTypeArguments[1] = semanticModelType
+    dictionaryType := dictionaryDefinitionType.MakeGenericType(dictionaryTypeArguments)
+    semanticModels := Activator.CreateInstance(dictionaryType)
+    if semanticModels == null {
+        throw new InvalidOperationException("An empty semantic-model map could not be created.")
+    }
+    asyncFamily := Enum.Parse(asyncFamilyType, "ValueTask")
+    constructorArguments := new object?[](3)
     SetPgObject(constructorArguments, 0, units)
+    SetPgObject(constructorArguments, 1, semanticModels)
+    SetPgObject(constructorArguments, 2, asyncFamily)
     runner := constructors[0].Invoke(constructorArguments)
 
-    runMethod := runnerType.GetMethod("Run", new Type[](0))
+    runMethod := runnerType.GetMethod("RunAsync", new Type[](0))
     if runMethod == null {
-        throw new InvalidOperationException("The production playground runner Run entry point was not found.")
+        throw new InvalidOperationException("The production playground runner RunAsync entry point was not found.")
     }
     runArguments := new object?[](0)
     response := runMethod.Invoke(runner, runArguments)
@@ -641,7 +842,21 @@ func PgRunDuplicateEntryPoint(): object {
         throw new InvalidOperationException("The production playground runner returned no result.")
     }
 
-    return response
+    responseTask := response as Task
+    if responseTask == null {
+        throw new InvalidOperationException("The production playground runner did not return a task.")
+    }
+    responseTask.GetAwaiter().GetResult()
+    resultProperty := response.GetType().GetProperty("Result")
+    if resultProperty == null {
+        throw new InvalidOperationException("The production playground runner task returned no result property.")
+    }
+    completedResponse := resultProperty.GetValue(response)
+    if completedResponse == null {
+        throw new InvalidOperationException("The production playground runner task returned no result.")
+    }
+
+    return completedResponse
 }
 
 func PgExitCode(response: object): string {
@@ -710,7 +925,7 @@ test "020 s38 playground tooling surfaces: Catalog StatesBrowserCapabilitiesAndE
     assert PgLimitationCount(catalog) == 4
     assert PgLimitation(catalog, 0) == "The hosted playground runs compiler analysis, formatting, completions, hover, syntax highlighting, and a bounded execution subset entirely in the browser."
     assert PgLimitation(catalog, 1) == "The Run button supports tutorial-scale code: functions, print, simple control flow, records/classes, object initializers, string/numeric helpers, and selected match patterns."
-    assert PgLimitation(catalog, 2) == "Full build, test execution, NuGet restore, filesystem workflows, async, LINQ, and unrestricted .NET interop require the local nlc toolchain."
+    assert PgLimitation(catalog, 2) == "Full build, test execution, NuGet restore, filesystem workflows, LINQ, and unrestricted .NET interop require the local nlc toolchain. The browser runner supports Task and ValueTask awaits, custom awaiter patterns, ConfigureAwait, and awaits in async try/catch/finally blocks."
     assert PgLimitation(catalog, 3) == "External assembly resolution is intentionally bounded for browser reliability."
     assert PgLimitation(catalog, 4) == "<no-such-limitation>"
     assert PgListCount(catalog, "Examples") == 10
@@ -936,6 +1151,19 @@ test "020 s38 playground tooling surfaces: RunProject ValidProgram ProducesStdou
     assert PgCount(response) == 0
     assert PgCensus(response) == ""
     assert PgRow(response, 0) == "<no-such-diagnostic>"
+}
+
+test "020 s38 playground tooling surfaces: RunProject awaits async functions through the browser task path" {
+    // Keep the runtime await incomplete so the test covers continuation registration and resumption.
+    source := "import System.Threading.Tasks\n\nasync func AddOne(value: int): int {\n    await Task.Delay(100)\n    return value + 1\n}\n\nasync func main() {\n    result := await AddOne(41)\n    print result\n}\n"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True", PgCensus(response) + " stderr=" + PgStderr(response)
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "42\n"
+    assert PgStderr(response) == "<null>"
+    assert PgUnsupportedReason(response) == "<null>"
+    assert PgSummary(response) == "0/0/0"
+    assert PgCount(response) == 0, PgCensus(response)
 }
 
 test "020 s38 playground tooling surfaces: Complete ReturnsKeywordAndSemanticCompletions — 1 site(s), 73 items, 0 of them compiler-generated accessors (was PlaygroundCompilerTests.Complete_ReturnsKeywordAndSemanticCompletions)" {
@@ -1492,6 +1720,58 @@ test "020 s38 playground tooling surfaces: T4 — Run selects the final dictiona
     assert PgStderr(response) == "<null>"
 }
 
+test "playground reflected constructor mapping distinguishes nested vector and matrix array signatures" {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("PlaygroundArrayConstructorShape"), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("main")
+    boxBuilder := module.DefineType("Fixture.Box`1", TypeAttributes.Public | TypeAttributes.Class)
+    genericNames := new string[](1)
+    genericNames[0] = "T"
+    boxBuilder.DefineGenericParameters(genericNames)
+    boxDefinition := boxBuilder.CreateType()
+    vectorArguments := new Type[](1)
+    vectorArguments[0] = typeof(int).MakeArrayType()
+    matrixArguments := new Type[](1)
+    matrixArguments[0] = typeof(int).MakeArrayType(2)
+    vectorBox := boxDefinition.MakeGenericType(vectorArguments)
+    matrixBox := boxDefinition.MakeGenericType(matrixArguments)
+
+    ownerBuilder := module.DefineType("Fixture.ConstructorShapes", TypeAttributes.Public | TypeAttributes.Class)
+    shapeField := ownerBuilder.DefineField("shape", typeof(int), FieldAttributes.Private)
+    vectorBuilder := PgConstructorSignatureCtor(ownerBuilder, vectorBox, shapeField, 1)
+    matrixBuilder := PgConstructorSignatureCtor(ownerBuilder, matrixBox, shapeField, 2)
+    getter := ownerBuilder.DefineMethod("GetShape", MethodAttributes.Public, typeof(int), new Type[](0))
+    getterIl := getter.GetILGenerator()
+    getterIl.Emit(OpCodes.Ldarg_0)
+    getterIl.Emit(OpCodes.Ldfld, shapeField)
+    getterIl.Emit(OpCodes.Ret)
+    owner := ownerBuilder.CreateType()
+
+    vectorParameters := new Type[](1)
+    vectorParameters[0] = vectorBox
+    matrixParameters := new Type[](1)
+    matrixParameters[0] = matrixBox
+    selectedVector := owner.GetConstructor(vectorParameters)
+    selectedMatrix := owner.GetConstructor(matrixParameters)
+    assert selectedVector != null
+    assert selectedMatrix != null
+    assert vectorBuilder.MetadataToken == selectedVector.MetadataToken
+    assert matrixBuilder.MetadataToken == selectedMatrix.MetadataToken
+
+    mapper := PgRuntimeConstructorMapper()
+    mappedVector := PgMapRuntimeConstructor(mapper, selectedVector, owner)
+    mappedMatrix := PgMapRuntimeConstructor(mapper, selectedMatrix, owner)
+    assert mappedVector != null
+    assert mappedMatrix != null
+    vectorInstance := PgInvokeNullArgumentConstructor(mappedVector)
+    matrixInstance := PgInvokeNullArgumentConstructor(mappedMatrix)
+    getterMethod := owner.GetMethod("GetShape")
+    assert getterMethod != null
+    vectorShape := getterMethod.Invoke(vectorInstance, null)
+    matrixShape := getterMethod.Invoke(matrixInstance, null)
+    assert vectorShape != null && vectorShape.ToString() == "1"
+    assert matrixShape != null && matrixShape.ToString() == "2"
+}
+
 test "020 s38 playground tooling surfaces: T3 — Format over a source WITH a compiler error — the text comes back unchanged and the skip is stated as a warning (T3, a control the C# never had)" {
     source := "package Playground\n\nfunc main() {\n    print totla\n}"
     response := PgFormat(source)
@@ -1659,9 +1939,12 @@ func PgExpectedOutputCensus(): string {
         if entry != null {
             expected := PgText(entry, "ExpectedOutput")
             if expected != "<null>" {
+                response := PgRunFiles(PgExampleCode(index), "Program.nl")
                 verdict := "MISMATCH"
-                if PgStdout(PgRunFiles(PgExampleCode(index), "Program.nl")) == expected {
+                if PgStdout(response) == expected {
                     verdict = "MATCH"
+                } else {
+                    verdict = "MISMATCH[exit=" + PgExitCode(response) + ",stdout=" + PgStdout(response) + ",stderr=" + PgStderr(response) + ",reason=" + PgUnsupportedReason(response) + "]"
                 }
 
                 census = census + PgText(entry, "Id") + "=" + verdict + ";"
@@ -1729,8 +2012,151 @@ test "chip playground union shorthand: the ONE-CHARACTER probe pair that isolate
     assert PgCensus(explicitResponse) == PgCensus(shorthandResponse)
 }
 
+test "playground completes source duck-interface dispatch maps after the whole declaration walk" {
+    source := "package Tutorial\n\nduck interface IReader {\n    func Read(): int\n}\n\nclass SourceReader {\n    func Read(): int {\n        return 42\n    }\n}\n\nfunc main() {\n    print ReadValue(new SourceReader())\n}\n\nfunc ReadValue(reader: IReader): int {\n    return reader.Read()\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True", PgUnsupportedReason(response)
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "42\n"
+    assert PgStderr(response) == "<null>"
+    assert PgUnsupportedReason(response) == "<null>"
+}
+
+test "playground keeps closed generic duck-interface slots distinct in either declaration order" {
+    declarations := "package Tutorial\n\nduck interface IReader<T> {\n    func Read(value: T): T\n}\n\nclass Reader {\n    func Read(value: int): int {\n        return value + 1\n    }\n\n    func Read(value: string): string {\n        return value + \"!\"\n    }\n}\n\n"
+    readInt := "func ReadInt(reader: IReader<int>): int {\n    return reader.Read(1)\n}\n\n"
+    readString := "func ReadString(reader: IReader<string>): string {\n    return reader.Read(\"x\")\n}\n\n"
+    entry := "func main() {\n    print ReadInt(new Reader())\n    print ReadString(new Reader())\n}\n"
+    intFirst := PgRunFiles(declarations + readInt + readString + entry, "Program.nl")
+    stringFirst := PgRunFiles(declarations + readString + readInt + entry, "Program.nl")
+    assert PgOk(intFirst) == "True", PgUnsupportedReason(intFirst)
+    assert PgExitCode(intFirst) == "0"
+    assert PgStdout(intFirst) == "2\nx!\n"
+    assert PgStderr(intFirst) == "<null>"
+    assert PgUnsupportedReason(intFirst) == "<null>"
+    assert PgOk(stringFirst) == "True", PgUnsupportedReason(stringFirst)
+    assert PgExitCode(stringFirst) == "0"
+    assert PgStdout(stringFirst) == "2\nx!\n"
+    assert PgStderr(stringFirst) == "<null>"
+    assert PgUnsupportedReason(stringFirst) == "<null>"
+
+    wrongShape := "package Tutorial\n\nduck interface IReader<T> {\n    func Read(value: T): T\n}\n\nclass WrongReader {\n    func Read(value: string): string {\n        return value\n    }\n}\n\nfunc ReadInt(reader: IReader<int>): int {\n    return reader.Read(1)\n}\n\nfunc main() {\n    print ReadInt(new WrongReader())\n}"
+    negative := PgRunFiles(wrongShape, "Program.nl")
+    assert PgOk(negative) == "False"
+    assert PgExitCode(negative) == "1"
+    assert PgCensus(negative).StartsWith("NL202@")
+    assert PgRow(negative, 0).StartsWith("NL202|error|")
+}
+
+test "playground reflected interface dispatch distinguishes closed assembly identity for explicit slots" {
+    values := PgInvokeReview13SelectedInterfaceMethod()
+    assert values[0] == values[1], "selected slot returned " + values[0].ToString() + " but the selected interface map returned " + values[1].ToString()
+    assert values[0] == 11 || values[0] == 22, "selected implementation returned an unexpected sentinel: " + values[0].ToString()
+}
+
+test "playground executes the analyzer-selected overloaded top-level method group in either declaration order" {
+    renderInt := "func Render(value: int): string {\n    if value == 42 { return \"int\" }\n    return \"other\"\n}\n\n"
+    renderString := "func Render(value: string): string {\n    return value\n}\n\n"
+    apply := "func Apply(callback: Func<int, string>): string {\n    return callback(42)\n}\n\n"
+    entry := "func main() {\n    print Apply(Render)\n}\n"
+    intFirst := PgRunFiles("import System\n\n" + renderInt + renderString + apply + entry, "Program.nl")
+    stringFirst := PgRunFiles("import System\n\n" + renderString + renderInt + apply + entry, "Program.nl")
+
+    assert PgOk(intFirst) == "True", PgUnsupportedReason(intFirst) + " / " + PgCensus(intFirst) + " / " + PgStderr(intFirst) + " / " + PgRow(intFirst, 0)
+    assert PgExitCode(intFirst) == "0"
+    assert PgStdout(intFirst) == "int\n", PgStdout(intFirst)
+    assert PgStderr(intFirst) == "<null>"
+    assert PgUnsupportedReason(intFirst) == "<null>"
+    assert PgOk(stringFirst) == "True", PgUnsupportedReason(stringFirst)
+    assert PgExitCode(stringFirst) == "0"
+    assert PgStdout(stringFirst) == "int\n", PgStdout(stringFirst)
+    assert PgStderr(stringFirst) == "<null>"
+    assert PgUnsupportedReason(stringFirst) == "<null>"
+}
+
+test "playground executes a method group selected by a typed local initializer" {
+    source := "import System\n\nfunc Render(value: int): string {\n    if value == 42 { return \"int\" }\n    return \"other\"\n}\nfunc Render(value: string): string { return value }\n\nfunc main() {\n    let renderer: Func<int, string> = Render\n    print renderer(42)\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True", PgCensus(response) + " / " + PgRow(response, 0) + " / " + PgStderr(response) + " / " + PgUnsupportedReason(response)
+    assert PgStdout(response) == "int\n", PgStdout(response)
+    assert PgUnsupportedReason(response) == "<null>"
+}
+
+test "playground carries method-group selections through assignment, returns, lambda results and field initializers" {
+    prefix := "import System\n\nfunc Render(value: int): string {\n    if value == 42 { return \"int\" }\n    return \"other\"\n}\nfunc Render(value: string): string { return value }\n\n"
+    assignment := PgRunFiles(prefix + "func Seed(value: int): string {\n    if value == 0 { return \"seed\" }\n    return \"seed\"\n}\n\nfunc main() {\n    let renderer: Func<int, string> = Seed\n    renderer = Render\n    print renderer(42)\n}", "Program.nl")
+    returned := PgRunFiles(prefix + "func GetRenderer(): Func<int, string> {\n    return Render\n}\n\nfunc main() {\n    let renderer := GetRenderer()\n    print renderer(42)\n}", "Program.nl")
+    lambdaResult := PgRunFiles(prefix + "func main() {\n    let factory: Func<Func<int, string>> = () => Render\n    let renderer := factory()\n    print renderer(42)\n}", "Program.nl")
+    fieldInitializer := PgRunFiles(prefix + "class Holder {\n    Renderer: Func<int, string> = Render\n}\n\nfunc main() {\n    holder := new Holder()\n    renderer := holder.Renderer\n    print renderer(42)\n}", "Program.nl")
+    propertyExpression := PgRunFiles(prefix + "class Holder {\n    Renderer: Func<int, string> => Render\n}\n\nfunc main() {\n    holder := new Holder()\n    renderer := holder.Renderer\n    print renderer(42)\n}", "Program.nl")
+
+    assert PgOk(assignment) == "True", PgCensus(assignment) + " / " + PgRow(assignment, 0) + " / " + PgUnsupportedReason(assignment)
+    assert PgStdout(assignment) == "int\n", PgStdout(assignment)
+    assert PgOk(returned) == "True", PgCensus(returned) + " / " + PgUnsupportedReason(returned)
+    assert PgStdout(returned) == "int\n", PgStdout(returned)
+    assert PgOk(lambdaResult) == "True", PgCensus(lambdaResult) + " / " + PgUnsupportedReason(lambdaResult)
+    assert PgStdout(lambdaResult) == "int\n", PgStdout(lambdaResult)
+    assert PgOk(fieldInitializer) == "True", PgCensus(fieldInitializer) + " / " + PgUnsupportedReason(fieldInitializer)
+    assert PgStdout(fieldInitializer) == "int\n", PgStdout(fieldInitializer)
+    assert PgOk(propertyExpression) == "True", PgCensus(propertyExpression) + " / " + PgUnsupportedReason(propertyExpression)
+    assert PgStdout(propertyExpression) == "int\n", PgStdout(propertyExpression)
+}
+
+test "playground carries the selected method group into a reflected delegate argument" {
+    source := "import System.Threading.Tasks\n\nfunc Work(): int { return 42 }\n\nasync func main(): Task {\n    result := await Task.Run(Work)\n    print result\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True", PgCensus(response) + " / " + PgRow(response, 0) + " / " + PgStderr(response) + " / " + PgUnsupportedReason(response)
+    assert PgStdout(response) == "42\n", PgStdout(response)
+    assert PgUnsupportedReason(response) == "<null>"
+}
+
+test "closed duck slots distinguish same-short-name types and accept the identical nominal control" {
+    fileNames := new string[](4)
+    fileNames[0] = "Alpha.nl"
+    fileNames[1] = "Beta.nl"
+    fileNames[2] = "Contracts.nl"
+    fileNames[3] = "Program.nl"
+    sources := new string[](4)
+    sources[0] = "namespace Alpha\n\nclass Token {\n}\n"
+    sources[1] = "namespace Beta\n\nclass Token {\n}\n"
+    sources[2] = "namespace Contracts\n\nduck interface IReader<T> {\n    func Read(value: T): T\n}\n"
+    sources[3] = "namespace App\n\nclass WrongReader {\n    func Read(value: Beta.Token): Beta.Token { return value }\n}\n\nclass RightReader {\n    func Read(value: Alpha.Token): Alpha.Token { return value }\n}\n\nfunc ReadAlpha(reader: Contracts.IReader<Alpha.Token>): int { reader.Read(new Alpha.Token()); return 1 }\n\nfunc main() {\n    print ReadAlpha(new WrongReader())\n}"
+    negative := PgRunFileSet(fileNames, sources, "Program.nl")
+    assert PgOk(negative) == "False", PgCensus(negative)
+    assert PgCensus(negative).StartsWith("NL202@"), PgCensus(negative) + " / " + PgRow(negative, 0)
+    assert PgRow(negative, 0).StartsWith("NL202|error|"), PgRow(negative, 0)
+
+    sources[3] = "namespace App\n\nclass WrongReader {\n    func Read(value: Beta.Token): Beta.Token { return value }\n}\n\nclass RightReader {\n    func Read(value: Alpha.Token): Alpha.Token { return value }\n}\n\nfunc ReadAlpha(reader: Contracts.IReader<Alpha.Token>): int { reader.Read(new Alpha.Token()); return 1 }\n\nfunc main() {\n    print ReadAlpha(new RightReader())\n}"
+    positive := PgCheckFiles(PgSourceFileSet(fileNames, sources), "Program.nl")
+    assert PgOk(positive) == "True", PgCensus(positive) + " / " + PgUnsupportedReason(positive)
+    assert PgCensus(positive) == "", PgCensus(positive)
+}
+
+test "closed duck slot return types use canonical identity" {
+    fileNames := new string[](4)
+    fileNames[0] = "Alpha.nl"
+    fileNames[1] = "Beta.nl"
+    fileNames[2] = "Contracts.nl"
+    fileNames[3] = "Program.nl"
+    sources := new string[](4)
+    sources[0] = "namespace Alpha\n\nclass Token {\n}\n"
+    sources[1] = "namespace Beta\n\nclass Token {\n}\n"
+    sources[2] = "namespace Contracts\n\nduck interface IReader<T> {\n    func Read(value: T): T\n}\n"
+    sources[3] = "namespace App\n\nclass WrongReturnReader {\n    func Read(_value: Alpha.Token): Beta.Token { return new Beta.Token() }\n}\n\nclass RightReturnReader {\n    func Read(value: Alpha.Token): Alpha.Token { return value }\n}\n\nfunc ReadAlpha(reader: Contracts.IReader<Alpha.Token>): int { reader.Read(new Alpha.Token()); return 1 }\n\nfunc main() {\n    print ReadAlpha(new WrongReturnReader())\n}"
+    wrongReturn := PgRunFileSet(fileNames, sources, "Program.nl")
+    assert PgOk(wrongReturn) == "False", PgCensus(wrongReturn)
+    assert PgCensus(wrongReturn).StartsWith("NL202@"), PgCensus(wrongReturn) + " / " + PgRow(wrongReturn, 0)
+    assert PgRow(wrongReturn, 0).StartsWith("NL202|error|"), PgRow(wrongReturn, 0)
+
+    sources[3] = "namespace App\n\nclass WrongReturnReader {\n    func Read(_value: Alpha.Token): Beta.Token { return new Beta.Token() }\n}\n\nclass RightReturnReader {\n    func Read(value: Alpha.Token): Alpha.Token { return value }\n}\n\nfunc ReadAlpha(reader: Contracts.IReader<Alpha.Token>): int { reader.Read(new Alpha.Token()); return 1 }\n\nfunc main() {\n    print ReadAlpha(new RightReturnReader())\n}"
+    positiveReturn := PgCheckFiles(PgSourceFileSet(fileNames, sources), "Program.nl")
+    assert PgOk(positiveReturn) == "True", PgCensus(positiveReturn) + " / " + PgUnsupportedReason(positiveReturn)
+    assert PgCensus(positiveReturn) == "", PgCensus(positiveReturn)
+}
+
 test "chip playground union shorthand: EVERY shipped example that declares an ExpectedOutput now PRODUCES it — 8 of the 10, named, in corpus order" {
-    assert PgExpectedOutputCensus() == "01-hello-world=MATCH;02-values-functions=MATCH;03-types-visibility=MATCH;04-unions-patterns=MATCH;05-duck-typing=MATCH;06-collections-linq=MATCH;09-testing=MATCH;10-tooling-loop=MATCH;"
+    actual := PgExpectedOutputCensus()
+    assert actual == "01-hello-world=MATCH;02-values-functions=MATCH;03-types-visibility=MATCH;04-unions-patterns=MATCH;05-duck-typing=MATCH;06-collections-linq=MATCH;09-testing=MATCH;10-tooling-loop=MATCH;", actual
 }
 
 test "chip playground union shorthand NEGATIVE: a shorthand naming a property the case does not carry is REFUSED with the compiler's own NL503, at the compiler's own span — `nlc run` reports the identical sentence at 10:30+4 and exits 1" {

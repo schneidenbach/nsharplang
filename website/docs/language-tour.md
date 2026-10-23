@@ -1054,6 +1054,8 @@ it. This keeps ordinary `(result, err)` control flow off the expensive exception
 ## Async/Await
 
 Async functions are declared with `async func`. The return type is automatically wrapped in `Task` or `ValueTask`.
+An async call runs until its first incomplete await and then returns a task while the operation
+continues; the state machine resumes when the awaited operation completes.
 
 ```n#
 import System.Threading.Tasks
@@ -1133,6 +1135,9 @@ missing word rather than leaving you to read two delegate types side by side.
 There is **no `async void`**: a lambda whose target returns `void` (an `Action`) has nowhere to put
 its task, so N# reports [`NL334`](./errors/NL334.md) and asks you to drop the keyword or give the
 target a task-like return. That page explains why N# departs from C# here, and what it buys.
+
+`await` must appear in an async function or lambda. A direct `await` in an ordinary body is
+[`NL353`](./errors/NL353.md).
 
 ### Async Streams
 

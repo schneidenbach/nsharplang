@@ -394,6 +394,7 @@ class AnalyzerFunctionTypeFactory {
         isGenerator := (modifierBits & System.Convert.ToInt32(Modifiers.Generator)) != 0
 
         signature := new FunctionTypeInfo()
+        signature.SourceDeclaration = declaration
         signature.SyntheticName = declaration.Name
         signature.SourceName = declaration.Name
         signature.SourceContainingType = containingType
@@ -468,6 +469,7 @@ class AnalyzerFunctionTypeFactory {
         }
 
         signature := new FunctionTypeInfo()
+        signature.SourceDeclaration = member.SourceDeclaration
         signature.SyntheticName = member.Name
         signature.SourceName = member.Name
         signature.SourceContainingType = member.ContainingType

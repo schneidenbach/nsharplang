@@ -50,6 +50,10 @@ test "an async lambda captures like an ordinary closure" {
     factory := capturingFactory(5)
     assert await factory() == 6
 
+    mutableFactory := mutableCapturingFactory(10)
+    assert await mutableFactory() == 11
+    assert await mutableFactory() == 12
+
     counter := new Counter(41)
     next := counter.NextFactory()
     assert await next() == 42
@@ -78,22 +82,30 @@ test "each turn of a loop captures its own local" {
 }
 
 test "an exception inside an async lambda lands on the returned task" {
-    factory := faultingFactory()
-    // Building the delegate raises nothing, and neither does invoking it: the body's exception is
-    // captured by the task the invocation returns.
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    factory := faultingFactory(gate.Task)
+    // Invoking the delegate returns while its awaited work is still incomplete. The exception is
+    // captured by the returned task after that work resumes the lambda's state machine.
     task := factory()
+    assert !task.IsCompleted
+    gate.SetResult(1)
+    let waitCaught: bool = false
+    try {
+        task.Wait()
+    } catch error: AggregateException {
+        waitCaught = true
+    }
+    assert waitCaught
     assert task.IsFaulted
 
-    let caught: Exception? = null
+    let caught: InvalidOperationException? = null
     try {
-        value := await task
-        print value
-    } catch e: Exception {
+        _ := await task
+    } catch e: InvalidOperationException {
         caught = e
     }
 
     assert caught != null
-    assert caught is InvalidOperationException
     assert caught.Message == "async lambda boom"
 }
 
@@ -102,11 +114,10 @@ test "a bare throw inside an async lambda faults the task with the original trac
     task := factory()
     assert task.IsFaulted
 
-    let caught: Exception? = null
+    let caught: InvalidOperationException? = null
     try {
-        value := await task
-        print value
-    } catch e: Exception {
+        _ := await task
+    } catch e: InvalidOperationException {
         caught = e
     }
 
@@ -117,7 +128,7 @@ test "a bare throw inside an async lambda faults the task with the original trac
 
 test "an async lambda passed to Task.Run takes the Func<Task> overload, never Action" {
     log := new List<string>()
-    runOnThreadPool(log)
+    await runOnThreadPool(log)
     assert log.Count == 1
     assert log[0] == "pool"
 }
@@ -153,16 +164,15 @@ test "a capturing async lambda is an instance method on a closure display" {
 }
 
 test "an async local function declares its inner type and returns the wrap" {
-    assert localAsyncDoubling(21) == 42
-    assert localAsyncCounting() == 3
+    assert await localAsyncDoubling(21) == 42
+    assert await localAsyncCounting() == 3
 }
 
 test "an async local function's exception lands on the task it returns" {
     task := localAsyncFaulting()
     let caught: Exception? = null
     try {
-        value := await task
-        print value
+        _ := await task
     } catch e: Exception {
         caught = e
     }
@@ -177,9 +187,11 @@ test "an async local function's CLR method returns the wrapped task" {
     program := typeof(Counter).Assembly.GetType("NSharpLang.CensusAsyncLambdas.Tests.Program")
     assert program != null
     let found: MethodInfo? = null
-    for method in program.GetMethods(BindingFlags.NonPublic | BindingFlags.Static) {
-        if method.Name.StartsWith("<localAsyncDoubling>g__", StringComparison.Ordinal) {
-            found = method
+    for stateMachine in program.Assembly.GetTypes() {
+        for method in stateMachine.GetMethods(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance) {
+            if method.Name.StartsWith("<>__asyncLocal", StringComparison.Ordinal) {
+                found = method
+            }
         }
     }
 

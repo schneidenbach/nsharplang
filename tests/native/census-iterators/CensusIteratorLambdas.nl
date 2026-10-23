@@ -56,14 +56,23 @@ func AwaitedAsyncIteratorFailure(): Task<int> {
     return Task.FromException<int>(new InvalidOperationException("awaited generator async lambda failure"))
 }
 
-// Control for the disabled recursive-plan capability: outside an iterator the established async
-// lambda emitter retains this same nested-await call shape.
+func AsyncTaskFaultMatches(task: Task<int>, expectedMessage: string): bool {
+    failure := task.Exception
+    return failure != null && failure.InnerException is InvalidOperationException && failure.InnerException.Message == expectedMessage
+}
+
+func AsyncLogContains(log: List<string>, expected: string): bool {
+    return log.Count == 1 && log[0] == expected
+}
+
+// Control for the async lambda emitted inside a generator: both call sites use the same task
+// state-machine lowering and nested await spill logic.
 func OrdinaryAsyncCallback(seed: int): Func<Task<int>> {
     return async () => AsyncIdentity(await Task.FromResult(seed))
 }
 
-// Async lambdas use the same state-machine object as their closure. Their synchronous body follows
-// the language's current blocking-await model, while success and failure are returned through Task.
+// Each async lambda gets an independent task state machine. The closure display carries captured
+// locals and parameters across suspensions, including mutable values shared with the generator.
 func* AsyncCallbacks(seed: int): IEnumerable<Func<Task<int>>> {
     captured := seed
     yield async () => captured + 1
@@ -76,6 +85,10 @@ func* AsyncCallbacks(seed: int): IEnumerable<Func<Task<int>>> {
     yield async () => captured + await new ValueTask<int>(2)
     yield async () => AsyncIdentity(await Task.FromResult(captured))
     yield async () => await AwaitedAsyncIteratorFailure()
+}
+
+func* GatedAsyncCallbacks(gate: TaskCompletionSource<int>): IEnumerable<Func<Task<int>>> {
+    yield async () => await gate.Task
 }
 
 func* AsyncUnitCallbacks(log: List<string>): IEnumerable<Func<Task>> {
@@ -222,6 +235,10 @@ func* SharedAsyncIterationCallbacks(): IEnumerable<Func<Task<int>>> {
 
 class IteratorInitCaptureBox<T> {
     init Value: T
+}
+
+func AsIteratorInitCaptureBox(value: object): IteratorInitCaptureBox<int> {
+    return (IteratorInitCaptureBox<int>)value
 }
 
 func* SharedAsyncInitIterationCallbacks(): IEnumerable<Func<Task<object>>> {

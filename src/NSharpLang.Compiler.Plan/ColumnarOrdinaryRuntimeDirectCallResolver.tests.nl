@@ -250,6 +250,7 @@ test "ordinary runtime direct calls select fixed byref and exclude generic param
 test "ordinary runtime direct calls select a by-reference overload when the argument is written by-ref" {
     facts := ColumnarDirectCallArgumentFacts.Empty(2)
     facts.IsByRefArgument[1] = true
+    facts.IsOutArgument[1] = true
 
     selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(int)), facts, true)
     assert selection.IsSelected
@@ -269,6 +270,7 @@ test "ordinary runtime direct calls select external six-argument out calls" {
     kernel := typeof(AnalyzerMemberResolution)
     facts := ColumnarDirectCallArgumentFacts.Empty(6)
     facts.IsByRefArgument[5] = true
+    facts.IsOutArgument[5] = true
     arguments := OrdinaryRuntimeArgumentTypes6(typeof(Type), typeof(string), typeof(bool), typeof(bool), typeof(InternalsVisibleToGrants), typeof(TypeInfo))
     selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(kernel, "TryResolveReflectionPropertyOrField", arguments, facts, true)
 
@@ -464,6 +466,22 @@ test "a static member of a constructed generic owner is selected on the CLOSED t
     assert !create.UsesCallVirtual
 }
 
+test "ordinary runtime overloads reject a contextual lambda with the wrong parameter count" {
+    method := typeof(List<int>).GetMethod("ForEach")
+    assert method != null
+    parameters := method.GetParameters()
+    assert parameters.Length == 1
+
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.IsContextualLambda[0] = true
+    facts.ContextualLambdaParameterCounts[0] = 2
+    facts.ContextualLambdaReturnsVoid[0] = true
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ContextualLambdaShapesMatch(parameters, facts)
+
+    facts.ContextualLambdaParameterCounts[0] = 1
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.ContextualLambdaShapesMatch(parameters, facts)
+}
+
 // MORE THAN ONE CANDIDATE IS REFUSED RATHER THAN GUESSED, because the argument types are exactly what
 // would have chosen between them.
 test "a name with several declarations at the arity is refused" {
@@ -626,12 +644,12 @@ func RequireOrdinaryRuntimeDirectionSelection(owner: Type, memberName: string, w
     }
 }
 
-test "a reflected in parameter takes its argument bare or written in, and never written ref" {
+test "a reflected in parameter takes its argument bare, written in, or ref-equivalent to in" {
     owner := OrdinaryRuntimeDirectionOwner()
 
     RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", false, false, true, "An in parameter accepts a bare value.")
     RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", true, true, true, "An in parameter accepts a written in storage argument.")
-    RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", true, false, false, "An in parameter refuses written ref.")
+    RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", true, false, true, "C# 12 accepts written ref for an in parameter.")
 
     // A `ref` parameter is the opposite: it must be written `ref`, and neither a bare argument nor
     // an `in` stands in for the word.

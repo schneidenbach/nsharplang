@@ -55,6 +55,42 @@ import NSharpLang.Compiler.Ast
 // is a question with an answer.
 class AnalyzerOverloadFacts {
 
+    // The applicability and better-member rules use the same argument direction for source methods,
+    // constructors, and reflected signatures. An omitted modifier can bind to `in`; an explicit
+    // modifier must be compatible with the selected parameter direction.
+    static func IsSyntheticArgumentModifierApplicable(parameterModifier: Ast.ParameterModifier, argumentModifier: ArgumentModifier): bool {
+        return RefKindCompatibilityFacts.IsApplicable(parameterModifier, argumentModifier)
+    }
+
+    static func SyntheticParameterModifier(functionType: FunctionTypeInfo, parameterIndex: int): Ast.ParameterModifier {
+        modifiers := functionType.ParameterModifiers
+        if modifiers == null || parameterIndex < 0 || parameterIndex >= modifiers.Count {
+            return Ast.ParameterModifier.None
+        }
+
+        return modifiers[parameterIndex]
+    }
+
+    // With no call-site modifier, a value parameter is preferred over an otherwise identical `in`
+    // parameter. With `ref`, the applicable `ref` and `in` candidates have the same effective ref
+    // kind under C# 12; neither receives a ref-kind preference, and the selected `in` candidate later
+    // reports CS9191-equivalent advice.
+    static func CompareInputParameterPreference(left: Ast.ParameterModifier, right: Ast.ParameterModifier, argument: ArgumentModifier): int {
+        if argument != ArgumentModifier.None {
+            return AnalyzerOverloadSpecificity.NeitherIsBetter
+        }
+
+        if left == Ast.ParameterModifier.In && right == Ast.ParameterModifier.None {
+            return AnalyzerOverloadSpecificity.RightIsBetter
+        }
+
+        if right == Ast.ParameterModifier.In && left == Ast.ParameterModifier.None {
+            return AnalyzerOverloadSpecificity.LeftIsBetter
+        }
+
+        return AnalyzerOverloadSpecificity.NeitherIsBetter
+    }
+
     // ------------------------------------------------------------------
     // The reflection world: applicability, generic inference and ranking.
     // ------------------------------------------------------------------
@@ -321,7 +357,7 @@ class AnalyzerOverloadFacts {
                 return false
             }
 
-            if argumentType.GetGenericTypeDefinition() != effectiveParameterType.GetGenericTypeDefinition() {
+            if !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(argumentType.GetGenericTypeDefinition(), effectiveParameterType.GetGenericTypeDefinition()) {
                 return false
             }
         }
@@ -699,6 +735,15 @@ class AnalyzerOverloadFacts {
         }
 
         modifier := modifiers[parameterIndex]
+        if modifier == Ast.ParameterModifier.In {
+            alreadyByRef := parameterType as ByRefTypeInfo
+            if alreadyByRef != null {
+                return alreadyByRef.InnerType
+            }
+
+            return parameterType
+        }
+
         if modifier != Ast.ParameterModifier.Ref && modifier != Ast.ParameterModifier.Out {
             return parameterType
         }
@@ -709,6 +754,31 @@ class AnalyzerOverloadFacts {
         }
 
         return new ByRefTypeInfo(parameterType)
+    }
+
+    // Apply a written argument direction to its value type for the shared overload comparison. The
+    // syntax remains on the Argument for diagnostics and emission; the type shell exists only so
+    // ref/out candidates compare with their by-ref parameters. In arguments keep the value shape.
+    static func ApplySyntheticArgumentModifier(modifier: ArgumentModifier, argumentType: TypeInfo): TypeInfo {
+        if modifier == ArgumentModifier.In {
+            alreadyByRef := argumentType as ByRefTypeInfo
+            if alreadyByRef != null {
+                return alreadyByRef.InnerType
+            }
+
+            return argumentType
+        }
+
+        if modifier != ArgumentModifier.Ref && modifier != ArgumentModifier.Out {
+            return argumentType
+        }
+
+        alreadyByRef := argumentType as ByRefTypeInfo
+        if alreadyByRef != null {
+            return argumentType
+        }
+
+        return new ByRefTypeInfo(argumentType, modifier == ArgumentModifier.Out)
     }
 
     // Whether a generic name written in a parameter denotes the same type as one read from metadata,

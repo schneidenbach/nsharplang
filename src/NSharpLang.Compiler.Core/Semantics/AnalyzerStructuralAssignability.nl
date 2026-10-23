@@ -1,5 +1,9 @@
 namespace NSharpLang.Compiler
 
+import System
+import System.Collections.Generic
+import NSharpLang.Compiler.Ast
+
 
 // The two assignability arms that have to LOOK SOMETHING UP, and are therefore not pure shape facts.
 //
@@ -23,9 +27,8 @@ namespace NSharpLang.Compiler
 // array) satisfies nothing, including the empty interface, which is the C# behaviour this preserves
 // exactly: the member list is consulted before the interface's demands are.
 //
-// SIGNATURE EQUALITY IS BY RESOLVED SPELLING. Two members match when their names, arities, resolved
-// parameter types and resolved return types agree, compared by the resolved type's own display form
-// so that two spellings of one type agree and two types that merely print alike do not diverge. A
+// SIGNATURE EQUALITY IS SEMANTIC. Two members match when their names, arities, resolved parameter
+// types and resolved return types have the same canonical TypeInfo identity. A
 // member with NO declared return type is `void` — which is what makes `func F()` on a class satisfy
 // `func F()` on the interface. The resolution ORDER is load-bearing and preserved: parameters are
 // resolved in pairs, left to right, and the first mismatch stops the walk, so a later parameter of a
@@ -33,14 +36,41 @@ namespace NSharpLang.Compiler
 class AnalyzerStructuralAssignability {
     typeResolverValue: AnalyzerTypeResolver
     externalTypeProbeValue: AnalyzerExternalTypeProbe
+    declarationContextValue: AnalyzerDeclarationContext?
+    typeSubstitutionValue: AnalyzerTypeSubstitution?
 
-    constructor(typeResolver: AnalyzerTypeResolver, externalTypeProbe: AnalyzerExternalTypeProbe) {
+    constructor(typeResolver: AnalyzerTypeResolver, externalTypeProbe: AnalyzerExternalTypeProbe, declarationContext: AnalyzerDeclarationContext? = null, typeSubstitution: AnalyzerTypeSubstitution? = null) {
         typeResolverValue = typeResolver
         externalTypeProbeValue = externalTypeProbe
+        declarationContextValue = declarationContext
+        typeSubstitutionValue = typeSubstitution
     }
 
     // True when `source` declares a matching function for every function the duck interface demands.
     func ImplementsDuckInterface(source: TypeInfo, duckInterface: InterfaceTypeInfo): bool {
+        return ImplementsDuckInterfaceWithOwner(source, duckInterface, null, null)
+    }
+
+    // A constructed source duck interface keeps the open declaration as its generic definition and
+    // carries the closed arguments separately. Resolve its contract members under that owner so
+    // `IReader<int>` requires `Read(int)` while `IReader<string>` requires `Read(string)`.
+    func ImplementsConstructedDuckInterface(source: TypeInfo, constructedInterface: GenericTypeInfo): bool {
+        context := declarationContextValue
+        substitutionFacts := typeSubstitutionValue
+        if context == null || substitutionFacts == null {
+            return false
+        }
+
+        definition := substitutionFacts.ResolveGenericDefinition(constructedInterface) as InterfaceTypeInfo
+        if definition == null || !definition.IsDuckInterface {
+            return false
+        }
+
+        substitution := context.CreateGenericSubstitution(definition, constructedInterface.TypeArguments)
+        return ImplementsDuckInterfaceWithOwner(source, definition, definition, substitution)
+    }
+
+    func ImplementsDuckInterfaceWithOwner(source: TypeInfo, duckInterface: InterfaceTypeInfo, interfaceOwner: TypeInfo?, substitution: Dictionary<string, TypeInfo>?): bool {
         sourceMembers := GetDeclaredMembers(source)
         if sourceMembers == null {
             return false
@@ -54,7 +84,7 @@ class AnalyzerStructuralAssignability {
                 while sourceIndex < sourceMembers.Length && !found {
                     sourceMember := sourceMembers[sourceIndex]
                     if sourceMember.Kind == DeclaredMemberKind.Function {
-                        if MethodSignaturesMatch(sourceMember, interfaceMember) {
+                        if MethodSignaturesMatchWithOwner(sourceMember, interfaceMember, interfaceOwner, substitution) {
                             found = true
                         }
                     }
@@ -70,11 +100,23 @@ class AnalyzerStructuralAssignability {
         return true
     }
 
-    // Name, arity, parameter types and return type — every one of them compared by the RESOLVED
-    // type's display form, and resolved in the original left-to-right order so the effects of the
-    // resolution walk land exactly where they did before.
+    // Name, method type-parameter arity, parameter types and return type — semantic type identities
+    // are compared after positional method-parameter normalization and the interface owner's closed
+    // generic substitution. Resolution remains in the original
+    // left-to-right order so the effects of the resolution walk land exactly where they did before.
     func MethodSignaturesMatch(method1: DeclaredMemberInfo, method2: DeclaredMemberInfo): bool {
+        return MethodSignaturesMatchWithOwner(method1, method2, null, null)
+    }
+
+    func MethodSignaturesMatchWithOwner(method1: DeclaredMemberInfo, method2: DeclaredMemberInfo, interfaceOwner: TypeInfo?, substitution: Dictionary<string, TypeInfo>?): bool {
         if method1.Name != method2.Name {
+            return false
+        }
+
+        // CLR method identity includes generic arity. Compare that before resolving any signature
+        // references, so a generic method can never implement a non-generic slot merely because the
+        // written parameter and return types happen to look alike.
+        if method1.TypeParameterCount != method2.TypeParameterCount || method1.TypeParameters.Length != method1.TypeParameterCount || method2.TypeParameters.Length != method2.TypeParameterCount {
             return false
         }
 
@@ -82,24 +124,113 @@ class AnalyzerStructuralAssignability {
             return false
         }
 
+        methodParameterSubstitutions := CreateMethodTypeParameterSubstitutions(method1, method2)
+        method1Substitution := methodParameterSubstitutions[0]
+        method2Substitution := MergeTypeSubstitutions(substitution, methodParameterSubstitutions[1])
+
         index := 0
         while index < method1.ParameterCount {
-            type1 := typeResolverValue.ResolveType(method1.ParameterTypes[index])
-            type2 := typeResolverValue.ResolveType(method2.ParameterTypes[index])
-            text1 := TypeDisplayText(type1)
-            text2 := TypeDisplayText(type2)
-            if text1 != text2 {
-                return false
+            type1 := ResolveMethodSignatureType(method1.ParameterTypes[index], method1Substitution)
+            if interfaceOwner == null {
+                type2 := ResolveMethodSignatureType(method2.ParameterTypes[index], method2Substitution)
+                if !TypeInfoIdentityFacts.AreEqual(type1, type2) {
+                    return false
+                }
+            } else {
+                substitutionFacts := typeSubstitutionValue
+                if substitutionFacts == null {
+                    return false
+                }
+
+                type2 := substitutionFacts.ResolveTypeForSourceOwner(method2.ParameterTypes[index], interfaceOwner, method2Substitution)
+                if !TypeInfoIdentityFacts.AreEqual(type1, type2) {
+                    return false
+                }
             }
 
             index = index + 1
         }
 
-        returnType1 := ResolveDeclaredReturnType(method1)
-        returnType2 := ResolveDeclaredReturnType(method2)
-        returnText1 := TypeDisplayText(returnType1)
-        returnText2 := TypeDisplayText(returnType2)
-        return returnText1 == returnText2
+        returnType1 := ResolveMethodSignatureReturnType(method1, method1Substitution)
+        if method2.ReturnType == null {
+            return TypeInfoIdentityFacts.AreEqual(returnType1, BuiltInTypes.Void)
+        }
+
+        if interfaceOwner == null {
+            returnType2 := ResolveMethodSignatureType(method2.ReturnType, method2Substitution)
+            return TypeInfoIdentityFacts.AreEqual(returnType1, returnType2)
+        }
+
+        substitutionFacts := typeSubstitutionValue
+        if substitutionFacts == null {
+            return false
+        }
+
+        returnType2 := substitutionFacts.ResolveTypeForSourceOwner(method2.ReturnType, interfaceOwner, method2Substitution)
+        return TypeInfoIdentityFacts.AreEqual(returnType1, returnType2)
+    }
+
+    // A generic method's parameter names are local binders, not part of its signature identity.
+    // Give the two declarations the same canonical source-type sentinel at each position, then let
+    // the existing structural type substitution walk carry that identity through arrays, generic
+    // arguments, tuples, nullable types, and function types.
+    func CreateMethodTypeParameterSubstitutions(method1: DeclaredMemberInfo, method2: DeclaredMemberInfo): Dictionary<string, TypeInfo>[] {
+        first := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+        second := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+        index := 0
+        while index < method1.TypeParameterCount {
+            parameter1 := method1.TypeParameters[index]
+            parameter2 := method2.TypeParameters[index]
+            placeholder := new ClassTypeInfo(
+                "<duck-method-type-parameter-" + index.ToString() + ">",
+                0,
+                0,
+                false,
+                null,
+                new TypeReference[](0),
+                new TypeParameter[](0),
+                new ParameterDeclarationInfo[](0),
+                new DeclaredMemberInfo[](0),
+                new NestedTypeInfo[](0),
+                true
+            )
+            first[parameter1.Name] = placeholder
+            second[parameter2.Name] = placeholder
+            index += 1
+        }
+        result := new Dictionary<string, TypeInfo>[](2)
+        result[0] = first
+        result[1] = second
+        return result
+    }
+
+    func MergeTypeSubstitutions(ownerSubstitution: Dictionary<string, TypeInfo>?, methodSubstitution: Dictionary<string, TypeInfo>): Dictionary<string, TypeInfo> {
+        result := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+        if ownerSubstitution != null {
+            for entry in ownerSubstitution {
+                result[entry.Key] = entry.Value
+            }
+        }
+        for entry in methodSubstitution {
+            // A method parameter shadows an enclosing type parameter with the same spelling.
+            result[entry.Key] = entry.Value
+        }
+        return result
+    }
+
+    func ResolveMethodSignatureType(typeReference: TypeReference, methodSubstitution: Dictionary<string, TypeInfo>): TypeInfo {
+        substitutionFacts := typeSubstitutionValue
+        if substitutionFacts == null {
+            return typeResolverValue.ResolveType(typeReference)
+        }
+        return substitutionFacts.ResolveTypeWithSubstitution(typeReference, methodSubstitution)
+    }
+
+    func ResolveMethodSignatureReturnType(method: DeclaredMemberInfo, methodSubstitution: Dictionary<string, TypeInfo>): TypeInfo {
+        if method.ReturnType == null {
+            return BuiltInTypes.Void
+        }
+        return ResolveMethodSignatureType(method.ReturnType, methodSubstitution)
     }
 
     // ASP.NET Core's `ActionResult<T>` accepts any value the non-generic `ActionResult` accepts. The
@@ -115,8 +246,9 @@ class AnalyzerStructuralAssignability {
             return false
         }
 
-        name := targetGeneric.Name
-        if name != "ActionResult" && name != "Microsoft.AspNetCore.Mvc.ActionResult" {
+        canonicalGenericDefinition := externalTypeProbeValue.ResolveExactExternalType("Microsoft.AspNetCore.Mvc.ActionResult`1")
+        targetGenericDefinition := targetGeneric.GenericDefinition as ReflectionTypeInfo
+        if canonicalGenericDefinition == null || targetGenericDefinition == null || !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(targetGenericDefinition.Type, canonicalGenericDefinition) {
             return false
         }
 
@@ -132,24 +264,6 @@ class AnalyzerStructuralAssignability {
         }
 
         return AnalyzerConversionFacts.IsReflectionAssignableFrom(actionResult.Type, sourceReflection.Type)
-    }
-
-    // A resolved type's own display form — the comparison key for signature equality. It is read
-    // through an `object`-typed local because `ToString` is declared by the BASE of the TypeInfo
-    // hierarchy rather than by the hierarchy itself.
-    static func TypeDisplayText(resolved: TypeInfo): string {
-        boxed: object = resolved
-        return boxed.ToString() ?? "<unknown type>"
-    }
-
-    // A declared member's return type, with an ABSENT one meaning `void`.
-    func ResolveDeclaredReturnType(method: DeclaredMemberInfo): TypeInfo {
-        declared := method.ReturnType
-        if declared == null {
-            return BuiltInTypes.Void
-        }
-
-        return typeResolverValue.ResolveType(declared)
     }
 
     // The declared-member list of the three declaration families that HAVE one; every other type

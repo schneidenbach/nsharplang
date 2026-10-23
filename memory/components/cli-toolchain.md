@@ -58,6 +58,7 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 | `nlc build --perf-report` | Emit a versioned JSON perf report (allocations, dispatch, AOT blockers) | `nlc build --perf-report` |
 | `nlc build\|check\|test --stats[=<path>]` | One `nsharp.cli-stats` v1 JSON line: wall/CPU time and the structural work counters (files parsed and analyzed, assemblies emitted, reference images loaded, framework-reference bytes hashed, processes spawned) — see [`--stats`](#--stats--what-one-command-cost) | `nlc check --stats` |
 | `nlc build --aot` | Native AOT safety analysis; AOT blockers (reflection/dynamic code/runtime generics/expression trees) become build errors | `nlc build --aot` |
+| `nlc build --emit-reference-assembly` | Emit the compiler-produced public API assembly under `nsharpref/` beside the implementation | `nlc build --emit-reference-assembly` |
 | `nlc run` | Compile and run project through the IL backend | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc run --backend il` | Build and run via the direct IL backend | `nlc run --backend il` |
@@ -1050,6 +1051,7 @@ nlc build --backend il   # direct IL build
 nlc build --release      # Release configuration/output layout
 nlc build --verbose      # detailed native resolver/build output
 nlc build --release --verbose
+nlc build --emit-reference-assembly # write the public surface for a downstream compiler
 ```
 
 - **`*.tests.nl` and `nlc build`.** Like `go build` ignoring `_test.go`, `nlc build` compiles the product

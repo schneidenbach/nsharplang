@@ -44,3 +44,16 @@ test "a build that produced no output assembly exits 1, and one that did exits 0
     assert BuildCommandKernels.GetExitCode(false) == 1
     assert BuildCommandKernels.GetExitCode(true) == 0
 }
+
+test "reference assembly emission is opt in and the option does not consume a source operand" {
+    defaults := BuildCommandKernels.GetOptionSummary([])
+    enabled := BuildCommandKernels.GetOptionSummary(["--emit-reference-assembly"])
+    withHelp := BuildCommandKernels.GetOptionSummary(["--emit-reference-assembly", "--help"])
+
+    assert !defaults.EmitReferenceAssembly
+    assert enabled.EmitReferenceAssembly
+    assert withHelp.EmitReferenceAssembly
+    assert withHelp.ShowHelp
+    assert BuildCommandKernels.GetOperandSummary(["--emit-reference-assembly", "Program.nl"]).Count == 1
+    assert BuildCommandKernels.GetHelpText().Contains("--emit-reference-assembly")
+}

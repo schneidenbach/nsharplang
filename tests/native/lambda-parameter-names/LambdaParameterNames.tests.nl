@@ -12,7 +12,6 @@ import NSharpLang.LambdaParameterNames
 // `handler.Method.GetParameters()[0].Name` was null and ASP.NET Core failed every request to a
 // Minimal-API handler with a parameter: "Encountered a parameter of type 'System.Int32' without a
 // name. Parameters must have a name." Each row below names one lowering path.
-
 test "a free function's lambda names every parameter" {
     assert ParameterNames(StaticLambda()) == "count,label"
 }

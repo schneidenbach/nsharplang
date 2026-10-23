@@ -1192,6 +1192,7 @@ test "A GENERATOR STILL WALKS ITS VALUE AND STILL RUNS AN ESCAPE REPORT" {
 
 test "await inside a lock reports NL351 at the await keyword" {
     harness := AmbientDefault()
+    harness.Context.EnterFunctionDeclaration(AmbientFunction("f", null, Modifiers.Async), BuiltInTypes.Void)
     harness.Context.EnterLockBody()
     harness.Context.ReportAwaitPlacementIfNeeded(4, 9)
 
@@ -1202,6 +1203,29 @@ test "await inside a lock reports NL351 at the await keyword" {
     assert harness.Errors[0].Column == 9
     assert harness.Errors[0].Suggestion == "Move the awaited operation before the lock, then lock only the synchronous work that uses its result."
     harness.Context.ExitLockBody()
+}
+
+test "await outside an async body reports positioned NL353" {
+    harness := AmbientDefault()
+    harness.Context.ReportAwaitPlacementIfNeeded(8, 17)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AwaitOutsideAsync
+    assert harness.Errors[0].DiagnosticId == "NL353"
+    assert harness.Errors[0].Message == "'await' can only be used inside an async function or lambda"
+    assert harness.Errors[0].Line == 8
+    assert harness.Errors[0].Column == 17
+    assert harness.Errors[0].Suggestion == "Add `async` to the enclosing function or lambda, or remove `await` and return the task directly."
+}
+
+test "an async nested body admits await placement" {
+    harness := AmbientDefault()
+    frame := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown, true)
+    harness.Context.ReportAwaitPlacementIfNeeded(3, 11)
+    harness.Context.ExitNestedBody(frame)
+
+    assert harness.Errors.Count == 0
+    assert harness.Context.CurrentFunctionIsAsync == false
 }
 
 test "await inside a catch filter reports NL352 at the await keyword" {
@@ -1477,6 +1501,53 @@ test "THE MEMBER-LIST SLOT HANDS THE PREVIOUS LIST BACK AND NESTS, WHATEVER THE 
 
     harness.Context.ExitTypeMembers(savedOuter)
     assert harness.Context.CurrentTypeMembers == null
+}
+
+test "TYPE GENERICITY NESTS AND RESTORES WITH TYPE DECLARATIONS" {
+    harness := AmbientDefault()
+    assert !harness.Context.CurrentTypeIsGeneric
+
+    savedOuter := harness.Context.EnterTypeGenericity(true)
+    assert !savedOuter
+    assert harness.Context.CurrentTypeIsGeneric
+
+    savedInner := harness.Context.EnterTypeGenericity(false)
+    assert savedInner
+    assert !harness.Context.CurrentTypeIsGeneric
+
+    harness.Context.ExitTypeGenericity(savedInner)
+    assert harness.Context.CurrentTypeIsGeneric
+
+    harness.Context.ExitTypeGenericity(savedOuter)
+    assert !harness.Context.CurrentTypeIsGeneric
+}
+
+test "GENERIC FUNCTION CONTEXT FLOWS THROUGH LOCAL FUNCTIONS AND LAMBDAS" {
+    harness := AmbientDefault()
+    declaration := AmbientFunction("outer", AmbientIntType(), Modifiers.Async)
+    typeParameters := new List<TypeParameter>()
+    typeParameters.Add(new TypeParameter("T"))
+    declaration.TypeParameters = typeParameters
+    outer := harness.Context.EnterFunctionDeclaration(declaration, BuiltInTypes.Int)
+    assert harness.Context.CurrentFunctionIsGeneric
+
+    lambda := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown, true)
+    assert harness.Context.CurrentFunctionIsGeneric
+
+    local := AmbientFunction("local", AmbientIntType(), Modifiers.None)
+    nestedLocal := harness.Context.EnterNestedBody(local, BuiltInTypes.Int)
+    assert harness.Context.CurrentFunctionIsGeneric
+
+    nestedLambda := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown, true)
+    assert harness.Context.CurrentFunctionIsGeneric
+    harness.Context.ExitNestedBody(nestedLambda)
+
+    harness.Context.ExitNestedBody(nestedLocal)
+    assert harness.Context.CurrentFunctionIsGeneric
+    harness.Context.ExitNestedBody(lambda)
+    assert harness.Context.CurrentFunctionIsGeneric
+    harness.Context.ExitFunctionDeclaration(outer)
+    assert !harness.Context.CurrentFunctionIsGeneric
 }
 
 test "TYPE-CONTEXT SLOTS ARE NOT RESET BY BeginAnalysis, WHICH IS THE SHELL'S OWN ASYMMETRY" {

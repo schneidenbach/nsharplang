@@ -70,6 +70,44 @@ class ColumnarSourceMemberChainResolver {
         return false
     }
 
+    // Await-pattern lookup needs a stricter overload set than ordinary call binding: only a
+    // non-generic instance method with exactly zero supplied arguments is invocable here. Keep the
+    // filter in AwaitablePatternBinder so source and reflected patterns share the same rule, and
+    // scan every overload before moving to a base type so a generic declaration cannot hide a
+    // viable non-generic overload that follows it.
+    static func TryFindAwaitPatternMethodOnChain(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out method: ColumnarInstanceMethodDef?): bool {
+        current: ColumnarStructDef? = definition
+        while current != null {
+            candidate := current
+            overloads: List<ColumnarInstanceMethodDef>? = null
+            if candidate.MethodOverloads.TryGetValue(name, out overloads) {
+                for overload in overloads {
+                    genericArity := overload.Generics == null ? 0 : overload.Generics.TypeParams.Length
+                    if AwaitablePatternBinder.IsZeroArgumentNonGenericInstanceMethod(overload.ParamTypes.Length, genericArity, overload.Builder.IsStatic, false) {
+                        method = overload
+                        return true
+                    }
+                }
+            }
+            if candidate.IsInterface && TryFindAwaitPatternMethodOnInterfaceBases(candidate, name, out method) {
+                return true
+            }
+            current = candidate.BaseDef
+        }
+        method = null
+        return false
+    }
+
+    static func TryFindAwaitPatternMethodOnInterfaceBases(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out method: ColumnarInstanceMethodDef?): bool {
+        for baseInterface in definition.InterfaceBases {
+            if TryFindAwaitPatternMethodOnChain(baseInterface, name, out method) {
+                return true
+            }
+        }
+        method = null
+        return false
+    }
+
     static func TryFindMethodOnInterfaceBases(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out method: ColumnarInstanceMethodDef?): bool {
         enumerator := definition.InterfaceBases.GetEnumerator()
         try {

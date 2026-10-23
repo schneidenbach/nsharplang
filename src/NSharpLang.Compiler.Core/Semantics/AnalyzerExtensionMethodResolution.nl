@@ -151,13 +151,22 @@ class AnalyzerExtensionMethodResolution {
         }
 
         if applicableExtensions.Count == 1 {
+            declarationFile := declarationContext.GetDeclarationFileFor(applicableExtensions[0])
+            if declarationFile != null {
+                return functionTypeFactory.CreateFromDeclarationInFile(applicableExtensions[0], declarationFile)
+            }
             return functionTypeFactory.CreateFromDeclaration(applicableExtensions[0], currentTypeName)
         }
 
         // Several source extensions claim the name; overload resolution picks between them later.
         functionTypes := new List<FunctionTypeInfo>()
         for applicableExtension in applicableExtensions {
-            functionTypes.Add(functionTypeFactory.CreateFromDeclaration(applicableExtension, currentTypeName))
+            declarationFile := declarationContext.GetDeclarationFileFor(applicableExtension)
+            if declarationFile != null {
+                functionTypes.Add(functionTypeFactory.CreateFromDeclarationInFile(applicableExtension, declarationFile))
+            } else {
+                functionTypes.Add(functionTypeFactory.CreateFromDeclaration(applicableExtension, currentTypeName))
+            }
         }
 
         return NSharpMethodGroupInfoFactory.FromFunctions(functionTypes)
@@ -263,7 +272,7 @@ class AnalyzerExtensionMethodResolution {
         if externalExtensions.Count == 1 {
             winner := externalExtensions[0]
             CreditExtensionNamespace(winner)
-            return new ReflectionMethodInfo(winner, winner.Name + "(...)")
+            return new ReflectionMethodInfo(winner, winner.Name + "(...)", true)
         }
 
         if externalExtensions.Count > 1 {
@@ -272,7 +281,7 @@ class AnalyzerExtensionMethodResolution {
                 CreditExtensionNamespace(externalExtension)
             }
 
-            return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), first.Name + "(...)")
+            return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), first.Name + "(...)", false, true)
         }
 
         return BuiltInTypes.Unknown
@@ -297,6 +306,16 @@ class AnalyzerExtensionMethodResolution {
         exactClrType := clrTypeConversion.TryConvertTypeInfoToClrType(targetType)
         if exactClrType != null {
             return ScanExternalExtensionMethods(exactClrType, methodName)
+        }
+
+        // A constructed reference type may have no execution CLR Type while its metadata definition
+        // is available in MetadataLoadContext. Scan candidates against that open definition; the
+        // normal invocation binder still receives the original closed TypeInfo and performs receiver
+        // inference before selecting an extension.
+        constructed := targetType as GenericTypeInfo
+        reflectedDefinition := constructed == null ? null : constructed.GenericDefinition as ReflectionTypeInfo
+        if reflectedDefinition != null && reflectedDefinition.Type.IsGenericTypeDefinition {
+            return ScanExternalExtensionMethods(reflectedDefinition.Type, methodName)
         }
 
         bindingClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(targetType)

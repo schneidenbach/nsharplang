@@ -2,6 +2,9 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.IO
+import System.Reflection
+import System.Runtime.CompilerServices
 import System.Text.Json
 import NSharpLang.Compiler.Ast
 
@@ -61,6 +64,12 @@ func IdentityClass(name: string): ClassTypeInfo {
 
 func IdentityRankedArrayType(elementType: Type, rank: int): Type {
     return elementType.MakeArrayType(rank)
+}
+
+func IdentityCloseGenericType(definition: Type, argument: Type): Type {
+    arguments := new Type[](1)
+    arguments[0] = argument
+    return definition.MakeGenericType(arguments)
 }
 
 func IdentityByRefType(elementType: Type): Type {
@@ -688,4 +697,45 @@ test "type info identity compares recursive CLR identities" {
         leftBaked,
         rightBaked
     )
+}
+
+test "CLR signature identity compares array rank and SZ shape recursively through generic arguments" {
+    vector := typeof(int).MakeArrayType()
+    matrix := typeof(int).MakeArrayType(2)
+    nonSzRankOne := typeof(int).MakeArrayType(1)
+    genericDefinition := typeof(List<int>).GetGenericTypeDefinition()
+    vectorBox := IdentityCloseGenericType(genericDefinition, vector)
+    matrixBox := IdentityCloseGenericType(genericDefinition, matrix)
+    nonSzBox := IdentityCloseGenericType(genericDefinition, nonSzRankOne)
+
+    assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vector, matrix)
+    assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vector, nonSzRankOne)
+    assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vectorBox, matrixBox)
+    assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vectorBox, nonSzBox)
+    assert TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(vectorBox, IdentityCloseGenericType(genericDefinition, typeof(int).MakeArrayType()))
+}
+
+test "framework reference-pack interfaces match their runtime contract identity" {
+    runtimeDirectory := Path.GetDirectoryName(typeof(object).Assembly.Location) ?? ""
+    frameworkList := FrameworkNamespaceIndex.FindReferencePackFrameworkList(runtimeDirectory)
+    assert frameworkList != null, "the installed net10.0 SDK must provide its framework reference pack"
+    runtimeVersion := Path.GetFileName(Path.TrimEndingDirectorySeparator(runtimeDirectory)) ?? ""
+    referenceDirectory := FrameworkNamespaceIndex.ReferencePackAssemblyDirectory(frameworkList ?? "", runtimeVersion)
+    assert referenceDirectory != null, "the reference pack must contain its target-framework assembly directory"
+
+    referencePaths := Directory.GetFiles(referenceDirectory ?? "", "*.dll")
+    resolver := new PathAssemblyResolver(referencePaths)
+    context := new MetadataLoadContext(resolver, "System.Runtime")
+    try {
+        systemRuntime := context.LoadFromAssemblyPath(Path.Combine(referenceDirectory ?? "", "System.Runtime.dll"))
+        referenceNotify := systemRuntime.GetType("System.Runtime.CompilerServices.INotifyCompletion")
+        referenceCritical := systemRuntime.GetType("System.Runtime.CompilerServices.ICriticalNotifyCompletion")
+        assert referenceNotify != null, "the reference pack should expose INotifyCompletion in System.Runtime"
+        assert referenceCritical != null, "the reference pack should expose ICriticalNotifyCompletion in System.Runtime"
+        assert TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(referenceNotify ?? typeof(object), typeof(INotifyCompletion)), "INotifyCompletion reference/runtime identities should agree: " + (referenceNotify?.Assembly.FullName ?? "null") + " vs " + typeof(INotifyCompletion).Assembly.FullName
+        assert TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(referenceCritical ?? typeof(object), typeof(ICriticalNotifyCompletion)), "ICriticalNotifyCompletion reference/runtime identities should agree: " + (referenceCritical?.Assembly.FullName ?? "null") + " vs " + typeof(ICriticalNotifyCompletion).Assembly.FullName
+        assert !TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(typeof(string), typeof(INotifyCompletion))
+    } finally {
+        context.Dispose()
+    }
 }

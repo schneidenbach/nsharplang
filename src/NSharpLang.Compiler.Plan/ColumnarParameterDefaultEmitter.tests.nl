@@ -43,6 +43,55 @@ func ParameterDefaultEmitObjectConstructor(constructorBuilder: ConstructorBuilde
     il.Emit(OpCodes.Ret)
 }
 
+test "parameter-default emitter publishes params metadata for methods and constructors" {
+    methodOwner := TypeOfCreateBuilder(
+        "ParameterDefaultParamsMethod",
+        "ColumnarParameterDefaultControls.ParamsMethod",
+        0
+    )
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(int[])
+    names := new string[](1)
+    names[0] = "values"
+    modifiers := new int[](1)
+    modifiers[0] = 3
+    method := methodOwner.DefineMethod("Apply", (MethodAttributes)22, ExecutorVoidType(), parameterTypes)
+    assert ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(
+        method,
+        parameterTypes,
+        names,
+        modifiers,
+        new int[](0),
+        new string?[](0),
+        ParameterDefaultEmptyRegistry()
+    )
+    TypeOfMethodBuilderIL(method).Emit(OpCodes.Ret)
+    emittedMethod := PlanFixtureBake(methodOwner).GetMethod("Apply")
+    if emittedMethod == null {
+        throw new InvalidOperationException("The params method was not baked.")
+    }
+    assert emittedMethod.GetParameters()[0].IsDefined(typeof(ParamArrayAttribute), false)
+
+    constructorOwner := TypeOfCreateBuilder(
+        "ParameterDefaultParamsConstructor",
+        "ColumnarParameterDefaultControls.ParamsConstructor",
+        0
+    )
+    constructor := constructorOwner.DefineConstructor((MethodAttributes)6, CallingConventions.Standard, parameterTypes)
+    assert ColumnarParameterDefaultEmitter.DefineConstructorParameterMetadata(
+        constructor,
+        parameterTypes,
+        names,
+        modifiers,
+        new int[](0),
+        new string?[](0),
+        ParameterDefaultEmptyRegistry()
+    )
+    ParameterDefaultEmitObjectConstructor(constructor)
+    emittedConstructor := PlanFixtureBake(constructorOwner).GetConstructors()[0]
+    assert emittedConstructor.GetParameters()[0].IsDefined(typeof(ParamArrayAttribute), false)
+}
+
 func ParameterDefaultSourceRegistry(): ColumnarSemanticRegistry<ColumnarEnumDef> {
     textConstants := new Dictionary<string, string>(StringComparer.Ordinal)
     textConstants["Ready"] = "source-ready"

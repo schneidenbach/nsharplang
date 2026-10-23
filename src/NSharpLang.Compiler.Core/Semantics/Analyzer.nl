@@ -185,7 +185,7 @@ class Analyzer: IDisposable {
             BindingMap
         )
         TypeSubstitution = new AnalyzerTypeSubstitution(Scopes, DeclarationContext, TypeResolver)
-        StructuralAssignability = new AnalyzerStructuralAssignability(TypeResolver, ExternalTypeProbe)
+        StructuralAssignability = new AnalyzerStructuralAssignability(TypeResolver, ExternalTypeProbe, DeclarationContext, TypeSubstitution)
         FunctionTypeFactory = new AnalyzerFunctionTypeFactory(DeclarationContext, TypeSubstitution)
         PropertyPatternBinding = new AnalyzerPropertyPatternBinding(
             Diagnostics,
@@ -298,7 +298,8 @@ class Analyzer: IDisposable {
             Ambient,
             DeclarationContext,
             LoopSequence,
-            ConstantExpressionFacts
+            ConstantExpressionFacts,
+            ExtensionMethodResolution
         )
         TargetTypedOperands = new AnalyzerTargetTypedOperands(
             TypeResolver,
@@ -933,6 +934,7 @@ class Analyzer: IDisposable {
         ImplicitConversionGuard.Clear()
         ExtensionMethods.Clear()
         SemanticModel = new SemanticModel()
+        PassThroughOperands.SetAwaitBindingServices(MemberResolution, SyntheticCallWalk, SyntheticCallValidator, ReflectionArgumentBinder, ClrTypeConversion, SemanticModel)
         BindingMap = new BindingMap()
 
         SoaEscape.BeginAnalysis()
@@ -1060,6 +1062,8 @@ class Analyzer: IDisposable {
             analysisDeclarationEnumerator.Dispose()
         }
 
+        Construction.FinalizeDuckInterfaceImplementationMaps(SemanticModel)
+
         PopScope()
         ReferenceLoadReport.Report(MetadataLoadSurface.ResolverFailureSnapshot())
 
@@ -1079,7 +1083,14 @@ class Analyzer: IDisposable {
 
         testDeclaration := declaration as TestDeclaration
         if testDeclaration != null {
-            DriveDeclarationWalk(DeclarationWalkers.BeginTest(testDeclaration, Assignability))
+            // Test bodies are async-capable: the test runner awaits a Task-returning test method,
+            // and existing test declarations use `await` without a separate `async` modifier.
+            testFrame := Ambient.EnterNestedBody(null, null, true)
+            try {
+                DriveDeclarationWalk(DeclarationWalkers.BeginTest(testDeclaration, Assignability))
+            } finally {
+                Ambient.ExitNestedBody(testFrame)
+            }
             return
         }
 
@@ -2103,9 +2114,39 @@ class Analyzer: IDisposable {
             }
         }
 
+        RecordContextualCallableReferenceBinding(expression, result)
         DispatchedExpression = expression
         DispatchedType = result
         return ExpressionTail.Finish(expression, result)
+    }
+
+    // Every contextual conversion reaches expression analysis with its target in the ambient slot:
+    // local and field initializers, assignments, returns, lambda bodies, and arguments all use the
+    // same record point. The selected declaration is stored at the source expression so the
+    // playground executes the analyzer's choice instead of resolving the written name again.
+    private func RecordContextualCallableReferenceBinding(expression: Expression, resolvedType: TypeInfo) {
+        expectedType := Ambient.CurrentExpectedType
+        if expression == null || resolvedType == null || expectedType == null {
+            return
+        }
+
+        selected := resolvedType as FunctionTypeInfo
+        if selected != null {
+            if !AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(selected) || !Assignability.IsAssignable(expectedType, selected) {
+                return
+            }
+            AnalyzerCallAnalysis.RecordCallableReferenceExpression(SemanticModel, expression, selected)
+            return
+        }
+
+        group := resolvedType as NSharpMethodGroupInfo
+        if group == null {
+            return
+        }
+        selectedGroupFunction: FunctionTypeInfo? = null
+        if Assignability.TrySelectNSharpMethodGroupFunction(group, expectedType, out selectedGroupFunction) && selectedGroupFunction != null {
+            AnalyzerCallAnalysis.RecordCallableReferenceExpression(SemanticModel, expression, selectedGroupFunction)
+        }
     }
 
     private func DriveIndexAccess(state: IndexAccessState): TypeInfo {
@@ -2187,6 +2228,16 @@ class Analyzer: IDisposable {
             CallAnalysis.SupplyCallStep(state, answer, handled)
             step = CallAnalysis.NextCallStep(state)
         }
+        sourceSlotOwnerType := state.ReceiverType
+        memberAccess := call.Callee as MemberAccessExpression
+        if sourceSlotOwnerType == null && memberAccess != null {
+            sourceSlotOwnerType = SemanticModel.LookupTypeAtPosition(memberAccess.Object.Line, memberAccess.Object.Column)
+        }
+        invocationBinding := CallAnalysis.CreateInvocationBinding(state, sourceSlotOwnerType)
+        if invocationBinding != null {
+            SemanticModel.RecordInvocationBinding(call.Line, call.Column, invocationBinding)
+        }
+        CallAnalysis.RecordSelectedCallableReferenceBindings(state, SemanticModel)
         return state.Result
     }
 
@@ -2309,7 +2360,12 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
+                expressionFrame := Ambient.EnterNestedBody(null, step.ExpectedType, state.Lambda.IsAsync)
+                try {
+                    answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
+                } finally {
+                    Ambient.ExitNestedBody(expressionFrame)
+                }
             }
             if kind == 2 {
                 PushScope(new Scope(ScopeKind.Function), step.Line, step.Column)
@@ -2321,7 +2377,7 @@ class Analyzer: IDisposable {
                 Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 5 {
-                bodyFrame := Ambient.EnterNestedBody(null, step.CarriedType)
+                bodyFrame := Ambient.EnterNestedBody(null, step.CarriedType, state.Lambda.IsAsync)
                 try {
                     AnalyzeStatement((must step.Body))
                 } finally {
@@ -2370,6 +2426,12 @@ class Analyzer: IDisposable {
             }
             Construction.Supply(state, answer)
             step = Construction.NextStep(state)
+        }
+        if state.New != null {
+            constructionBinding := Construction.CreateSemanticBinding(state, SemanticModel)
+            if constructionBinding != null {
+                SemanticModel.RecordConstructionBinding(state.New.Line, state.New.Column, constructionBinding)
+            }
         }
         return Construction.Result(state)
     }

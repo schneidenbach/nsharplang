@@ -113,11 +113,17 @@ static class RuntimeTypeShapeFacts {
             return elementType != null && ContainsBuilderBoundType(elementType)
         }
 
-        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+        if !valueType.IsGenericType {
             return false
         }
 
         definition := valueType.GetGenericTypeDefinition()
+        // A Reflection.Emit constructed type can report IsGenericTypeDefinition while its arguments
+        // still contain GenericTypeParameterBuilder values. Reference the actual definition to
+        // distinguish that open construction from the definition object itself.
+        if Object.ReferenceEquals(valueType, definition) {
+            return false
+        }
         if definition is TypeBuilder || IsEnumBuilder(definition) {
             return true
         }
@@ -143,8 +149,16 @@ static class RuntimeTypeShapeFacts {
             return element != null && ContainsBuilderBoundTypeThroughElements(element)
         }
 
-        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+        if !valueType.IsGenericType {
             return false
+        }
+
+        definition := valueType.GetGenericTypeDefinition()
+        if Object.ReferenceEquals(valueType, definition) {
+            return false
+        }
+        if definition is TypeBuilder {
+            return true
         }
 
         for argument in valueType.GetGenericArguments() {
@@ -201,6 +215,15 @@ static class RuntimeTypeShapeFacts {
 
         if matchGenericParameterIdentity && (left.IsGenericParameter || right.IsGenericParameter) {
             return left.IsGenericParameter && right.IsGenericParameter && SameTypeParameterIdentity(left, right)
+        }
+
+        // A reflected method selected through the analyzer's metadata context can return a Type
+        // object from that context, while the same invocation's emitted handle exposes the runtime
+        // Type object. They are the same CLR signature when their nominal assembly identity and
+        // recursively constructed shape agree. Keep builder-bound types on the identity path below:
+        // source TypeBuilders still require exact declaration identity.
+        if !TypeInfoIdentityFacts.IsBuilderBound(left) && !TypeInfoIdentityFacts.IsBuilderBound(right) && TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(left, right) {
+            return true
         }
 
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {

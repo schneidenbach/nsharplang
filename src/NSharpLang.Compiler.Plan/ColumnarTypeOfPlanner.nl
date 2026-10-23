@@ -321,6 +321,16 @@ class ColumnarTypeOfPlanner {
             return false
         }
 
+        // Generic parameters are bound symbols in this body, not names to rediscover through the
+        // runtime or source type catalog. This also lets delegate signatures close over the exact
+        // owner parameter used by an async lambda (`Func<Task<T>>`) before its state machine is
+        // emitted.
+        genericParameter: Type? = null
+        if bindings.TryGetTypeParameter(canonical, out genericParameter) && genericParameter != null {
+            result = genericParameter
+            return true
+        }
+
         unionParts := SplitTopLevelPipes(canonical)
         if unionParts.Count > 0 {
             if unionParts.Count != 2 {
@@ -779,7 +789,7 @@ class ColumnarTypeOfPlanner {
         if hasReturn {
             parameterCount -= 1
             returnCanonical := parts[parameterCount]
-            if returnCanonical != "void" && (!TryResolveType(returnCanonical, bindings, out returnType) || IsAssemblyBuilderBacked(returnType)) {
+            if returnCanonical != "void" && (!TryResolveType(returnCanonical, bindings, out returnType) || !IsSupportedType(returnType)) {
                 return false
             }
         }
@@ -791,7 +801,7 @@ class ColumnarTypeOfPlanner {
         while i < parameterCount {
             parameterType := typeof(object)
             parameterCanonical := parts[i]
-            if parameterCanonical == "void" || !TryResolveType(parameterCanonical, bindings, out parameterType) || IsAssemblyBuilderBacked(parameterType) {
+            if parameterCanonical == "void" || !TryResolveType(parameterCanonical, bindings, out parameterType) || !IsSupportedType(parameterType) {
                 return false
             }
             parameters[i] = parameterType
@@ -1418,10 +1428,17 @@ class ColumnarTypeOfPlanner {
         if valueType == typeof(Task) || valueType == typeof(ValueTask) {
             return true
         }
-        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+        if !valueType.IsGenericType {
             return false
         }
-        name := valueType.GetGenericTypeDefinition().FullName ?? ""
+        definition := valueType.GetGenericTypeDefinition()
+        // A constructed Reflection.Emit instantiation over a GenericTypeParameterBuilder can
+        // report IsGenericTypeDefinition even though it is not the definition object itself.
+        // Such Task<T> signatures are valid fields on a state machine that closes over T.
+        if Object.ReferenceEquals(valueType, definition) {
+            return false
+        }
+        name := definition.FullName ?? ""
         return (name == "System.Threading.Tasks.Task`1" || name == "System.Threading.Tasks.ValueTask`1") && IsSupportedType(valueType.GetGenericArguments()[0])
     }
 
@@ -1832,7 +1849,7 @@ class ColumnarTypeOfPlanner {
                 continue
             }
             directSourceReference := argument is TypeBuilder && !RuntimeTypeShapeFacts.IsEnumBuilder(argument) && !argument.IsGenericTypeDefinition && !argument.IsValueType && !argument.IsInterface
-            if !directSourceReference && (RuntimeTypeShapeFacts.IsEnumType(argument) || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument)) {
+            if !argument.IsGenericParameter && !directSourceReference && (RuntimeTypeShapeFacts.IsEnumType(argument) || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument)) {
                 return false
             }
             i += 1

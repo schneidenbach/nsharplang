@@ -567,6 +567,9 @@ class ColumnarConstructionPlanner {
             return false
         }
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate >= 0 && ColumnarThrowExpressionPlanner.IsThrowExpression(nodes, candidate) {
+            return ColumnarThrowExpressionPlanner.TryAppendThrow(nodes, source, candidate, bindings, handles, plan, fragment, depth)
+        }
         if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
             return TryAppendTargetTypedArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType)
         }
@@ -833,10 +836,16 @@ class ColumnarConstructionPlanner {
     }
 
     // `valueLocal` is the plan local a VALUE-TYPE instance is parked in, whose address each member is
-    // written through; it is -1 for a class instance on the stack, which each member `dup`s.
+    // written through. A CLASS instance is moved off the evaluation stack into a local before its
+    // initializer values run, so an awaited member value can suspend with an empty stack.
     static func TryAppendObjectMembers(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, definition: ColumnarStructDef?, valueLocal: int, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
+        referenceLocal := -1
+        if valueLocal < 0 {
+            referenceLocal = plan.DeclarePlanLocal(plan.AddType(targetType))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), referenceLocal)
+        }
         assigned := new HashSet<string>(StringComparer.Ordinal)
         index := 1
         while index < nodes.ChildCount(node) {
@@ -873,16 +882,24 @@ class ColumnarConstructionPlanner {
 
                         setter = TypeBuilder.GetMethod(propertyOwnerType, property.Setter)
                     }
-                    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
                     if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, propertyType, out ownership, out legacyWholeSubtreePlanning) {
                         return false
                     }
+                    propertyValueLocal := StoreIntoPlanLocal(plan, propertyType)
+                    AppendObjectMemberReceiver(plan, valueLocal, referenceLocal)
+                    if referenceLocal >= 0 {
+                        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                    }
+                    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), propertyValueLocal)
                     parameterTypes := Types1(propertyType)
                     methodIndex := plan.AddMethodWithSignature(setter, declaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.IsAbstract)
                     if modifierSignatureSource != null {
                         plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, modifierSignatureSource)
                     }
                     plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
+                    if referenceLocal >= 0 {
+                        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), referenceLocal)
+                    }
                     index += 2
                     continue
                 }
@@ -911,12 +928,20 @@ class ColumnarConstructionPlanner {
                 if !SameObject(fieldOwnerType, fieldOwner.Builder) {
                     fieldHandle = TypeBuilder.GetField(fieldOwnerType, selectedField)
                 }
-                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
                 if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, fieldType, out ownership, out legacyWholeSubtreePlanning) {
                     return false
                 }
+                fieldValueLocal := StoreIntoPlanLocal(plan, fieldType)
+                AppendObjectMemberReceiver(plan, valueLocal, referenceLocal)
+                if referenceLocal >= 0 {
+                    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                }
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), fieldValueLocal)
                 fieldIndex := plan.AddFieldWithSignature(fieldHandle, declaringType, fieldType, false)
                 plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldIndex)
+                if referenceLocal >= 0 {
+                    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), referenceLocal)
+                }
                 index += 2
                 continue
             }
@@ -938,12 +963,20 @@ class ColumnarConstructionPlanner {
                     return false
                 }
                 runtimeFieldType := runtimeField.FieldType
-                AppendObjectMemberReceiver(plan, valueLocal)
                 if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, runtimeFieldType, out ownership, out legacyWholeSubtreePlanning) {
                     return false
                 }
+                runtimeFieldValueLocal := StoreIntoPlanLocal(plan, runtimeFieldType)
+                AppendObjectMemberReceiver(plan, valueLocal, referenceLocal)
+                if referenceLocal >= 0 {
+                    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                }
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), runtimeFieldValueLocal)
                 runtimeFieldIndex := plan.AddFieldWithSignature(runtimeField, runtimeFieldDeclaringType, runtimeFieldType, false)
                 plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), runtimeFieldIndex)
+                if referenceLocal >= 0 {
+                    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), referenceLocal)
+                }
                 index += 2
                 continue
             }
@@ -960,10 +993,15 @@ class ColumnarConstructionPlanner {
             }
             requiresModifierRepair := !SetterSignatureSurvivesAMemberRef(setterCandidate)
             propertyType := selectedProperty.PropertyType
-            AppendObjectMemberReceiver(plan, valueLocal)
             if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, propertyType, out ownership, out legacyWholeSubtreePlanning) {
                 return false
             }
+            propertyValueLocal := StoreIntoPlanLocal(plan, propertyType)
+            AppendObjectMemberReceiver(plan, valueLocal, referenceLocal)
+            if referenceLocal >= 0 {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            }
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), propertyValueLocal)
             parameterTypes := Types1(propertyType)
             methodIndex := plan.AddMethodWithSignature(setter, setterDeclaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.IsAbstract)
             if requiresModifierRepair {
@@ -975,14 +1013,22 @@ class ColumnarConstructionPlanner {
                 setterOpCode = ColumnarCodePlanContract.Callvirt()
             }
             plan.AppendMethodInstruction(setterOpCode, methodIndex)
+            if referenceLocal >= 0 {
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), referenceLocal)
+            }
             index += 2
+        }
+        if referenceLocal >= 0 {
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), referenceLocal)
         }
         return true
     }
 
-    static func AppendObjectMemberReceiver(plan: ColumnarCodePlan, valueLocal: int) {
+    static func AppendObjectMemberReceiver(plan: ColumnarCodePlan, valueLocal: int, referenceLocal: int) {
         if valueLocal >= 0 {
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), valueLocal)
+        } else if referenceLocal >= 0 {
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), referenceLocal)
         } else {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
         }
@@ -3307,6 +3353,7 @@ class ColumnarConstructionPlanner {
         scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
         scratch.EnableNestedValueFrame()
         scratch.PrepareV3()
+        scratch.IteratorTypeDiscovery = true
         resultType := typeof(int)
         if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, handles, scratch, -1, depth, out resultType) || resultType.FullName == "System.Void" {
             return false
@@ -3317,9 +3364,9 @@ class ColumnarConstructionPlanner {
     }
 
     // Sized arrays in this slice deliberately admit only an exact simple element spelling, with
-    // any number of surrounding array suffixes. Other type families still belong to the legacy
-    // whole-subtree planner because they may require target context or richer type
-    // binding. A malformed node in the admitted simple/repeated-array family remains terminal.
+    // nullable annotations and any number of surrounding array suffixes. Other type families still
+    // belong to the legacy whole-subtree planner because they may require target context or richer
+    // type binding. A malformed node in the admitted simple/repeated-array family remains terminal.
     //  1: admitted exact syntax, 0: excluded well-formed family, -1: malformed admitted family.
     static func ClassifyExactSizedArrayElementSyntax(nodes: ColumnarNodeTable, node: int, depth: int): int {
         if nodes == null || depth > 200 || node < 0 || node >= nodes.Kinds.Length {
@@ -3331,6 +3378,12 @@ class ColumnarConstructionPlanner {
             return nodes.ChildCount(node) == 0 ? 1 : -1
         }
         if kind == ColumnarExpressionNodeKind.CharLiteralExpression {
+            if nodes.ChildCount(node) != 1 {
+                return -1
+            }
+            return ClassifyExactSizedArrayElementSyntax(nodes, nodes.Child(node, 0), depth + 1)
+        }
+        if kind == ColumnarExpressionNodeKind.StringLiteralExpression {
             if nodes.ChildCount(node) != 1 {
                 return -1
             }

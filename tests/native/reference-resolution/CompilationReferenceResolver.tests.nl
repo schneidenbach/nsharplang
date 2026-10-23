@@ -163,7 +163,7 @@ test "workspace check is byte-identical across repeated worker counts when two p
     }
 }
 
-test "build and check retain the exact child AOT diagnostic and produce no child output" {
+test "AOT build and check carry async iterator state machines across project references" {
     scratch := ResolverNewTempDirectory("aot-child")
     try {
         buildRoot := Path.Combine(scratch, "build")
@@ -171,25 +171,27 @@ test "build and check retain the exact child AOT diagnostic and produce no child
         ResolverWriteAotProjectFixture(buildRoot, "exe")
         buildOutput := Path.Combine(buildRoot, "dist")
         build := ResolverRunCli("build --project " + ResolverQuote(buildRoot) + " --backend il --aot -o " + ResolverQuote(buildOutput), buildRoot)
-        assert build.ExitCode == 1
-        assert (build.Stdout + build.Stderr).Contains("AOT builds require successful N# columnar emission", StringComparison.Ordinal)
-        assert (build.Stdout + build.Stderr).Contains("emit.iterator.loop-branch-placement: a `break` out of an `await foreach` is not yet lowered in an iterator body", StringComparison.Ordinal)
-        assert !File.Exists(Path.Combine(buildOutput, "SharedLib.dll"))
+        assert build.ExitCode == 0, build.Stdout + build.Stderr
+        assert build.Stderr.Trim().Length == 0, build.Stderr
+        appOutput := Path.Combine(buildOutput, "App.dll")
+        sharedOutput := Path.Combine(buildOutput, "SharedLib.dll")
+        assert File.Exists(appOutput), "Expected root output at " + appOutput + ".\n" + build.Stdout + build.Stderr
+        assert File.Exists(sharedOutput), "Expected child output at " + sharedOutput + ".\n" + build.Stdout + build.Stderr
 
         checkRoot := Path.Combine(scratch, "check")
         Directory.CreateDirectory(checkRoot)
         ResolverWriteAotProjectFixture(checkRoot, "library")
         check := ResolverRunCli("check --project " + ResolverQuote(checkRoot) + " --aot", checkRoot)
-        assert check.ExitCode == 1
+        assert check.ExitCode == 0, check.Stdout + check.Stderr
         document := JsonDocument.Parse(check.Stdout)
-        assert document.RootElement.GetProperty("schemaVersion").GetInt32() == 2
-        assert !document.RootElement.GetProperty("ok").GetBoolean()
-        assert document.RootElement.GetProperty("summary").GetProperty("projectFailures").GetInt32() == 1
+        assert document.RootElement.GetProperty("schemaVersion").GetInt32() == 2, check.Stdout
+        assert document.RootElement.GetProperty("ok").GetBoolean(), check.Stdout
+        assert document.RootElement.GetProperty("summary").GetProperty("projectFailures").GetInt32() == 0, check.Stdout
         document.Dispose()
-        assert ResolverJsonWorkspaceErrorContains(check.Stdout, "AOT builds require successful N# columnar emission")
-        assert ResolverJsonWorkspaceErrorContains(check.Stdout, "emit.iterator.loop-branch-placement: a `break` out of an `await foreach` is not yet lowered in an iterator body")
-        assert ResolverJsonWorkspaceDiagnosticContains(check.Stdout, "NL103", "emit.iterator.loop-branch-placement: a `break` out of an `await foreach` is not yet lowered in an iterator body")
-        assert !File.Exists(Path.Combine(Path.Combine(Path.Combine(Path.Combine(checkRoot, "Shared"), "bin"), "Debug/net10.0"), "SharedLib.dll"))
+        assert !ResolverJsonWorkspaceErrorContains(check.Stdout, "AOT builds require successful N# columnar emission"), check.Stdout
+        assert !ResolverJsonWorkspaceDiagnosticContains(check.Stdout, "NL103", "emit.iterator.loop-branch-placement"), check.Stdout
+        checkChildOutput := Path.Combine(Path.Combine(Path.Combine(Path.Combine(checkRoot, "Shared"), "bin"), "Debug/net10.0"), "SharedLib.dll")
+        assert File.Exists(checkChildOutput), "AOT check did not emit the supported referenced project at " + checkChildOutput
     } finally {
         Directory.Delete(scratch, true)
     }

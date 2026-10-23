@@ -1,0 +1,187 @@
+<linker>
+  <assembly fullname="NSharpLang.Compiler.Driver">
+    <type fullname="NSharpLang.Playground.PlaygroundCatalogResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundCapabilities" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundExample" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundTutorialStep" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundTutorialValidation" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundFile" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundCheckResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundFormatResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundCompletionResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundCompletionItem" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundHoverResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundHover" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundRunResponse" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundRunResult" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundRunFault" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundSummary" preserve="all" />
+    <type fullname="NSharpLang.Playground.PlaygroundDiagnostic" preserve="all" />
+    <type fullname="NSharpLang.Playground.Wasm.PlaygroundVersionResponse" preserve="all" />
+  </assembly>
+  <assembly fullname="NSharpLang.Playground">
+    <type fullname="NSharpLang.Playground.PlaygroundRunner" preserve="nothing">
+    </type>
+    <type fullname="NSharpLang.Playground.RuntimeTaskRunCallback" preserve="nothing">
+      <method name="InvokeAction" />
+      <method name="InvokeResult" />
+      <method name="InvokeTask" />
+      <method name="InvokeTaskResult" />
+    </type>
+    <type fullname="NSharpLang.Playground.PlaygroundAwaiterCompletionSignal" preserve="nothing">
+      <method name="Signal" />
+    </type>
+  </assembly>
+  <assembly fullname="System.Private.CoreLib">
+    <!-- The playground maps analyzer-selected framework members to runtime members by reflection.
+         Keep only the Task surface it dispatches; methods called directly by the host are rooted by
+         ordinary IL references. -->
+    <type fullname="System.Threading.Tasks.Task" preserve="nothing">
+      <method name="Delay" />
+      <method name="FromCanceled" />
+      <method name="FromException" />
+      <method name="FromResult" />
+      <method name="get_CompletedTask" />
+      <method name="GetAwaiter" />
+      <method name="get_IsCanceled" />
+      <method name="get_IsCompleted" />
+      <method name="get_IsFaulted" />
+      <method name="get_Exception" />
+      <method name="get_AsyncState" />
+      <method name="get_CreationOptions" />
+      <method name="Run" />
+      <method name="WhenAll" />
+      <method name="WhenAny" />
+      <method name="Yield" />
+      <method name="ConfigureAwait" />
+    </type>
+    <type fullname="System.Threading.Tasks.Task`1" preserve="nothing">
+      <method name="get_Result" />
+      <method name="GetAwaiter" />
+      <method name="ConfigureAwait" />
+    </type>
+    <type fullname="System.AggregateException" preserve="nothing">
+      <method name=".ctor" signature="System.Void .ctor(System.String,System.Exception)" />
+      <method name="get_InnerExceptions" />
+    </type>
+    <type fullname="System.Collections.ObjectModel.ReadOnlyCollection`1" preserve="nothing">
+      <method name="get_Count" />
+      <method name="get_Item" />
+      <method name="GetEnumerator" />
+    </type>
+    <type fullname="System.Threading.Tasks.TaskCompletionSource" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_Task" />
+      <method name="SetCanceled" />
+      <method name="SetException" />
+      <method name="SetResult" />
+      <method name="TrySetCanceled" />
+      <method name="TrySetException" />
+      <method name="TrySetResult" />
+    </type>
+    <type fullname="System.Threading.Tasks.TaskCompletionSource`1" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_Task" />
+      <method name="SetCanceled" />
+      <method name="SetException" />
+      <method name="SetResult" />
+      <method name="TrySetCanceled" />
+      <method name="TrySetException" />
+      <method name="TrySetResult" />
+    </type>
+    <type fullname="System.TimeSpan" preserve="nothing">
+      <method name=".ctor" />
+      <method name="FromMilliseconds" />
+      <method name="get_Ticks" />
+    </type>
+    <type fullname="System.Threading.CancellationToken" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_CanBeCanceled" />
+      <method name="get_IsCancellationRequested" />
+      <method name="get_None" />
+    </type>
+    <type fullname="System.Threading.Tasks.ValueTask" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_IsCompleted" />
+      <method name="GetAwaiter" />
+      <method name="ConfigureAwait" />
+    </type>
+    <type fullname="System.Threading.Tasks.ValueTask`1" preserve="nothing">
+      <method name=".ctor" />
+      <method name="get_IsCompleted" />
+      <method name="GetAwaiter" />
+      <method name="get_Result" />
+      <method name="ConfigureAwait" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ConfiguredTaskAwaitable" preserve="nothing">
+      <method name="GetAwaiter" />
+      <nested-type name="ConfiguredTaskAwaiter" preserve="nothing">
+        <method name="get_IsCompleted" />
+        <method name="GetResult" />
+        <method name="OnCompleted" />
+        <method name="UnsafeOnCompleted" />
+      </nested-type>
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ConfiguredTaskAwaitable`1" preserve="nothing">
+      <method name="GetAwaiter" />
+      <nested-type name="ConfiguredTaskAwaiter" preserve="nothing">
+        <method name="get_IsCompleted" />
+        <method name="GetResult" />
+        <method name="OnCompleted" />
+        <method name="UnsafeOnCompleted" />
+      </nested-type>
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable" preserve="nothing">
+      <method name="GetAwaiter" />
+      <nested-type name="ConfiguredValueTaskAwaiter" preserve="nothing">
+        <method name="get_IsCompleted" />
+        <method name="GetResult" />
+        <method name="OnCompleted" />
+        <method name="UnsafeOnCompleted" />
+      </nested-type>
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable`1" preserve="nothing">
+      <method name="GetAwaiter" />
+      <nested-type name="ConfiguredValueTaskAwaiter" preserve="nothing">
+        <method name="get_IsCompleted" />
+        <method name="GetResult" />
+        <method name="OnCompleted" />
+        <method name="UnsafeOnCompleted" />
+      </nested-type>
+    </type>
+    <type fullname="System.Runtime.CompilerServices.TaskAwaiter" preserve="nothing">
+      <method name="get_IsCompleted" />
+      <method name="GetResult" />
+      <method name="OnCompleted" />
+      <method name="UnsafeOnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.TaskAwaiter`1" preserve="nothing">
+      <method name="get_IsCompleted" />
+      <method name="GetResult" />
+      <method name="OnCompleted" />
+      <method name="UnsafeOnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ValueTaskAwaiter" preserve="nothing">
+      <method name="get_IsCompleted" />
+      <method name="GetResult" />
+      <method name="OnCompleted" />
+      <method name="UnsafeOnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ValueTaskAwaiter`1" preserve="nothing">
+      <method name="get_IsCompleted" />
+      <method name="GetResult" />
+      <method name="OnCompleted" />
+      <method name="UnsafeOnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.INotifyCompletion" preserve="nothing">
+      <method name="OnCompleted" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.IAsyncStateMachine" preserve="nothing">
+      <method name="MoveNext" />
+      <method name="SetStateMachine" />
+    </type>
+    <type fullname="System.Runtime.CompilerServices.ICriticalNotifyCompletion" preserve="nothing">
+      <method name="UnsafeOnCompleted" />
+    </type>
+  </assembly>
+</linker>

@@ -91,12 +91,29 @@ func IteratorOrderingRequiredMember(target: object, name: string): object {
     return propertyValue
 }
 
+func IteratorOrderingOptionalMember(target: object, name: string): object? {
+    field := target.GetType().GetField(name)
+    if field != null {
+        return field.GetValue(target)
+    }
+    property := target.GetType().GetProperty(name)
+    if property == null {
+        throw new InvalidOperationException("Missing member '" + name + "'")
+    }
+    return property.GetValue(target)
+}
+
 func IteratorOrderingWriteField(target: object, name: string, value: object?) {
     field := target.GetType().GetField(name)
-    if field == null {
-        throw new InvalidOperationException("Missing mutable field '" + name + "'")
+    if field != null {
+        field.SetValue(target, value)
+        return
     }
-    field.SetValue(target, value)
+    property := target.GetType().GetProperty(name)
+    if property == null || property.SetMethod == null {
+        throw new InvalidOperationException("Missing writable member '" + name + "'")
+    }
+    property.SetValue(target, value)
 }
 
 func IteratorOrderingRequiredList(value: object, label: string): IList {
@@ -349,11 +366,8 @@ func IteratorOrderingResolvedPrefix(shape: object): int {
         if row == null {
             throw new InvalidOperationException("Iterator override row was null")
         }
-        targetField := row.GetType().GetField("ResolvedTarget")
-        if targetField == null {
-            throw new InvalidOperationException("Iterator override row had no ResolvedTarget")
-        }
-        if targetField.GetValue(row) == null {
+        target := IteratorOrderingOptionalMember(row, "ResolvedTarget")
+        if target == null {
             break
         }
         prefix = prefix + 1
@@ -364,11 +378,8 @@ func IteratorOrderingResolvedPrefix(shape: object): int {
         if later == null {
             throw new InvalidOperationException("Iterator override row was null")
         }
-        laterTarget := later.GetType().GetField("ResolvedTarget")
-        if laterTarget == null {
-            throw new InvalidOperationException("Iterator override row had no ResolvedTarget")
-        }
-        if laterTarget.GetValue(later) != null {
+        laterTarget := IteratorOrderingOptionalMember(later, "ResolvedTarget")
+        if laterTarget != null {
             throw new InvalidOperationException("Iterator override targets were not a prefix")
         }
         index = index + 1

@@ -37,10 +37,12 @@ class EqualityTally {
         if Object.ReferenceEquals(left, right) {
             return true
         }
-        if left == null || right == null {
+        if Object.ReferenceEquals(left, null) || Object.ReferenceEquals(right, null) {
             return false
         }
-        return left.Count == right.Count
+        leftValue := must left
+        rightValue := must right
+        return leftValue.Count == rightValue.Count
     }
 
     static func operator !=(left: EqualityTally?, right: EqualityTally?): bool => !(left == right)

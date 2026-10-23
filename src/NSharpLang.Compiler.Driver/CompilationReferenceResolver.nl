@@ -268,6 +268,7 @@ sealed class CompilationReferenceResolver {
             )
             compiler := new MultiFileCompiler(projectRoot, config)
             compiler.AotMode = options.AotMode
+            compiler.EmitReferenceAssembly = options.EmitReferenceAssembly
             if context.CompilesConcurrently {
                 compiler.Workers = 1
             }
@@ -785,8 +786,21 @@ sealed class CompilationReferenceResolver {
     private static func GetLatestPackageVersion(packageName: string): string {
         indexUrl := CompilationReferenceResolverKernels.GetNuGetIndexUrl(packageName)
         client := CompilationReferenceResolver.HttpClient
-        responseTask := client.GetStringAsync(indexUrl)
-        responseText := await responseTask
+        request := new HttpRequestMessage(HttpMethod.Get, indexUrl)
+        response := client.Send(request)
+        let responseText: string = ""
+        try {
+            response.EnsureSuccessStatusCode()
+            reader := new StreamReader(response.Content.ReadAsStream())
+            try {
+                responseText = reader.ReadToEnd()
+            } finally {
+                reader.Dispose()
+            }
+        } finally {
+            response.Dispose()
+            request.Dispose()
+        }
         document := JsonDocument.Parse(responseText)
         let latestVersion: string = null
         try {
@@ -836,8 +850,24 @@ sealed class CompilationReferenceResolver {
         try {
             Directory.CreateDirectory(tempDirectory)
             client := CompilationReferenceResolver.HttpClient
-            bytesTask := client.GetByteArrayAsync(url)
-            bytes := await bytesTask
+            request := new HttpRequestMessage(HttpMethod.Get, url)
+            response := client.Send(request)
+            let bytes: byte[] = new byte[](0)
+            try {
+                response.EnsureSuccessStatusCode()
+                contentStream := response.Content.ReadAsStream()
+                memory := new MemoryStream()
+                try {
+                    contentStream.CopyTo(memory)
+                    bytes = memory.ToArray()
+                } finally {
+                    memory.Dispose()
+                    contentStream.Dispose()
+                }
+            } finally {
+                response.Dispose()
+                request.Dispose()
+            }
             File.WriteAllBytes(packagePath, bytes)
 
             parentDirectory := CompilationReferenceResolverKernels.GetNuGetPackageParentDirectory(

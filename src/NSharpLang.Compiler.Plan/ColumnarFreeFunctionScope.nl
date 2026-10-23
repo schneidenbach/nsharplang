@@ -136,6 +136,10 @@ class ColumnarFreeFunctionScope {
             position := ColumnarEmissionPlanner.PositionAt(sourceFile, function.SourceDeclarationStart)
             sourceDeclarationLines.Add(position.Line)
             sourceDeclarationColumns.Add(position.Column)
+            definition.SourceFileId = function.SourceFileId
+            definition.SourceFilePath = sourceFile.FileName
+            definition.SourceLine = position.Line
+            definition.SourceColumn = position.Column
         } else {
             sourceDeclarationLines.Add(0)
             sourceDeclarationColumns.Add(0)
@@ -518,6 +522,7 @@ class ColumnarFreeFunctionHolders {
     program: ColumnarProgramInput
     buildersByNamespace: Dictionary<string, TypeBuilder>
     ordered: List<TypeBuilder>
+    extensionNamespaces: HashSet<string>
 
     constructor(moduleBuilder: ModuleBuilder, rootHolderTypeName: string, programInput: ColumnarProgramInput) {
         module = moduleBuilder
@@ -525,6 +530,12 @@ class ColumnarFreeFunctionHolders {
         program = programInput
         buildersByNamespace = new Dictionary<string, TypeBuilder>(StringComparer.Ordinal)
         ordered = new List<TypeBuilder>()
+        extensionNamespaces = new HashSet<string>(StringComparer.Ordinal)
+        for function in programInput.Functions {
+            if function != null && function.IsExtensionMethod {
+                extensionNamespaces.Add(program.NamespaceNameForFile(function.SourceFileId))
+            }
+        }
     }
 
     // The holder a body emitted out of this file places its free functions and its synthesized
@@ -548,10 +559,17 @@ class ColumnarFreeFunctionHolders {
             return existing
         }
 
-        created := module.DefineType(
-            HolderNameFor(namespaceName),
-            TypeAttributes.Public | TypeAttributes.Class
-        )
+        holderAttributes := TypeAttributes.Public | TypeAttributes.Class
+        if extensionNamespaces.Contains(namespaceName) {
+            holderAttributes = holderAttributes | TypeAttributes.Abstract | TypeAttributes.Sealed
+        }
+        created := module.DefineType(HolderNameFor(namespaceName), holderAttributes)
+        if extensionNamespaces.Contains(namespaceName) {
+            extensionAttributeCtor := typeof(System.Runtime.CompilerServices.ExtensionAttribute).GetConstructor(Type.EmptyTypes)
+            if extensionAttributeCtor != null {
+                created.SetCustomAttribute(extensionAttributeCtor, ColumnarAttributeBlobs.NoArgument())
+            }
+        }
         buildersByNamespace[namespaceName] = created
         ordered.Add(created)
         return created

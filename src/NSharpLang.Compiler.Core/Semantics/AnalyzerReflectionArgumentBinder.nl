@@ -338,22 +338,16 @@ class AnalyzerReflectionArgumentBinder {
     func TryScoreReflectionSuppliedArgument(supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, analyzedNonLambdaArguments: TypeInfo?[], expectsParamsElement: bool, out score: int): bool {
         score = 0
 
-        expectsByRef := !expectsParamsElement && IsWrittenThroughParameter(parameter)
         argumentModifier := supplied.Argument.Modifier
-        suppliedByRef := argumentModifier == ArgumentModifier.Ref || argumentModifier == ArgumentModifier.Out
-        if !expectsParamsElement && ReflectedParameterDirection.IsReadOnlyReference(parameter) {
-            // A READ-ONLY REFERENCE: `in` takes its argument bare or spelled `in`, as a source `in`
-            // does; `ref readonly` asks for a location, spelled `ref` or `in`. Neither takes `out`.
-            if ReflectedParameterDirection.IsReadOnlyLocation(parameter) {
-                if argumentModifier != ArgumentModifier.Ref && argumentModifier != ArgumentModifier.In {
-                    return false
-                }
-            } else if argumentModifier == ArgumentModifier.Out || argumentModifier == ArgumentModifier.Ref {
-                return false
-            }
-        } else if argumentModifier == ArgumentModifier.In || expectsByRef != suppliedByRef {
+        refKindCompatibility := RefKindCompatibilityFacts.ClassifyReflectedParameter(parameter, argumentModifier)
+        if !expectsParamsElement && refKindCompatibility == RefKindCompatibilityResult.Incompatible {
             return false
         }
+
+        // `ref x` applied to a selected `in` parameter still names the caller's exact storage. It
+        // therefore participates in identity inference like `ref`, while ordinary `in` arguments
+        // can use the normal input conversion path.
+        expectsByRef := !expectsParamsElement && (IsWrittenThroughParameter(parameter) || refKindCompatibility == RefKindCompatibilityResult.RefEquivalentToIn)
 
         openParameterType := supplied.OpenParameterType
         argumentValue := supplied.Argument.Value
@@ -1075,6 +1069,30 @@ class AnalyzerReflectionArgumentBinder {
         receiverSignatureType := declaringType
         if !declaringType.IsGenericTypeDefinition {
             receiverSignatureType = declaringType.GetGenericTypeDefinition()
+        }
+
+        // Reflection metadata and the analyzer's execution types can describe the same generic
+        // definition through different Type objects. If the receiver TypeInfo names that exact
+        // reflected definition, its arguments are the semantic receiver bindings even when the
+        // CLR receiver is an open generic definition (as inside `ValueTask<T>`). Bind by the
+        // ordinary constructed receiver shape first; this preserves source type parameters in
+        // method results while the CLR map below remains an emission-only surrogate.
+        receiverGeneric := receiverTypeInfo as GenericTypeInfo
+        receiverDefinition := receiverGeneric == null ? null : receiverGeneric.GenericDefinition as ReflectionTypeInfo
+        receiverDefinitionType := receiverDefinition == null ? null : receiverDefinition.Type
+        if receiverGeneric != null && receiverDefinitionType != null && receiverGeneric.TypeArguments.Count == receiverSignatureType.GetGenericArguments().Length && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(receiverSignatureType, receiverDefinitionType) {
+            receiverParameters := receiverSignatureType.GetGenericArguments()
+            argumentIndex := 0
+            while argumentIndex < receiverParameters.Length {
+                receiverArgument := receiverGeneric.TypeArguments[argumentIndex]
+                typeInfoBindings[receiverParameters[argumentIndex]] = receiverArgument
+                receiverArgumentClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverArgument)
+                if receiverArgumentClrType != null {
+                    bindings[receiverParameters[argumentIndex]] = receiverArgumentClrType
+                }
+                argumentIndex += 1
+            }
+            return true
         }
 
         bindingReceiverClrType := receiverClrType

@@ -133,6 +133,7 @@ class ColumnarExplicitInterfaceImplementation {
                     parameterTypes,
                     table
                 )
+                RecordExplicitTargets(owner, declaration)
                 return
             }
 
@@ -143,6 +144,7 @@ class ColumnarExplicitInterfaceImplementation {
                 parameterTypes,
                 table
             )
+            RecordExplicitTargets(owner, declaration)
             return
         }
 
@@ -156,6 +158,16 @@ class ColumnarExplicitInterfaceImplementation {
             parameterTypes,
             table
         )
+        RecordExplicitTargets(owner, declaration)
+    }
+
+    static func RecordExplicitTargets(owner: ColumnarStructDef, declaration: ColumnarMethodOverrideDeclaration) {
+        for index := 0; index < declaration.SourceTargetCount; index++ {
+            owner.ExplicitInterfaceTargetMethods.Add(declaration.SourceTargetAt(index))
+        }
+        for index := 0; index < declaration.ExternalTargetCount; index++ {
+            owner.ExplicitInterfaceTargetMethods.Add(declaration.ExternalTargetAt(index))
+        }
     }
 
     // THE INTERFACE'S ACCESSOR SLOT FOR AN EXPLICITLY IMPLEMENTED VALUE MEMBER.

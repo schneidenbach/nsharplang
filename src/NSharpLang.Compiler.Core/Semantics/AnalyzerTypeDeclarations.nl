@@ -137,6 +137,7 @@ class TypeDeclarationState {
     SavedClass: ClassDeclaration?
     SavedConstructorDeclaringClass: ClassDeclaration?
     SavedTypeMembers: List<Declaration>?
+    SavedTypeIsGeneric: bool
     SavedTypeName: string?
     SavedExpectedType: TypeInfo?
     SeenNames: HashSet<string>
@@ -157,6 +158,7 @@ class TypeDeclarationState {
         SavedClass = null
         SavedConstructorDeclaringClass = null
         SavedTypeMembers = null
+        SavedTypeIsGeneric = false
         SavedTypeName = null
         SavedExpectedType = null
         SeenNames = new HashSet<string>(StringComparer.Ordinal)
@@ -414,6 +416,7 @@ class AnalyzerTypeDeclarations {
 
         state.SavedConstructorDeclaringClass = ambientValue.EnterConstructorDeclaringClass(state.Declaration as ClassDeclaration)
 
+        state.SavedTypeIsGeneric = ambientValue.EnterTypeGenericity(DeclarationFacts.GetDeclarationArity(state.Declaration) > 0)
         state.SavedTypeMembers = ambientValue.EnterTypeMembers(TypeMembers(state))
         state.SavedTypeName = ambientValue.EnterTypeName(name)
         AnalyzerDeclarationConventions.CheckVisibilityConvention(diagnosticsValue, name, TypeModifiers(state), state.Declaration.Line, state.Declaration.Column)
@@ -599,6 +602,7 @@ class AnalyzerTypeDeclarations {
 
         ambientValue.ExitConstructorDeclaringClass(state.SavedConstructorDeclaringClass)
 
+        ambientValue.ExitTypeGenericity(state.SavedTypeIsGeneric)
         ambientValue.ExitTypeMembers(state.SavedTypeMembers)
         ambientValue.ExitTypeName(state.SavedTypeName)
         return null

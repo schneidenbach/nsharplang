@@ -43,6 +43,11 @@ async func* AwaitedValueTask(): IAsyncEnumerable<int> {
     yield v
 }
 
+// Nested awaits spill values onto the iterator machine and preserve left-to-right evaluation.
+async func* AwaitedBinaryExpression(first: Task<int>, second: Task<int>): IAsyncEnumerable<int> {
+    yield (await first) + (await second)
+}
+
 // An awaited value ASSIGNED to a binding that already exists, and converted to its type on the way in.
 async func* AwaitedAssignment(): IAsyncEnumerable<long> {
     total: long = 0

@@ -2,6 +2,7 @@ namespace NSharpLang.OwnershipAudit
 
 import System
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Text
 import System.Text.Json
@@ -261,7 +262,7 @@ class OwnershipPolicy {
     static CodeEpochFileCount: int => 217
     static CodeEpochPathFingerprint: string => "pathset-v2:8753f45f767649bf"
     static CodeEpochFactFingerprint: string => "epochfacts-v2:bbd44c5fc149a36c"
-    static ReviewedHeadFingerprint: string => "head-v2:e3042240b7549da7"
+    static ReviewedHeadFingerprint: string => "head-v2:b1d13ab578bf412b"
 
     static func IsPermanentBoundaryPath(path: string): bool {
         normalized := NormalizeRelativePath(path)
@@ -284,6 +285,9 @@ class OwnershipPolicy {
         lower := normalized.ToLowerInvariant()
 
         if lower.EndsWith(".cs") {
+            if lower.StartsWith("tests/fixtures/", StringComparison.Ordinal) {
+                return Included("test-fixture", SurfaceFor(normalized), CampaignScopeFor(normalized))
+            }
             return Included("csharp", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
 
@@ -353,7 +357,7 @@ class OwnershipPolicy {
         if lower.EndsWith(".dylib") || lower.EndsWith(".node") {
             return Included("native-binary", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
-        if lower.EndsWith(".vsix") || lower.EndsWith(".nupkg") || lower.EndsWith(".asar") || lower.EndsWith(".pak") {
+        if lower.EndsWith(".vsix") || lower.EndsWith(".nupkg") || lower.EndsWith(".asar") || lower.EndsWith(".pak") || lower.EndsWith(".zip") {
             return Included("package-binary", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
         if lower.EndsWith(".bin") {
@@ -450,8 +454,11 @@ class OwnershipPolicy {
         return language == "wasm-binary" || language == "managed-binary" || language == "native-binary" || language == "package-binary" || language == "opaque-binary" || language == "automation-binary" || language == "platform-config-binary"
     }
 
-    // Config, build and packaging surfaces: reviewed by fingerprint, never by ceiling.
+// Config, build, packaging and checked-in test fixtures: reviewed by fingerprint, never by ceiling.
     static func IsDeliveryLanguage(language: string): bool {
+        if language == "test-fixture" {
+            return true
+        }
         if language == "msbuild" || language == "shell" || language == "powershell" {
             return true
         }
@@ -462,6 +469,18 @@ class OwnershipPolicy {
             return true
         }
         return IsBinaryLanguage(language)
+    }
+
+    // Untracked audit inputs must be source or configuration that the ratchet governs. Binary and
+    // policy-data files are commonly generated locally and are measured only after being tracked.
+    static func IsUntrackedAuditInput(classification: OwnershipClassification): bool {
+        if !classification.Included {
+            return false
+        }
+        if IsCodeLanguage(classification.Language) {
+            return true
+        }
+        return classification.Language == "test-fixture" || classification.Language == "msbuild" || classification.Language == "shell" || classification.Language == "powershell" || classification.Language == "product-config" || classification.Language == "yaml-config" || classification.Language == "json-config" || classification.Language == "gradle-config"
     }
 
     // Every other audited language is code, and code keeps the growth ratchet.
@@ -991,12 +1010,109 @@ class OwnershipAudit {
             return observed
         }
 
-        ScanDirectory(root, root, observed, result)
+        if !TryScanGitFiles(root, observed, result) {
+            ScanDirectory(root, root, observed, result)
+        }
         SortObserved(observed)
         if observed.Count == 0 {
             result.Add("OWN010", "", "repository scan found no non-N# ownership files")
         }
         return observed
+    }
+
+    // The live audit measures tracked repository files plus untracked source and configuration.
+    // Untracked binaries and data can be generated outputs (even when a local build did not ignore
+    // them), so they are not part of the ratchet input. Temporary fixture roots have no .git marker
+    // and continue through the filesystem scanner above.
+    static func TryScanGitFiles(root: string, observed: List<OwnershipObservedFile>, result: OwnershipAuditResult): bool {
+        gitMarker := Path.Combine(root, ".git")
+        if !Directory.Exists(gitMarker) && !File.Exists(gitMarker) {
+            return false
+        }
+
+        trackedOutput := ""
+        if !TryReadGitFileList(root, "ls-files --cached -z", out trackedOutput, result) {
+            return true
+        }
+        untrackedOutput := ""
+        if !TryReadGitFileList(root, "ls-files --others --exclude-standard -z", out untrackedOutput, result) {
+            return true
+        }
+
+        ScanGitFileOutput(root, trackedOutput, true, observed, result)
+        ScanGitFileOutput(root, untrackedOutput, false, observed, result)
+        return true
+    }
+
+    static func TryReadGitFileList(root: string, arguments: string, out output: string, result: OwnershipAuditResult): bool {
+        output = ""
+        process: Process? = null
+        try {
+            startInfo := new ProcessStartInfo {
+                FileName: "git",
+                Arguments: arguments,
+                WorkingDirectory: root,
+                UseShellExecute: false,
+                RedirectStandardOutput: true
+            }
+            process = Process.Start(startInfo)
+            if process == null {
+                result.Add("OWN010", "", "git could not enumerate repository files")
+                return false
+            }
+
+            output = process.StandardOutput.ReadToEnd()
+            process.WaitForExit()
+            if process.ExitCode != 0 {
+                result.Add("OWN010", "", "git could not enumerate repository files")
+                return false
+            }
+            return true
+        } catch caught: Exception {
+            result.Add("OWN010", "", "git could not enumerate repository files: " + caught.Message)
+            return false
+        } finally {
+            if process != null {
+                process.Dispose()
+            }
+        }
+    }
+
+    static func ScanGitFileOutput(root: string, output: string, tracked: bool, observed: List<OwnershipObservedFile>, result: OwnershipAuditResult) {
+        start := 0
+        i := 0
+        while i <= output.Length {
+            if i == output.Length || output[i] == '\0' {
+                if i > start {
+                    relative := OwnershipPolicy.NormalizeRelativePath(output.Substring(start, i - start))
+                    fullPath := Path.Combine(root, relative)
+                    if File.Exists(fullPath) {
+                        classification := OwnershipPolicy.Classify(relative)
+                        if tracked || OwnershipPolicy.IsUntrackedAuditInput(classification) {
+                            if classification.Unknown {
+                                result.Add(
+                                    "OWN009",
+                                    relative,
+                                    "unknown product-adjacent file type; classify it in N# or remove it before it can enter the ownership epoch"
+                                )
+                            } else if classification.Included {
+                                if OwnershipPolicy.IsBinaryLanguage(classification.Language) {
+                                    observed.Add(OwnershipFacts.ObserveBinary(
+                                        relative,
+                                        classification,
+                                        OwnershipManagedFile.ReadAllBytes(fullPath)
+                                    ))
+                                } else {
+                                    observed.Add(OwnershipFacts.Observe(relative, classification, File.ReadAllText(fullPath)))
+                                }
+                            }
+                        }
+                    }
+                }
+                start = i + 1
+            }
+            i = i + 1
+        }
     }
 
     static func ScanDirectory(

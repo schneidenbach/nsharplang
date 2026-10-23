@@ -72,6 +72,10 @@ class ErrorSuggestions {
             return "Keep the `when` expression synchronous; put awaited work in the selected `catch` body"
         }
 
+        if code == ErrorCode.AwaitOutsideAsync {
+            return "Add `async` to the enclosing function or lambda, or remove `await` and return the task directly"
+        }
+
         if code == ErrorCode.WrongArgumentCount {
             return "Check the function signature for required parameters"
         }
@@ -90,6 +94,10 @@ class ErrorSuggestions {
 
         if code == ErrorCode.VisibilityConventionWarning {
             return "Use PascalCase for public members or camelCase for private members"
+        }
+
+        if code == ErrorCode.RefArgumentForInWarning {
+            return "Write `in` instead to show that the callee receives a read-only reference"
         }
 
         if code == ErrorCode.ImportCollision {

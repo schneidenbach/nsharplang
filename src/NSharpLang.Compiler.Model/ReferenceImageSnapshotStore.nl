@@ -182,7 +182,9 @@ class ReferenceImageSnapshotStore {
             if !definition.Culture.IsNil {
                 name.CultureName = reader.GetString(definition.Culture)
             } else {
-                name.CultureName = "neutral"
+                // `neutral` is a display value, not a culture name accepted by invariant-globalization hosts.
+                // The empty name represents the same neutral culture and keeps AssemblyName.FullName stable.
+                name.CultureName = ""
             }
             if (definitionFlags & 1) != 0 {
                 name.SetPublicKey(reader.GetBlobBytes(definition.PublicKey))

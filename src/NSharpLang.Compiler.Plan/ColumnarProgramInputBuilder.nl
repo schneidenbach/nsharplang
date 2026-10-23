@@ -758,9 +758,10 @@ sealed class ColumnarProgramInputBuilder {
 
         description := ColumnarTestCaseLabel(source, result)
         bodyNodes := BuildTrimmedNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bodyNodeCount)
+        asyncTestBody := ColumnarTestBodyHasSuspension(bodyNodes, bodyRoot)
         body := new ColumnarFunctionInput(
             "test " + description,
-            "void",
+            asyncTestBody ? "Task" : "void",
             System.Array.Empty<string>(),
             System.Array.Empty<string>(),
             bodyNodes,
@@ -773,7 +774,7 @@ sealed class ColumnarProgramInputBuilder {
             null,
             null,
             null,
-            false,
+            asyncTestBody,
             0,
             0,
             false,
@@ -782,6 +783,29 @@ sealed class ColumnarProgramInputBuilder {
         )
         input = new ColumnarTestInput(description, body, ColumnarTestSourceAttributes(ck, cs, cv, n, testIndex, source))
         return true
+    }
+
+    // A test block is async only when its own body has a suspension construct. That keeps the
+    // established void test method shape for ordinary tests, while `await`, `await using`, and
+    // `await foreach` use the same Task state-machine path as async functions.
+    private static func ColumnarTestBodyHasSuspension(nodes: ColumnarNodeTable, node: int): bool {
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.AwaitExpression || kind == ColumnarStatementNodeKind.AwaitForeachStatement || kind == ColumnarStatementNodeKind.AwaitUsingStatement {
+            return true
+        }
+        // A nested lambda or local function owns its own state machine. Its awaits do not make the
+        // containing test method asynchronous unless the test body itself awaits the callable.
+        if ColumnarLambdaNodeFacts.IsLambda(kind) || kind == ColumnarStatementNodeKind.LocalFunctionDeclaration {
+            return false
+        }
+        child := 0
+        while child < nodes.ChildCount(node) {
+            if ColumnarTestBodyHasSuspension(nodes, nodes.Child(node, child)) {
+                return true
+            }
+            child += 1
+        }
+        return false
     }
 
     private static func TryTokenizeColumnarSource(source: string, out tokens: ColumnarTokenizedSource): bool {
@@ -1090,6 +1114,7 @@ sealed class ColumnarProgramInputBuilder {
                         structName
                     )
                 }
+                methodInput.SourceDeclarationStart = cs[outMethodFuncIndices[m]]
                 methods.Add(methodInput)
                 m = m + 1
             }
@@ -1139,6 +1164,7 @@ sealed class ColumnarProgramInputBuilder {
                         structName
                     )
                 }
+                propInput.SourceDeclarationStart = cs[outPropIndices[pr]]
                 properties.Add(propInput)
                 pr = pr + 1
             }
@@ -1622,6 +1648,7 @@ sealed class ColumnarProgramInputBuilder {
         )
         parsedInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, funcIndex)
         parsedInput.ParameterSourceAttributes = ColumnarSourceAttributes.ReadParameters(source, ck, cs, cv, funcIndex, paramNames.Length)
+        parsedInput.IsExtensionMethod = HasExtensionReceiverParameter(source, ck, cs, cv, n, funcIndex)
         input = parsedInput
 
         localFunctionCount := result[8]
@@ -1637,9 +1664,8 @@ sealed class ColumnarProgramInputBuilder {
         lf := 0
         while lf < localFunctionCount {
             localFn: ColumnarFunctionInput = null
-            // `async func` before the local function's own `func` keyword (token kind 68). The body
-            // planner does not host an async local function, and recording the word is what lets the
-            // emitter decline by NAME instead of reporting the unwrapped return type it produces.
+            // `async func` before the local function's own `func` keyword (token kind 68). This
+            // preserves the modifier for async-local state-machine realization and diagnostics.
             localFunctionIsAsync := localFunctionTokenIndices[lf] > 0 && ck[localFunctionTokenIndices[lf] - 1] == 68
             if !TryParseColumnarFunctionAt(
                 ck,
@@ -1671,6 +1697,22 @@ sealed class ColumnarProgramInputBuilder {
             lf = lf + 1
         }
         return true
+    }
+
+    // Signature projection carries parameter types and modifiers; the CLR emitter also needs to
+    // know whether parameter zero is the extension receiver. Read the marker from the same token
+    // stream after the declaration's opening parenthesis.
+    private static func HasExtensionReceiverParameter(source: string, kinds: int[], starts: int[], valueLengths: int[], count: int, funcIndex: int): bool {
+        index := funcIndex
+        while index < count && kinds[index] != ColumnarTokenKindFacts.LeftParenKind {
+            index = index + 1
+        }
+        if index + 1 >= count || source == null {
+            return false
+        }
+
+        receiverIndex := index + 1
+        return ParserDeclarationTokenTextEquals(source, starts[receiverIndex], valueLengths[receiverIndex], "this")
     }
 
     private static func TryParseColumnarConstructorAt(ck: int[], cs: int[], cv: int[], n: int, ctorIndex: int, source: string, out input: ColumnarConstructorInput): bool {

@@ -2,6 +2,8 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
 
 // THE CONTRACT FOR THE SHAPE WALK THAT SIX OWNERS USED TO HOLD A COPY OF.
 //
@@ -82,6 +84,20 @@ test "a baked runtime type reaches no type the compilation is still writing" {
     parameter := typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
     assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(parameter)
     assert RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(parameter)
+}
+
+test "constructed delegate signatures retain builder-bound generic arguments" {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("RuntimeTypeShapeFactsProbe"), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("RuntimeTypeShapeFactsProbe")
+    owner := module.DefineType("RuntimeTypeShapeFactsOwner", TypeAttributes.Public)
+    parameters := owner.DefineGenericParameters(["T"])
+    delegateDefinition := typeof(Func<int>).GetGenericTypeDefinition()
+    constructed := delegateDefinition.MakeGenericType([parameters[0]])
+
+    assert constructed.IsGenericType
+    assert !Object.ReferenceEquals(constructed, delegateDefinition)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(constructed)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(constructed)
 }
 
 test "a baked enum is an enum and is not an enum builder" {

@@ -124,6 +124,37 @@ class ColumnarSourceOperatorResolver {
         return Select(candidates, operandTypes)
     }
 
+    // Distinguish a source type with no declaration of this operator from one whose declared
+    // overload set exists but could not be selected. The null-reference comparison planner uses
+    // built-in `ceq` only in the former case; the latter remains an explicit unsupported boundary.
+    static func DeclaresBinaryOperator(symbol: string, leftType: Type, rightType: Type, sourceDefinitions: IEnumerable<ColumnarStructDef>): bool {
+        ValidateInputs(symbol, leftType, rightType, sourceDefinitions)
+        methodName := BinaryMethodName(symbol)
+        if methodName == null {
+            return false
+        }
+
+        leftOwner: ColumnarStructDef? = null
+        rightOwner: ColumnarStructDef? = null
+        leftClosed := false
+        rightClosed := false
+        if TryFindExactOwner(leftType, sourceDefinitions, out leftOwner, out leftClosed) && OwnerDeclaresOperator(leftOwner, methodName) {
+            return true
+        }
+        if TryFindExactOwner(rightType, sourceDefinitions, out rightOwner, out rightClosed) && !ColumnarConstructionPlanner.SameObject(rightOwner, leftOwner) && OwnerDeclaresOperator(rightOwner, methodName) {
+            return true
+        }
+        return false
+    }
+
+    static func OwnerDeclaresOperator(owner: ColumnarStructDef?, methodName: string): bool {
+        if owner == null || owner.StaticMethods == null {
+            return false
+        }
+        overloads: List<ColumnarStaticMethodDef>? = null
+        return owner.StaticMethods.TryGetValue(methodName, out overloads) && overloads != null && overloads.Count > 0
+    }
+
     static func Select(candidates: List<ColumnarSourceOperatorCandidate>, operandTypes: Type[]): ColumnarSourceOperatorSelection {
         if candidates.Count != 1 {
             return Unselected(ColumnarSourceOperatorStatus.Rejected)

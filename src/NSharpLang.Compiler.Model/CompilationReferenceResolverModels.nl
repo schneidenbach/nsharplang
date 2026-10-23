@@ -13,6 +13,7 @@ class ReferenceResolutionOptions {
     buildProjectReferencesValue: bool
     quietValue: bool
     aotModeValue: bool
+    emitReferenceAssemblyValue: bool
     useBuiltProjectReferencesValue: bool
     packagesFolderValue: string?
     testSourcesPresentValue: bool?
@@ -24,6 +25,7 @@ class ReferenceResolutionOptions {
         buildProjectReferencesValue = true
         quietValue = false
         aotModeValue = false
+        emitReferenceAssemblyValue = false
     }
 
     Configuration: string {
@@ -68,6 +70,15 @@ class ReferenceResolutionOptions {
         }
         set {
             aotModeValue = value
+        }
+    }
+
+    EmitReferenceAssembly: bool {
+        get {
+            return emitReferenceAssemblyValue
+        }
+        set {
+            emitReferenceAssemblyValue = value
         }
     }
 

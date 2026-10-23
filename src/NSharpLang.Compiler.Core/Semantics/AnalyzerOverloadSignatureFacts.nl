@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
@@ -32,7 +33,7 @@ class AnalyzerOverloadSignatureFacts {
 
         index := 0
         while index < aParameters.Count {
-            if GetParameterTypeSignature(aParameters[index]) != GetParameterTypeSignature(bParameters[index]) {
+            if GetFunctionParameterSignature(a, index, aParameters[index]) != GetFunctionParameterSignature(b, index, bParameters[index]) {
                 return false
             }
 
@@ -53,7 +54,7 @@ class AnalyzerOverloadSignatureFacts {
         index := 0
         while index < aParameters.Count {
             otherType := b.Parameters[index].Type
-            if otherType == null || GetParameterTypeSignature(aParameters[index]) != GetParameterTypeSignature(otherType) {
+            if otherType == null || GetFunctionParameterSignature(a, index, aParameters[index]) != GetDeclarationParameterSignature(b.Parameters[index]) {
                 return false
             }
 
@@ -61,6 +62,34 @@ class AnalyzerOverloadSignatureFacts {
         }
 
         return true
+    }
+
+    // `in` and by-value parameters have different CLR signatures and can form overloads. The three
+    // by-reference directions still share one declaration identity for overload uniqueness, matching
+    // C#'s rule that ref/out/in cannot distinguish declarations from one another.
+    static func GetFunctionParameterSignature(functionType: FunctionTypeInfo, index: int, typeRef: TypeReference): string {
+        modifier := Ast.ParameterModifier.None
+        modifiers := functionType.ParameterModifiers
+        if modifiers != null && index >= 0 && index < modifiers.Count {
+            modifier = modifiers[index]
+        }
+
+        return GetParameterSignature(typeRef, modifier)
+    }
+
+    static func GetDeclarationParameterSignature(parameter: Parameter): string {
+        return GetParameterSignature(parameter.Type, parameter.Modifier)
+    }
+
+    static func GetParameterSignature(typeRef: TypeReference, modifier: Ast.ParameterModifier): string {
+        signature := GetParameterTypeSignature(typeRef)
+        if modifier == Ast.ParameterModifier.Ref || modifier == Ast.ParameterModifier.Out || modifier == Ast.ParameterModifier.In {
+            if !signature.StartsWith("&", StringComparison.Ordinal) {
+                return "&" + signature
+            }
+        }
+
+        return signature
     }
 
     static func GetParameterTypeSignature(typeRef: TypeReference): string {

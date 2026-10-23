@@ -162,8 +162,8 @@ func GeneratedCSharpFileCount(directory: string): int {
     return Directory.GetFiles(directory, "*.g.cs", SearchOption.AllDirectories).Length
 }
 
-// The declining shape the two "requires columnar emission" rows depend on: a branch out of an
-// `await foreach` still needs a resume target the iterator state machine does not have.
-func DecliningSource(): string {
+// An async iterator with a branch out of `await foreach`, shared by the single-file and project
+// reference CLI coverage so both entry points exercise the completed state-machine lowering.
+func AsyncIteratorSource(): string {
     return "import System.Collections.Generic\nasync func* Pending(items: IAsyncEnumerable<int>): IAsyncEnumerable<int> {\n    await foreach item in items {\n        break\n    }\n}\n\n\nfunc main() {\n    print \"counted\"\n}\n"
 }

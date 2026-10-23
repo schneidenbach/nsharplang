@@ -802,9 +802,9 @@ test "nlc fix file targeting, missing files and missing projects preserve JSON a
         File.WriteAllText(Path.Combine(sourceDirectory, "Program.nl"), "func Main() {\n    sb := new StringBuilder()\n}\n")
         run := Nlc("fix --project \"" + projectDirectory + "\" --file src/Program.nl --dry-run")
 
-        assert run.ExitCode == 1
-        assert run.Stderr.Length == 0
-        assert !run.Stdout.EndsWith(Environment.NewLine)
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        assert run.Stderr.Length == 0, run.Stderr
+        assert !run.Stdout.EndsWith(Environment.NewLine), run.Stdout
         document := JsonDocument.Parse(run.Stdout)
         root := document.RootElement
         assert EquivalentProcessPath(TextOf(root.GetProperty("projectRoot")), NormalizedFullPath(projectDirectory))
@@ -1425,7 +1425,7 @@ test "nlc check sorts diagnostics by file and line" {
     }
 }
 
-test "nlc check reports an unsupported async iterator loop branch as an AOT columnar decline" {
+test "nlc check accepts a supported async iterator loop branch for AOT" {
     directory := NewTempDirectory("nlc-check-aot")
     try {
         WriteProjectYml(directory, "name: AotCheckRequiresColumnar\noutputType: library\ntargetFramework: net10.0\n")
@@ -1435,22 +1435,21 @@ test "nlc check reports an unsupported async iterator loop branch as an AOT colu
         )
 
         run := NlcIn(directory, "check --aot")
-        assert run.ExitCode == 1
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
         assert run.Stderr.Length == 0
         assert !run.Stdout.EndsWith(Environment.NewLine)
         document := JsonDocument.Parse(run.Stdout)
         root := document.RootElement
-        assert !root.GetProperty("ok").GetBoolean()
-        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("code")) == "NL103"
-        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("message")).Contains("Columnar AOT emission is required")
-        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("message")).Contains("emit.iterator.loop-branch-placement: a `break` out of an `await foreach` is not yet lowered in an iterator body")
+        assert root.GetProperty("ok").GetBoolean(), run.Stdout
+        assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 0, run.Stdout
+        assert root.GetProperty("results").GetArrayLength() == 0, run.Stdout
         document.Dispose()
     } finally {
         Directory.Delete(directory, true)
     }
 }
 
-test "nlc check AOT project references report the referenced source decline" {
+test "nlc check accepts supported async iterator branches through AOT project references" {
     directory := NewTempDirectory("nlc-check-aot-project-reference")
     try {
         sharedDirectory := Path.Combine(directory, "Shared")
@@ -1467,40 +1466,31 @@ test "nlc check AOT project references report the referenced source decline" {
         File.WriteAllText(Path.Combine(directory, "Program.nl"), "func Root(): int {\n    return 1\n}\n")
 
         run := Nlc("check --project \"" + directory + "\" --aot")
-        assert run.ExitCode == 1
-        assert run.Stderr.Length == 0
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stderr.Length == 0, run.Stderr
         document := JsonDocument.Parse(run.Stdout)
         root := document.RootElement
         assert root.GetProperty("schemaVersion").GetInt32() == 2
-        assert !root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("ok").GetBoolean(), run.Stdout
         appRoot := NormalizedFullPath(directory)
         sharedRoot := NormalizedFullPath(sharedDirectory)
-        appFailureFound := false
+        appProjectFound := false
         sharedProjectFound := false
-        sharedDeclineFound := false
         for project in root.GetProperty("projects").EnumerateArray() {
             projectRoot := TextOf(project.GetProperty("projectRoot"))
             if EquivalentProcessPath(projectRoot, appRoot) {
-                appFailureFound = true
-                errorMessage := new JsonElement()
-                assert project.TryGetProperty("error", out errorMessage)
-                assert TextOf(errorMessage).Contains("AOT builds require successful N# columnar emission")
-                assert TextOf(errorMessage).Contains("emit.iterator.loop-branch-placement: a `break` out of an `await foreach` is not yet lowered in an iterator body")
+                appProjectFound = true
+                assert project.GetProperty("ok").GetBoolean(), run.Stdout
+                assert project.GetProperty("results").GetArrayLength() == 0, run.Stdout
             }
             if EquivalentProcessPath(projectRoot, sharedRoot) {
                 sharedProjectFound = true
-                for diagnostic in project.GetProperty("results").EnumerateArray() {
-                    if TextOf(diagnostic.GetProperty("code")) == "NL103" {
-                        sharedDeclineFound = true
-                        assert TextOf(diagnostic.GetProperty("message")).Contains("Columnar AOT emission is required")
-                        assert TextOf(diagnostic.GetProperty("message")).Contains("emit.iterator.loop-branch-placement: a `break` out of an `await foreach` is not yet lowered in an iterator body")
-                    }
-                }
+                assert project.GetProperty("ok").GetBoolean(), run.Stdout
+                assert project.GetProperty("results").GetArrayLength() == 0, run.Stdout
             }
         }
-        assert appFailureFound
+        assert appProjectFound
         assert sharedProjectFound
-        assert sharedDeclineFound
         document.Dispose()
     } finally {
         Directory.Delete(directory, true)

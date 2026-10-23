@@ -732,13 +732,12 @@ class AnalyzerLambdaAnalysis {
     // WHAT AN `async` LAMBDA'S BODY MUST PRODUCE, given the delegate's return type: `Task<T>` and
     // `ValueTask<T>` unwrap to `T`; `Task` and `ValueTask` carry no value, so the body is a `void` one.
     //
-    // A `void`-RETURNING DELEGATE IS NOT A TARGET, and that is a DELIBERATE DEPARTURE FROM C#, which
-    // accepts `async void` lambdas. N#'s `await` is lowered synchronously (there is no state machine
-    // in either pipeline), so an async body with nowhere to put its task is EXACTLY its own body: the
-    // keyword would change nothing, and an exception would reach the caller rather than the task, so
-    // the C# meaning is not on offer. Refusing it also keeps overload resolution honest — `Task.Run`
-    // declares both `Action` and `Func<Task>`, and an `async` lambda that could be an `Action` would
-    // silently bind to the fire-and-forget overload. The caller reports NL334 with the fix.
+    // A `void`-RETURNING DELEGATE IS NOT A TARGET. This slice keeps N#'s existing deliberate
+    // departure from C#: an `async` lambda needs a task-returning delegate so the caller has a task
+    // through which to observe completion and exceptions. Accepting `async void` would also let an
+    // overload such as `Task.Run(Action)` silently select fire-and-forget behavior over
+    // `Task.Run(Func<Task>)`. The language decision is preserved here; NL334 names the task-returning
+    // delegate fix.
     static func AsyncBodyReturnType(signatureReturn: TypeInfo?): TypeInfo? {
         if signatureReturn == null {
             return null
@@ -770,10 +769,9 @@ class AnalyzerLambdaAnalysis {
     // its way to an `int` and hands an `int` to a position that takes a `Task<int>`; the generic
     // mismatch that follows names two delegate types and leaves the reader to spot the missing word.
     //
-    // THE RULE IS ABOUT THE CONVERSION, NOT ABOUT `await`. N# allows `await` in a body that is not
-    // declared `async` — the lowering is identical — so "you awaited without saying async" would be a
-    // rule this language does not have. What IS wrong here is narrower and certain: the target's
-    // return is task-like, and the body's value is not a task, so there is no conversion at all.
+    // THE RULE IS ABOUT THE CONVERSION, NOT ABOUT THE AWAIT KEYWORD. What is wrong here is narrower
+    // and certain: the target's return is task-like, and the body's value is not a task, so there is
+    // no conversion at all.
     // A body that already produces a task (`() => Task.FromResult(1)`) is correct and says nothing.
     //
     // A BLOCK BODY IS NOT ASKED, because a lambda does not infer a block's return type: its `return`s

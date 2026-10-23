@@ -95,6 +95,9 @@ class ColumnarFunctionInput {
     BodyRoot: int
     IsStatic: bool
     IsAsync: bool
+    // A leading `this` parameter is ordinary CLR parameter zero, but its containing holder and
+    // method need ExtensionAttribute metadata for consumers to discover it as an extension.
+    IsExtensionMethod: bool
     ReturnTupleElementNames: string[]?
     // The return and parameter types as WRITTEN, keeping every tuple element label at every level:
     // `(Min:int,Max:int)`, `(A:int,D:(B:int,C:int))`, `List<(Min:int,Max:int)>`. The structural
@@ -187,6 +190,7 @@ class ColumnarFunctionInput {
         BodyNodes = bodyNodes
         BodyRoot = bodyRoot
         IsStatic = isStatic
+        IsExtensionMethod = false
         ReturnTupleElementNames = returnTupleElementNames
         ReturnLabeledCanonical = returnLabeledCanonical ?? returnCanonical
         ParamLabeledCanonicals = paramLabeledCanonicals ?? paramCanonicals
@@ -261,6 +265,7 @@ class ColumnarPropertyInput {
     Getter: ColumnarFunctionInput
     Setter: ColumnarFunctionInput?
     SourceFileId: int
+    SourceDeclarationStart: int
 
     constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false, isRequired: bool = false, isInitOnly: bool = false) {
         IsStatic = isStatic
@@ -273,6 +278,7 @@ class ColumnarPropertyInput {
         Getter = getter
         Setter = setter
         SourceFileId = sourceFileId
+        SourceDeclarationStart = -1
     }
 }
 

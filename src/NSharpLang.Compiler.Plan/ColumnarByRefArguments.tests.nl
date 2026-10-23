@@ -35,13 +35,18 @@ func ByRefTypes2(first: Type, second: Type): Type[] {
 }
 
 test "an unannotated source byref type preserves its caller storage forms" {
-    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 0)
-    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 1)
-    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 2)
-    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 5)
-    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(5, 0)
-    assert !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(1, 0)
-    assert !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(2, 0)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 0, false)
+    assert !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 1, false)
+    assert !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 2, false)
+    assert !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 5, false)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 1, true)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 2, true)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 5, true)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(5, 0, false)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(5, 1, false)
+    assert RefKindCompatibilityFacts.ClassifyColumnarDirection(5, 1, false) == RefKindCompatibilityResult.RefEquivalentToIn
+    assert !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(1, 0, false)
+    assert !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(2, 0, false)
 }
 
 // ── what a by-ref parameter may be ────────────────────────────────────────────────────────────

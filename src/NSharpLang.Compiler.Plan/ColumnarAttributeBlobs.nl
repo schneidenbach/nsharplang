@@ -90,6 +90,16 @@ class ColumnarAttributeBlobs {
         return blob.ToArray()
     }
 
+    // `[AsyncStateMachine(typeof(StateMachine))]`: a System.Type fixed argument is serialized as a
+    // SerString containing the assembly-qualified metadata name of the referenced type.
+    static func TypeName(value: string): byte[] {
+        blob := new List<byte>()
+        WritePrologue(blob)
+        WriteSerString(blob, value)
+        WriteNamedArgumentCount(blob, 0)
+        return blob.ToArray()
+    }
+
     // `[Trait("NSharpDescription", <description>)]`: prolog, two SerString fixed arguments, no named
     // arguments. A null argument is legal and writes the single-byte null form.
     static func TwoStrings(first: string, second: string): byte[] {

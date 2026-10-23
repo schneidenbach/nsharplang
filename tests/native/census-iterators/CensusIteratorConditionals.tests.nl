@@ -158,7 +158,7 @@ test "a coalesce over a type parameter takes the left branch for every value ins
 
 test "an async generator coalesces exactly as the synchronous machine does" {
     collected := new List<string>()
-    await foreach v in CoalescedAsync(["a", null]) {
+    await foreach v in CoalescedAsync(CoalescedInput()) {
         collected.Add(v)
     }
     assert collected.Count == 2
@@ -170,7 +170,7 @@ test "an async coalesce throw arm raises from MoveNextAsync" {
     produced := new List<string>()
     raised := ""
     try {
-        await foreach v in RequiredAsync(["a", null]) {
+        await foreach v in RequiredAsync(RequiredInput()) {
             produced.Add(v)
         }
     } catch ex: InvalidOperationException {
@@ -185,7 +185,7 @@ test "an async conditional throw arm raises from MoveNextAsync" {
     produced := new List<string>()
     raised := false
     try {
-        await foreach v in LabelledAsync([1, -1]) {
+        await foreach v in LabelledAsync(LabelledInput()) {
             produced.Add(v)
         }
     } catch ex: ArgumentOutOfRangeException {

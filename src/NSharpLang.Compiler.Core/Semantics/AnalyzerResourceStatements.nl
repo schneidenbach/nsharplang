@@ -220,6 +220,9 @@ class AnalyzerResourceStatements {
     // A `using` STATEMENT. The assignability oracle is read from the caller's field HERE, for the
     // same reason.
     func BeginUsing(statement: UsingStatement, assignability: AnalyzerAssignability): ResourceStatementState {
+        if statement.IsAsync {
+            ambientValue.ReportAwaitPlacementIfNeeded(statement.Line, statement.Column)
+        }
         return new ResourceStatementState(1, null, statement, null, null, assignability, null)
     }
 

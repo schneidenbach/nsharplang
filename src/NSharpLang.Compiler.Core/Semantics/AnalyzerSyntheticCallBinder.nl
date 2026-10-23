@@ -796,7 +796,18 @@ class AnalyzerSyntheticCallBinder {
 
         boundParameterType := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)))
         expectedType: TypeInfo? = declarationContext.ResolveDeclaredAlias(boundParameterType)
-        argumentType: TypeInfo? = declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex])
+        argumentType: TypeInfo? = declarationContext.ResolveDeclaredAlias(AnalyzerOverloadFacts.ApplySyntheticArgumentModifier(call.Arguments[argumentIndex].Modifier, argTypes[argumentIndex]))
+        if AnalyzerOverloadFacts.SyntheticParameterModifier(functionType, parameterIndex) == Ast.ParameterModifier.In {
+            expectedByRef := expectedType as ByRefTypeInfo
+            if expectedByRef != null {
+                expectedType = declarationContext.ResolveDeclaredAlias(expectedByRef.InnerType)
+            }
+
+            argumentByRef := argumentType as ByRefTypeInfo
+            if argumentByRef != null {
+                argumentType = declarationContext.ResolveDeclaredAlias(argumentByRef.InnerType)
+            }
+        }
         if paramsParameterIndex < 0 || parameterIndex != paramsParameterIndex {
             return new SyntheticArgumentComparison(true, expectedType, argumentType)
         }

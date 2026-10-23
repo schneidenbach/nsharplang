@@ -11967,10 +11967,10 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — th
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL202:TypeMismatch@4:20+1;"
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:20+1;", AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcRow(analysis, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcSnippet(analysis, 0) == "<null>"
@@ -11979,13 +11979,13 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — th
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "TypeMismatch") == 1
     assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
-    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.|Error"
     assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@4:20+1"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@4:20+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "    value := await 1"
@@ -11994,7 +11994,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — th
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:20+1"
 }
 
@@ -17410,6 +17410,22 @@ test "020 s34 analyzer clean source: `AspNetCore_ActionResult_Generic` is analys
     assert AcCensus(AcAnalyze(source)) == ""
 }
 
+test "a same-named source ActionResult<T> does not receive MVC's special conversion" {
+    source := "import Microsoft.AspNetCore.Mvc\n\nclass ActionResult<T> {}\n\nfunc Need(value: ActionResult<int>): void {}\n\nfunc main() {\n    Need(new ContentResult())\n}"
+    analysis := AcAnalyzeWithSourceAndConfig(source, "Microsoft.NET.Sdk.Web", "net10.0")
+    assert AcHasErrors(analysis) == "True", AcCensus(analysis)
+    assert AcCodeCount(analysis, "TypeMismatch") == 1, AcCensus(analysis)
+    assert AcCensus(analysis).Contains("NL202:TypeMismatch@"), AcCensus(analysis)
+}
+
+test "a generic duck implementation cannot satisfy a non-generic method slot" {
+    source := "duck interface IReader {\n    func Read(value: int): int\n}\n\nclass WrongReader {\n    func Read<T>(value: int): int { return value }\n}\n\nfunc Use(reader: IReader): int { return reader.Read(42) }\n\nfunc main() {\n    print Use(new WrongReader())\n}"
+    analysis := AcAnalyzeWithSource(source)
+    assert AcHasErrors(analysis) == "True", AcCensus(analysis)
+    assert AcCodeCount(analysis, "TypeMismatch") == 1, AcCensus(analysis)
+    assert AcCensus(analysis).Contains("NL202:TypeMismatch@"), AcCensus(analysis)
+}
+
 test "020 s34 analyzer clean source: `AspNetCore_BadRequest_WithAnonymousObject` is analysed THROUGH `LoadFromProjectConfig` with `Sdk = Microsoft.NET.Sdk.Web` — it parses to 1 class behind 1 import, BOTH routes report an EMPTY census, and the config changes NOTHING here: the config-FREE route is silent over the same source (was AnalyzerTests.AspNetCore_BadRequest_WithAnonymousObject)" {
     source := "\n            import Microsoft.AspNetCore.Mvc\n\n            class EmployeesController : ControllerBase {\n                func Validate(): IActionResult {\n                    errors := [\"Error 1\", \"Error 2\"]\n                    return BadRequest(new { errors: errors })\n                }\n            }\n        "
     assert AcParseCensus(source) == ""
@@ -21005,23 +21021,19 @@ test "020 s36 analyzer clean source V-CONTROL V6: `x[0]` -> `x.Missing` reports 
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL402:NoMatchingOverload@7:32+6;"
+    assert AcCensus(analysis) == "NL303:UndefinedMember@7:46+7;NL402:NoMatchingOverload@7:32+6;", AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'Select' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
-    assert AcHint(analysis, 0) == "<null>"
-    assert AcSnippet(analysis, 0) == "<null>"
-    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcErrorCount(analysis) == 2
+    assert AcCodeRow(analysis, "UndefinedMember").Contains("Missing"), AcCodeRow(analysis, "UndefinedMember")
+    assert AcCodeRow(analysis, "NoMatchingOverload").Contains("No overload of 'Select'"), AcCodeRow(analysis, "NoMatchingOverload")
     plainModel := AcModel(analysis)
     assert AcLookupIdentifier(plainModel, "chars") == "unknown"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL402:NoMatchingOverload@7:32+6;"
+    assert AcCensus(rich) == "NL303:UndefinedMember@7:46+7;NL402:NoMatchingOverload@7:32+6;"
     assert AcHasErrors(rich) == "True"
-    assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Select' accepts 1 argument with these types|<null>|Error"
-    assert AcHint(rich, 0) == "This call passes 1 argument: `unknown`.\nAvailable overloads:\n  - Select(Func<TSource?, TResult?> selector): IEnumerable<TResult?>\n  - Select(Func<TSource?, int, TResult?> selector): IEnumerable<TResult?>\n  - Select(Expression<Func<TSource?, TResult?>> selector): IQueryable<TResult?>\n  - Select(Expression<Func<TSource?, int, TResult?>> selector): IQueryable<TResult?>\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
-    assert AcSnippet(rich, 0) == "                chars := query.Select(x => x.Missing)"
-    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcErrorCount(rich) == 2
+    assert AcCodeRow(rich, "UndefinedMember").Contains("Missing"), AcCodeRow(rich, "UndefinedMember")
+    assert AcCodeRow(rich, "NoMatchingOverload").Contains("No overload of 'Select'"), AcCodeRow(rich, "NoMatchingOverload")
     richModel := AcModel(rich)
     assert AcLookupIdentifier(richModel, "chars") == "unknown"
 }
@@ -22572,44 +22584,33 @@ test "NL309 coverage: NEGATIVE — an object initializer writing MUTABLE fields 
     assert AcRow(rich, 0) == "<no-such-error>"
 }
 
-// PINNED AS MEASURED, NOT AS ENDORSED — THE ONE NL309 SHAPE THIS CHIP DID NOT CLOSE.
-//
-// The two lambdas below are the SAME EXPRESSION written twice: one inside the constructor (line 7),
-// one inside an ordinary method (line 11). Roslyn refuses BOTH with `CS0191`. Only the method's is
-// reported, and the reason is precise rather than mysterious: an EXPRESSION-bodied lambda is the
-// only nested body the analyzer walks WITHOUT `EnterNestedBody` around it — the driver brackets a
-// lambda's BLOCK body (`DriveLambda` step kind 5) and hands an expression body straight to the
-// expression walk — so the constructor-flag clear that closes every other nested body cannot reach
-// it. Closing it means `AnalyzerLambdaAnalysis` must hold the ambient context, and that owner is
-// built in `Analyzer.cs::CreateLambdaAnalysis`: one more argument, which is C# GROWTH plus a
-// two-key ratchet repin, so it is reported rather than taken. This contract pins TODAY'S answer so
-// the day it changes is a failing test rather than a silent drift.
-//
-// THE DOUBLED ROW IS ALSO MEASURED AND IS NOT AN NL309 FACT. `ForEach`'s argument lambda is walked
-// TWICE by the analyzer entry point this family drives, so the ONE illegal write at 11:27 arrives as
-// two identical rows at one anchor. The CLI's `check` route collapses them; this route does not. It
-// is pinned here so the count is not mistaken for two distinct writes — and, more to the point, so
-// that the missing SEVENTH-LINE row stays visible as the thing this block is about.
-test "NL309 coverage: MEASURED, NOT ENDORSED — an EXPRESSION-bodied lambda inside a constructor is still silent while the identical lambda in a method reports" {
+// A readonly write inside an expression-bodied lambda is outside the constructor's exemption: the
+// lambda is a separate body that can run after construction. Both identical writes below are
+// diagnosed. The analyzer's lambda entry is reached twice through this `ForEach` argument, so each
+// source write has a duplicate row here; the normal `check` route collapses those duplicates.
+test "NL309 diagnoses expression-bodied lambdas inside constructors and ordinary methods" {
     source := "import System.Collections.Generic\n\nclass Counter {\n    readonly value: int = 0\n\n    constructor(nums: List<int>) {\n        nums.ForEach(n => value = n)\n    }\n\n    func Mutate(nums: List<int>) {\n        nums.ForEach(n => value = n)\n    }\n}\n"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    // Line 7's write — the constructor's lambda — is the one that is MISSING. Every anchor here is
-    // line 11, the method's.
-    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;"
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@7:27+5;NL309:ReadonlyAssignment@7:27+5;NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;", AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 2
+    assert AcErrorCount(analysis) == 4
     assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
     assert AcRow(analysis, 1) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
-    assert AcRow(analysis, 2) == "<no-such-error>"
-    assert AcCodeCount(analysis, "ReadonlyAssignment") == 2
-    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@11:27+5"
+    assert AcRow(analysis, 2) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 3) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 4) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 4
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@7:27+5"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;"
-    assert AcErrorCount(rich) == 2
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@7:27+5;NL309:ReadonlyAssignment@7:27+5;NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;"
+    assert AcErrorCount(rich) == 4
     assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
-    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@11:27+5"
+    assert AcRow(rich, 1) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 2) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 3) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@7:27+5"
 }
 
 // ── STREAM E1: A GENERIC DECLARATION'S OWN TYPE PARAMETERS IN CALL POSITIONS ─────────────────────
@@ -22728,4 +22729,56 @@ test "a redundant must warning survives reflected overload rollback and selected
     assert AcHasErrors(analysis) == "False"
     assert AcErrorCount(analysis) == 2
     assert AcCodeCount(analysis, "NullabilityWarning") == 2
+}
+
+test "an applicable instance GetAwaiter with an invalid result blocks extension fallback" {
+    source := "import System\nimport System.Runtime.CompilerServices\nimport System.Threading.Tasks\n\nclass ContractAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(): int { return 61 }\n    func OnCompleted(continuation: Action) { continuation() }\n}\n\nclass InvalidInstanceAwaitable {\n    func GetAwaiter(): int { return 0 }\n}\n\nfunc GetAwaiter(this value: InvalidInstanceAwaitable): ContractAwaiter {\n    return new ContractAwaiter()\n}\n\nclass ExtensionOnlyAwaitable {}\n\nfunc GetAwaiter(this value: ExtensionOnlyAwaitable): ContractAwaiter {\n    return new ContractAwaiter()\n}\n\nasync func InvalidUse(value: InvalidInstanceAwaitable): Task<int> {\n    return await value\n}\n\nasync func ExtensionControl(value: ExtensionOnlyAwaitable): Task<int> {\n    return await value\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+
+    analysis := AcAnalyze(source)
+
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1, AcCensus(analysis)
+    anchor := AcCodeAnchor(analysis, "TypeMismatch")
+    assert anchor != "<no-such-code>" && anchor.Contains("@"), anchor
+}
+
+test "an applicable optional instance GetAwaiter blocks a valid extension while extension-only await remains valid" {
+    source := "import System\nimport System.Runtime.CompilerServices\nimport System.Threading.Tasks\n\nclass ContractAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(): int { return 61 }\n    func OnCompleted(continuation: Action) { continuation() }\n}\n\nclass OptionalInstanceCompetesAwaitable {\n    func GetAwaiter(fallback: int = 0): int { return fallback }\n}\n\nfunc GetAwaiter(this value: OptionalInstanceCompetesAwaitable): ContractAwaiter {\n    return new ContractAwaiter()\n}\n\nclass ExtensionOnlyAwaitable {}\n\nfunc GetAwaiter(this value: ExtensionOnlyAwaitable): ContractAwaiter {\n    return new ContractAwaiter()\n}\n\nasync func InvalidUse(value: OptionalInstanceCompetesAwaitable): Task<int> {\n    return await value\n}\n\nasync func ExtensionControl(value: ExtensionOnlyAwaitable): Task<int> {\n    return await value\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+
+    analysis := AcAnalyze(source)
+
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1, AcCensus(analysis)
+    row := AcRow(analysis, 0)
+    assert row.Contains("await expression cannot use") && row.Contains("GetAwaiter()") && row.Contains("INotifyCompletion"), row
+    anchor := AcCodeAnchor(analysis, "TypeMismatch")
+    assert anchor != "<no-such-code>" && anchor.Contains("@"), anchor
+}
+
+test "await diagnoses optional and params GetAwaiter patterns after selecting the ordinary invocation" {
+    source := "import System\nimport System.Runtime.CompilerServices\nimport System.Threading.Tasks\n\nclass ContractAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(): int { return 1 }\n    func OnCompleted(continuation: Action) { continuation() }\n}\n\nclass OptionalInstanceAwaitable {\n    func GetAwaiter(fallback: int = 0): ContractAwaiter { return new ContractAwaiter() }\n}\nclass ParamsInstanceAwaitable {\n    func GetAwaiter(params ignored: int[]): ContractAwaiter { return new ContractAwaiter() }\n}\nclass OptionalExtensionAwaitable {}\nclass ParamsExtensionAwaitable {}\nfunc GetAwaiter(this value: OptionalExtensionAwaitable, fallback: int = 0): ContractAwaiter { return new ContractAwaiter() }\nfunc GetAwaiter(this value: ParamsExtensionAwaitable, params ignored: int[]): ContractAwaiter { return new ContractAwaiter() }\n\nclass OptionalResultAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(fallback: int = 0): int { return fallback }\n    func OnCompleted(continuation: Action) { continuation() }\n}\nclass ParamsResultAwaiter: INotifyCompletion {\n    IsCompleted: bool { get { return true } }\n    func GetResult(params ignored: int[]): int { return ignored.Length }\n    func OnCompleted(continuation: Action) { continuation() }\n}\nclass OptionalResultAwaitable { func GetAwaiter(): OptionalResultAwaiter { return new OptionalResultAwaiter() } }\nclass ParamsResultAwaitable { func GetAwaiter(): ParamsResultAwaiter { return new ParamsResultAwaiter() } }\n\nasync func OptionalInstance(value: OptionalInstanceAwaitable): Task<int> { return await value }\nasync func ParamsInstance(value: ParamsInstanceAwaitable): Task<int> { return await value }\nasync func OptionalExtension(value: OptionalExtensionAwaitable): Task<int> { return await value }\nasync func ParamsExtension(value: ParamsExtensionAwaitable): Task<int> { return await value }\nasync func OptionalResult(value: OptionalResultAwaitable): Task<int> { return await value }\nasync func ParamsResult(value: ParamsResultAwaitable): Task<int> { return await value }\n"
+    assert AcParseCensus(source) == ""
+
+    analysis := AcAnalyze(source)
+
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 6, AcCensus(analysis)
+    index := 0
+    while index < 6 {
+        row := AcRow(analysis, index)
+        assert row.Contains("await expression cannot use '") && row.Contains("GetAwaiter()") && row.Contains("INotifyCompletion"), row
+        index += 1
+    }
+}
+
+test "C# 12 accepts ref for in and reports the NL908 warning at the modifier" {
+    source := "func Read(in value: int): int { return value }\n\nfunc Run(): int {\n    value := 41\n    return Read(ref value)\n}\n"
+    assert AcParseCensus(source) == ""
+
+    analysis := AcAnalyze(source)
+
+    assert AcHasErrors(analysis) == "False"
+    assert AcCensus(analysis) == "NL908:RefArgumentForInWarning@5:17+3;", AcCensus(analysis)
+    assert AcRow(analysis, 0) == "RefArgumentForInWarning|The 'ref' modifier for argument 1 corresponding to 'in' parameter is equivalent to 'in'. Consider using 'in' instead.|Write 'in' instead to show that the callee receives a read-only reference.|Warning"
 }

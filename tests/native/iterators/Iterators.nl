@@ -196,7 +196,7 @@ class TreeNode {
 // Async iterators (task 014): `async func*` returning IAsyncEnumerable<T> lowers to the planner's
 // async state machine (MoveNextCore/MoveNextAsync/DisposeAsync/GetAsyncEnumerator); every awaited
 // operand is a statement-position `await Task.Delay(<int>)` suspension point. Consumers drive the
-// machines through `await foreach` (the blocking-await consumer lowering).
+// machines through `await foreach` (the async consumer state-machine lowering).
 
 // The canonical async counting shape: classic C-style for with an await before each yield.
 async func* DelayedCountTo(n: int): IAsyncEnumerable<int> {

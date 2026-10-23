@@ -50,6 +50,22 @@ func ResolverQuote(value: string): string {
     return "\"" + value.Replace("\"", "\\\"") + "\""
 }
 
+// The reference-resolution contract concerns the runner's values, not whether the bootstrap compiler
+// emits a bare member as a field or the current compiler emits it as an auto-property.
+func ResolverResultMember(result: object, name: string): object? {
+    property := result.GetType().GetProperty(name)
+    if property != null {
+        return property.GetValue(result)
+    }
+
+    field := result.GetType().GetField(name)
+    if field != null {
+        return field.GetValue(result)
+    }
+
+    return null
+}
+
 func ResolverRunProcess(fileName: string, arguments: string, workingDirectory: string): ResolverRun {
     runnerType := Type.GetType("NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Driver")
     if runnerType == null {
@@ -78,15 +94,15 @@ func ResolverRunProcess(fileName: string, arguments: string, workingDirectory: s
         throw new InvalidOperationException("DotnetRunner.RunProcess returned null.")
     }
 
-    exitCodeField := result.GetType().GetField("ExitCode")
-    stdoutField := result.GetType().GetField("Stdout")
-    stderrField := result.GetType().GetField("Stderr")
-    if exitCodeField == null || stdoutField == null || stderrField == null {
-        throw new InvalidOperationException("DotnetRunner.RunProcess result fields were not found.")
+    exitCodeValue := ResolverResultMember(result, "ExitCode")
+    stdoutValue := ResolverResultMember(result, "Stdout")
+    stderrValue := ResolverResultMember(result, "Stderr")
+    if exitCodeValue == null || stdoutValue == null || stderrValue == null {
+        throw new InvalidOperationException("DotnetRunner.RunProcess result members were not found.")
     }
-    exitCode := Convert.ToInt32(exitCodeField.GetValue(result))
-    stdout := Convert.ToString(stdoutField.GetValue(result)) ?? ""
-    stderr := Convert.ToString(stderrField.GetValue(result)) ?? ""
+    exitCode := Convert.ToInt32(exitCodeValue)
+    stdout := Convert.ToString(stdoutValue) ?? ""
+    stderr := Convert.ToString(stderrValue) ?? ""
     return new ResolverRun(exitCode, stdout, stderr)
 }
 
@@ -244,14 +260,9 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
         Path.Combine(sharedDir, "project.yml"),
         "name: SharedLib\noutputType: library\ntargetFramework: net10.0"
     )
-    // THE SHARED SOURCE MUST BE A SHAPE THE COLUMNAR BACKEND DECLINES, because the failure this
-    // fixture exists to produce is the AOT path's "requires successful N# columnar emission". It used
-    // to be assigning to a struct's own field from its own method, which emits since the call site
-    // loads an addressable receiver by address, and then a bare STATIC FIELD as a call receiver,
-    // which emits since a static member of the enclosing type is a value binding, and then an
-    // `await foreach` inside a generator body. Generic async iterators and nested expression awaits
-    // now emit, so the fixture uses a branch out of `await foreach`, which remains outside the
-    // current async body lowering.
+    // THE SHARED SOURCE EXERCISES A BRANCH OUT OF `await foreach` in an async iterator. Its purpose
+    // is to prove that both AOT checks and builds carry the completed state machine through a project
+    // reference, including the child compilation rather than only the root project.
     ResolverWrite(
         Path.Combine(sharedDir, "Shared.nl"),
         "import System.Collections.Generic\n\nasync func* Pending(items: IAsyncEnumerable<int>): IAsyncEnumerable<int> {\n    await foreach item in items {\n        break\n    }\n}"

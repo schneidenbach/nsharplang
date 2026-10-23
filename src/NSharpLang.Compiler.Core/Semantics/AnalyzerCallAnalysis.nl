@@ -75,6 +75,24 @@ class CallAnalysisRequest {
     }
 }
 
+// The analyzer-selected target of a source invocation. Runtime consumers use this member identity
+// directly; they must not choose another overload from the runtime object's reflected surface.
+class AnalyzerInvocationBinding {
+    SourceFunction: FunctionTypeInfo?
+    ReflectedMethod: MethodInfo?
+    IsExtension: bool
+    ParameterIndexByArgument: int[]
+    SourceSlotOwnerType: TypeInfo?
+
+    constructor(sourceFunction: FunctionTypeInfo?, reflectedMethod: MethodInfo?, isExtension: bool, parameterIndexByArgument: int[], sourceSlotOwnerType: TypeInfo?) {
+        SourceFunction = sourceFunction
+        ReflectedMethod = reflectedMethod
+        IsExtension = isExtension
+        ParameterIndexByArgument = parameterIndexByArgument
+        SourceSlotOwnerType = sourceSlotOwnerType
+    }
+}
+
 // THE CALL WALK'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
 //
 // `Phase` is the walk's program counter and `Pending` names the answer it is waiting for. Everything
@@ -96,6 +114,11 @@ class CallAnalysisState {
     SyntheticExpectedBindings: Dictionary<string, TypeInfo>?
     GroupFunctions: List<FunctionTypeInfo>?
     BoundFunction: FunctionTypeInfo?
+    SelectedSourceFunction: FunctionTypeInfo?
+    SelectedReflectedMethod: MethodInfo?
+    SelectedReflectedParameterIndexByArgument: int[]?
+    SelectedReflectedMethodGroupArguments: Dictionary<int, FunctionTypeInfo>?
+    SelectedInvocationIsExtension: bool
     ReceiverType: TypeInfo?
     SourceInstanceExtensionFallbackTried: bool
     ParameterStartIndex: int
@@ -142,6 +165,7 @@ class CallAnalysisState {
     // protocol. `ReflectionErrorsBefore` is the rollback mark for the candidate currently being
     // finalised, and it is re-taken for each candidate.
     ReflectionSingleMethod: MethodInfo?
+    ReflectionIsExtension: bool
     ReflectionMethodGroup: ReflectionMethodGroupInfo?
     ReflectionReceiverTypeInfo: TypeInfo?
     ReflectionReceiverClrType: Type?
@@ -149,6 +173,9 @@ class CallAnalysisState {
     ReflectionArgumentIndex: int
     ReflectionCandidates: List<ReflectionPreBoundCandidate>?
     ReflectionCandidateIndex: int
+    ReflectionLambdaErrorsBefore: int
+    ReflectionLambdaPending: bool
+    ReflectionBestLambdaBodyDiagnostics: List<CompilerError>
 
     // WHETHER THE CANDIDATE RUN NOW UNDER WAY IS THE EXACT-MATCH ONE. A group whose call carries a
     // LAMBDA argument is walked twice: first demanding that every lambda's own type BE the delegate
@@ -190,6 +217,11 @@ class CallAnalysisState {
         SyntheticExpectedBindings = null
         GroupFunctions = null
         BoundFunction = null
+        SelectedSourceFunction = null
+        SelectedReflectedMethod = null
+        SelectedReflectedParameterIndexByArgument = null
+        SelectedReflectedMethodGroupArguments = null
+        SelectedInvocationIsExtension = false
         ReceiverType = null
         SourceInstanceExtensionFallbackTried = false
         ParameterStartIndex = 0
@@ -208,6 +240,7 @@ class CallAnalysisState {
         RefOutSavedSuppressedFlowTypeNode = null
         RefOutExpressionTypes = null
         ReflectionSingleMethod = null
+        ReflectionIsExtension = false
         ReflectionMethodGroup = null
         ReflectionReceiverTypeInfo = null
         ReflectionReceiverClrType = null
@@ -215,6 +248,9 @@ class CallAnalysisState {
         ReflectionArgumentIndex = 0
         ReflectionCandidates = null
         ReflectionCandidateIndex = 0
+        ReflectionLambdaErrorsBefore = 0
+        ReflectionLambdaPending = false
+        ReflectionBestLambdaBodyDiagnostics = new List<CompilerError>()
         ReflectionRequireExactLambdaMatch = false
         ReflectionExtensionFallbackTried = false
         ReflectionErrorsBefore = 0
@@ -313,6 +349,90 @@ class AnalyzerCallAnalysis {
 
     func BeginCall(call: CallExpression): CallAnalysisState {
         return new CallAnalysisState(call)
+    }
+
+    func CreateInvocationBinding(state: CallAnalysisState, sourceSlotOwnerType: TypeInfo?): AnalyzerInvocationBinding? {
+        if state == null {
+            return null
+        }
+        if state.SelectedSourceFunction != null {
+            functionType := state.SelectedSourceFunction
+            functionName := AnalyzerSyntheticCallFacts.GetCallTargetName(state.Call) ?? functionType.SourceName ?? ""
+            parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, state.Call)
+            placement := AnalyzerSyntheticCallFacts.BindFunctionArguments(functionType, functionName, state.Call, parameterStartIndex)
+            selectedSlotOwner := sourceSlotOwnerType ?? state.ReceiverType
+            return new AnalyzerInvocationBinding(functionType, null, state.SelectedInvocationIsExtension, placement.ParameterIndexByArgument, selectedSlotOwner)
+        }
+        if state.SelectedReflectedMethod != null {
+            parameterIndices := state.SelectedReflectedParameterIndexByArgument
+            if parameterIndices == null {
+                parameterIndices = new int[](state.Call.Arguments.Count)
+                index := 0
+                while index < parameterIndices.Length {
+                    parameterIndices[index] = -1
+                    index += 1
+                }
+            }
+            return new AnalyzerInvocationBinding(null, state.SelectedReflectedMethod, state.SelectedInvocationIsExtension, parameterIndices, sourceSlotOwnerType ?? state.ReceiverType)
+        }
+        return null
+    }
+
+    // A method-group expression has no runtime value until this enclosing overload supplies its
+    // delegate target. Record the one applicable source function only after overload selection has
+    // finished, so speculative candidate retries cannot leave a stale method-group choice behind.
+    func RecordSelectedCallableReferenceBindings(state: CallAnalysisState, semanticModel: SemanticModel) {
+        if state == null || semanticModel == null {
+            return
+        }
+
+        reflectedGroups := state.SelectedReflectedMethodGroupArguments
+        if reflectedGroups != null {
+            for entry in reflectedGroups {
+                argumentIndex := entry.Key
+                if argumentIndex >= 0 && argumentIndex < state.Call.Arguments.Count && entry.Value != null {
+                    RecordCallableReferenceExpression(semanticModel, state.Call.Arguments[argumentIndex].Value, entry.Value)
+                }
+            }
+        }
+
+        if state.SelectedSourceFunction == null {
+            return
+        }
+
+        functionType := state.SelectedSourceFunction
+        functionName := AnalyzerSyntheticCallFacts.GetCallTargetName(state.Call) ?? functionType.SourceName ?? ""
+        parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, state.Call)
+        placement := AnalyzerSyntheticCallFacts.BindFunctionArguments(functionType, functionName, state.Call, parameterStartIndex)
+        genericBindings := syntheticCallWalk.InferGenericBindings(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+
+        argumentIndex := 0
+        while argumentIndex < state.Call.Arguments.Count && argumentIndex < state.ArgTypes.Count {
+            group := state.ArgTypes[argumentIndex] as NSharpMethodGroupInfo
+            if group != null && argumentIndex < placement.ParameterIndexByArgument.Length {
+                expectedType := syntheticCallValidator.GetExpectedArgumentType(functionType, state.Call, argumentIndex, placement.ParameterIndexByArgument[argumentIndex], genericBindings)
+                selected: FunctionTypeInfo? = null
+                if expectedType != null && assignability.TrySelectNSharpMethodGroupFunction(group, expectedType, out selected) && selected != null {
+                    argumentExpression := state.Call.Arguments[argumentIndex].Value
+                    RecordCallableReferenceExpression(semanticModel, argumentExpression, selected)
+                }
+            }
+            argumentIndex += 1
+        }
+    }
+
+    static func RecordCallableReferenceExpression(semanticModel: SemanticModel, expression: Expression, selected: FunctionTypeInfo) {
+        if semanticModel == null || expression == null || selected == null {
+            return
+        }
+        parenthesized := expression as ParenthesizedExpression
+        if parenthesized != null {
+            RecordCallableReferenceExpression(semanticModel, parenthesized.Inner, selected)
+            return
+        }
+        if expression as IdentifierExpression != null || expression as MemberAccessExpression != null {
+            semanticModel.RecordCallableReferenceBinding(expression.Line, expression.Column, selected)
+        }
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when the call's type is decided. Every phase
@@ -450,6 +570,11 @@ class AnalyzerCallAnalysis {
         if pending == 36 {
             finalizeState := state.FinalizeState
             if finalizeState != null {
+                if state.ReflectionLambdaPending && state.ReflectionCandidates != null && state.ReflectionCandidates.Count > 1 && diagnostics.HasLambdaInvocationBindingFailureSince(state.ReflectionLambdaErrorsBefore) {
+                    finalizeState.Failed = true
+                }
+                state.ReflectionLambdaPending = false
+
                 supplied: TypeInfo = BuiltInTypes.Unknown
                 if answer != null {
                     supplied = answer
@@ -892,7 +1017,7 @@ class AnalyzerCallAnalysis {
             column := 0
             while column < count {
                 if row != column {
-                    comparisons[row * count + column] = CompareReflectionCandidates(candidates[row], candidates[column], parameterTypesByCandidate[row], parameterTypesByCandidate[column], openParameterTypesByCandidate[row], openParameterTypesByCandidate[column], argumentClrTypes, argumentTypeInfos, argumentIsAnonymousFunction)
+                    comparisons[row * count + column] = CompareReflectionCandidates(candidates[row], candidates[column], parameterTypesByCandidate[row], parameterTypesByCandidate[column], openParameterTypesByCandidate[row], openParameterTypesByCandidate[column], argumentClrTypes, argumentTypeInfos, argumentIsAnonymousFunction, state.Call)
                 }
 
                 column = column + 1
@@ -1187,7 +1312,7 @@ class AnalyzerCallAnalysis {
     // clause, reached here by the second. An argument that has no type for a different reason (an
     // anonymous object, which types as `unknown`) is NOT asked, because for it the parameter-type
     // comparison would be a guess dressed as a rule.
-    func CompareReflectionCandidates(left: ReflectionPreBoundCandidate, right: ReflectionPreBoundCandidate, leftParameterTypes: Type?[], rightParameterTypes: Type?[], leftOpenParameterTypes: Type?[], rightOpenParameterTypes: Type?[], argumentClrTypes: Type?[], argumentTypeInfos: TypeInfo?[], argumentIsAnonymousFunction: bool[]): int {
+    func CompareReflectionCandidates(left: ReflectionPreBoundCandidate, right: ReflectionPreBoundCandidate, leftParameterTypes: Type?[], rightParameterTypes: Type?[], leftOpenParameterTypes: Type?[], rightOpenParameterTypes: Type?[], argumentClrTypes: Type?[], argumentTypeInfos: TypeInfo?[], argumentIsAnonymousFunction: bool[], call: CallExpression? = null): int {
         if left.Score != right.Score {
             if left.Score > right.Score {
                 return AnalyzerOverloadSpecificity.LeftIsBetter
@@ -1268,6 +1393,18 @@ class AnalyzerCallAnalysis {
                 HasImplicitReflectionConversion(leftParameterType, rightParameterType),
                 HasImplicitReflectionConversion(rightParameterType, leftParameterType)
             ))
+
+            argumentIndex := currentIndex - 1
+            if call != null && argumentIndex >= 0 && argumentIndex < call.Arguments.Count && call.Arguments[argumentIndex].Modifier == ArgumentModifier.None && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(leftParameterType, rightParameterType) {
+                preference := AnalyzerOverloadFacts.CompareInputParameterPreference(
+                    ReflectionParameterModifierForArgument(left, argumentIndex),
+                    ReflectionParameterModifierForArgument(right, argumentIndex),
+                    call.Arguments[argumentIndex].Modifier
+                )
+                if preference != AnalyzerOverloadSpecificity.NeitherIsBetter {
+                    verdicts.Add(preference)
+                }
+            }
         }
 
         conversionVerdict := AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
@@ -1292,6 +1429,27 @@ class AnalyzerCallAnalysis {
             right.DefaultsUsed,
             AnalyzerOpenTypeSpecificity.CompareReflectionParameterLists(leftOpenParameterTypes, rightOpenParameterTypes)
         )
+    }
+
+    static func ReflectionParameterModifierForArgument(candidate: ReflectionPreBoundCandidate, argumentIndex: int): Ast.ParameterModifier {
+        parameters := candidate.SignatureMethod.GetParameters()
+        for boundArgument in candidate.BoundArguments {
+            supplied := boundArgument as SuppliedReflectionBoundArgument
+            if supplied != null && supplied.ArgumentIndex == argumentIndex && supplied.ParameterIndex >= 0 && supplied.ParameterIndex < parameters.Length {
+                return AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameters[supplied.ParameterIndex])
+            }
+
+            expanded := boundArgument as ParamsReflectionBoundArgument
+            if expanded != null {
+                for element in expanded.Arguments {
+                    if element.ArgumentIndex == argumentIndex && element.ParameterIndex >= 0 && element.ParameterIndex < parameters.Length {
+                        return AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameters[element.ParameterIndex])
+                    }
+                }
+            }
+        }
+
+        return Ast.ParameterModifier.None
     }
 
     // A MEMBER DECLARED ON A MORE DERIVED TYPE HIDES THE ONE IT SHADOWS (§12.6.4.4), and the two are
@@ -1471,6 +1629,45 @@ class AnalyzerCallAnalysis {
         }
     }
 
+    func ReportReflectionRefKindWarnings(call: CallExpression, finalizeState: ReflectionCallFinalizeState) {
+        for supplied in finalizeState.SuppliedArguments {
+            if supplied.ArgumentIndex < 0 || supplied.ArgumentIndex >= call.Arguments.Count || supplied.ParameterIndex < 0 || supplied.ParameterIndex >= finalizeState.OpenParameters.Length {
+                continue
+            }
+
+            parameter := finalizeState.OpenParameters[supplied.ParameterIndex]
+            AnalyzerRefKindWarningReporter.ReportIfNeeded(
+                diagnostics,
+                spans,
+                AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameter),
+                call.Arguments[supplied.ArgumentIndex],
+                supplied.ArgumentIndex,
+                ReflectedParameterDirection.IsReadOnlyLocation(parameter)
+            )
+        }
+    }
+
+    static func ReflectionParameterIndices(finalizeState: ReflectionCallFinalizeState, argumentCount: int): int[] {
+        result := new int[](argumentCount)
+        index := 0
+        while index < result.Length {
+            result[index] = -1
+            index += 1
+        }
+
+        if finalizeState == null {
+            return result
+        }
+
+        for supplied in finalizeState.SuppliedArguments {
+            if supplied.ArgumentIndex >= 0 && supplied.ArgumentIndex < result.Length {
+                result[supplied.ArgumentIndex] = supplied.ParameterIndex
+            }
+        }
+
+        return result
+    }
+
     func AdvanceFinalizeReflectionCall(state: CallAnalysisState): CallAnalysisRequest? {
         finalizeState := state.FinalizeState
         if finalizeState == null {
@@ -1481,6 +1678,8 @@ class AnalyzerCallAnalysis {
         if request != null {
             lambda := request.Lambda
             if lambda != null {
+                state.ReflectionLambdaErrorsBefore = diagnostics.ErrorCount
+                state.ReflectionLambdaPending = true
                 state.Pending = 36
                 step := new CallAnalysisRequest(15)
                 step.Lambda = lambda
@@ -1510,6 +1709,7 @@ class AnalyzerCallAnalysis {
         acceptedPostconditions := finalizeState.Postconditions
         state.FinalizeState = null
         if bound != null {
+            state.SelectedReflectedParameterIndexByArgument = ReflectionParameterIndices(finalizeState, state.Call.Arguments.Count)
             // FINALIZER REFUSAL FOLLOWS THE SELECTED METHOD, not the unresolved group. A legal
             // overload may share the name with object.Finalize, and only ordinary overload binding
             // can establish which member this call names.
@@ -1520,6 +1720,7 @@ class AnalyzerCallAnalysis {
             // A maybe-null argument the chosen signature states not-null is the NL202 the same call
             // reports against the same declaration in source (see `RefusesMaybeNullArgument`).
             ReportReflectionNullabilityMismatches(state.Call, finalizeState)
+            ReportReflectionRefKindWarnings(state.Call, finalizeState)
 
             // The candidate is the call's now, so its postconditions become the flow's. A candidate
             // that failed has already had its diagnostics withdrawn and leaves nothing behind.
@@ -1541,6 +1742,9 @@ class AnalyzerCallAnalysis {
             terminatingCalls.Commit(state.Call, finalizeState.TerminatingMethodFacts, terminatingGuardArgument, finalizeState.TerminatingGuardFacts)
 
             state.NotNullIfNotNullArgumentIndex = finalizeState.NotNullIfNotNullArgumentIndex
+            state.SelectedReflectedMethod = finalizeState.RuntimeMethod
+            state.SelectedReflectedMethodGroupArguments = finalizeState.MethodGroupArguments
+            state.SelectedInvocationIsExtension = state.ReflectionIsExtension
             return CompleteReflectionBind(state, bound)
         }
 
@@ -1549,6 +1753,10 @@ class AnalyzerCallAnalysis {
         }
 
         if diagnostics.ErrorCount > state.ReflectionErrorsBefore {
+            if state.ReflectionBestLambdaBodyDiagnostics.Count == 0 {
+                bestBodyErrors := diagnostics.CandidateDiagnosticsSince(state.ReflectionErrorsBefore)
+                state.ReflectionBestLambdaBodyDiagnostics.AddRange(bestBodyErrors)
+            }
             diagnostics.RollbackErrorsTo(state.ReflectionErrorsBefore)
         }
 
@@ -1598,6 +1806,12 @@ class AnalyzerCallAnalysis {
 
         if TryBeginReflectionExtensionFallback(state) {
             return null
+        }
+
+        for bodyError in state.ReflectionBestLambdaBodyDiagnostics {
+            if !diagnostics.HasReported(bodyError.Code, bodyError.Message, bodyError.Line, bodyError.Column) {
+                diagnostics.ReportBuilt(bodyError)
+            }
         }
 
         state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes, state.ReflectionReceiverClrType)
@@ -1944,7 +2158,7 @@ class AnalyzerCallAnalysis {
                 return TypeCalleeKind.Enum
             }
 
-            if clrType.IsPrimitive || clrType.FullName == "System.Decimal" {
+            if clrType.IsPrimitive || TypeInfoIdentityFacts.HaveSameRuntimeAndReferenceTypeIdentity(clrType, typeof(decimal)) {
                 return TypeCalleeKind.Primitive
             }
 
@@ -2079,6 +2293,12 @@ class AnalyzerCallAnalysis {
         call := state.Call
         calleeType := state.CalleeType
         functionType := calleeType as FunctionTypeInfo
+        if functionType == null {
+            functionType = DelegateFunctionType(calleeType)
+            if functionType != null {
+                state.CalleeType = functionType
+            }
+        }
         if functionType != null && functionType.ParameterTypes != null {
             state.SyntheticFunctionType = functionType
             state.ParameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
@@ -2108,6 +2328,26 @@ class AnalyzerCallAnalysis {
         state.ArgumentIndex = 0
         state.Phase = 7
         return null
+    }
+
+    // A delegate-valued variable is invoked through its `Invoke` signature. The emitter already
+    // emits that ordinary CLR call, so the analyzer must carry the same parameter and return types
+    // into argument binding and the call result (including `await next(context)`).
+    func DelegateFunctionType(calleeType: TypeInfo?): FunctionTypeInfo? {
+        if calleeType == null {
+            return null
+        }
+        runtimeType := clrTypeConversion.TryConvertTypeInfoToClrType(calleeType)
+        if runtimeType == null {
+            reflected := calleeType as ReflectionTypeInfo
+            if reflected != null {
+                runtimeType = reflected.Type
+            }
+        }
+        if runtimeType == null || (!AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(runtimeType) && !AnalyzerCallableReferenceFacts.IsMetadataDelegateType(runtimeType)) {
+            return null
+        }
+        return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(runtimeType)
     }
 
     // The bindings the argument loop STARTS from: the call's written type arguments and the
@@ -2591,6 +2831,7 @@ class AnalyzerCallAnalysis {
         if singleMethod != null {
             state.CandidateMethods.Add(singleMethod.Method)
             state.ReflectionSingleMethod = singleMethod.Method
+            state.ReflectionIsExtension = singleMethod.IsExtension
             state.Phase = 30
             return null
         }
@@ -2603,6 +2844,7 @@ class AnalyzerCallAnalysis {
             }
 
             state.ReflectionMethodGroup = methodGroup
+            state.ReflectionIsExtension = methodGroup.IsExtension
             state.Phase = 30
             return null
         }
@@ -2731,6 +2973,8 @@ class AnalyzerCallAnalysis {
         }
 
         state.Result = syntheticCallValidator.ResolveReturnType(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+        state.SelectedSourceFunction = functionType
+        state.SelectedInvocationIsExtension = functionType.SourceHasReceiverParameter
         state.Phase = 99
         return null
     }
@@ -2861,6 +3105,8 @@ class AnalyzerCallAnalysis {
         }
 
         state.Result = syntheticCallValidator.ResolveReturnType(boundFunction, state.Call, state.ArgTypes, state.ReceiverType)
+        state.SelectedSourceFunction = boundFunction
+        state.SelectedInvocationIsExtension = boundFunction.SourceHasReceiverParameter
         state.Phase = 99
         return null
     }
@@ -2919,6 +3165,8 @@ class AnalyzerCallAnalysis {
             if selected != null {
                 syntheticCallValidator.ValidateCall(selected, state.Call, state.ArgTypes, receiverType)
                 state.Result = syntheticCallValidator.ResolveReturnType(selected, state.Call, state.ArgTypes, receiverType)
+                state.SelectedSourceFunction = selected
+                state.SelectedInvocationIsExtension = true
                 state.Phase = 99
                 return null
             }

@@ -631,11 +631,12 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     // Issue #215 then added three files and no roots: the SDK `dll:` reference row, the SDK implicit-
     // framework row and the project.yml reference-page contract.
     // The async bare-return and generic async-method slices added three native roots and three N#
-    // source files.
+    // source files. The async state-machine slice adds the await-pattern fixture and the referenced
+    // extension-metadata project, plus their source files.
     // Generic-call inference and Wave 2's member lookup, closure, and nullable/record work are all
     // represented here. The expected count was remeasured by walking this merged tree; branch-local
     // issue counts overlap and are not added together.
-    assert expectedRoots.Count == 257, "repository project-root census changed"
+    assert expectedRoots.Count == 259, "repository project-root census changed: " + expectedRoots.Count.ToString()
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
@@ -677,7 +678,7 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
     // This total was independently remeasured from the merged filesystem, with each source file
     // assigned to its deepest discovered project and that project's excludes applied.
-    assert checkedFiles == 2109, "repository checked-source-file census changed"
+    assert checkedFiles == 2118, "repository checked-source-file census changed: " + checkedFiles.ToString()
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"

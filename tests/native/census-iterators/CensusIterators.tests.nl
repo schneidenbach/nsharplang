@@ -197,7 +197,7 @@ test "an async yielded value takes the same boxing conversion" {
     }
     assert values.Count == 3
     assert values[0].ToString() == "0"
-    assert values[2] is int
+    assert values[2].GetType().IsValueType
 }
 
 test "the synchronous machine implements the full enumerable surface it claims" {

@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import NSharpLang.Compiler
 
 
 // Live raw facts for recursive N# fragment planning. The legacy emitter may pass these existing
@@ -45,6 +46,10 @@ class ColumnarFragmentBindings {
     // parameters are installed first; an enclosing type parameter with the same name must never
     // replace that more-local binding.
     typeParameters: Dictionary<string, Type>
+    // The interface constraints copied onto synthesized async state-machine parameters. Generic
+    // parameter TypeBuilder handles cannot always answer GetGenericParameterConstraints before bake,
+    // so constrained calls consume this exact owner-supplied map.
+    GenericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>
     // The production emitter passes this live view. Registry aliases may expose the same
     // definition more than once, so member selection deduplicates by definition identity.
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
@@ -58,11 +63,6 @@ class ColumnarFragmentBindings {
     // Live checked/unchecked context routed mechanically from the emitter. Only checked integral
     // add/sub/mul select the overflow opcode variants; every other family ignores this flag.
     OverflowCheckingEnabled: bool
-    // A synthesized async-lambda method keeps the language's current blocking-await semantics, but
-    // its values still travel through the ordinary recursive expression planner. This capability is
-    // enabled only for that method scope; every other fragment binding set continues to reject kind
-    // 53, so an enclosing iterator's await remains owned by its suspension planner.
-    BlockingAwaitEnabled: bool
     // A `MoveNextCore` expression scope installs its active machine emitter only while appending one
     // source value. Recursive expression owners use it to lower an `await` at its written position
     // into a real state-machine suspension; ordinary method and lambda scopes leave it null.
@@ -86,6 +86,9 @@ class ColumnarFragmentBindings {
     // host routes these; direct-call planning consults them to own a bare sibling invocation.
     // declaredCallableNames still carries the same name set for the callable-root guards.
     SiblingCallables: Dictionary<string, ColumnarSiblingCallFacts>
+    // THE ANALYZER'S MODEL FOR THIS SOURCE FILE. Resumable call binding uses its already-resolved
+    // contextual-lambda parameter types so emission does not guess between delegate overloads.
+    SemanticModel: SemanticModel?
 
     constructor(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedNames: IEnumerable<string>, boxedNames: IEnumerable<string>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>) {
         if parameterOrdinals == null || parameterTypes == null || locals == null || enums == null || liftedNames == null || boxedNames == null || enclosingNames == null || declaredCallableNames == null || visibleLocalCallableNames == null {
@@ -105,12 +108,12 @@ class ColumnarFragmentBindings {
         ThisIsCapturedReceiver = false
         CurrentInstance = null
         typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
+        GenericInterfaceConstraints = new Dictionary<Type, Type[]>()
         SourceTypeDefinitions = new List<ColumnarStructDef>()
         ExactSourceTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
         StructuralTypeReferences = new ColumnarStructuralTypeReferenceTable()
         EnclosingTypeDefinition = null
         OverflowCheckingEnabled = false
-        BlockingAwaitEnabled = false
         IteratorMoveNextEmitter = null
         SourceUnionDefinitions = new List<ColumnarUnionDef>()
         TupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -121,6 +124,7 @@ class ColumnarFragmentBindings {
         this.declaredCallableNames = declaredCallableNames
         this.visibleLocalCallableNames = visibleLocalCallableNames
         SiblingCallables = new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal)
+        SemanticModel = null
     }
 
     // Metadata declaration passes need exact source/runtime type identity without value-flow
@@ -222,6 +226,17 @@ class ColumnarFragmentBindings {
             result.StructuralTypeReferences = structuralTypeReferences
         }
         return result
+    }
+
+    func SetGenericInterfaceConstraints(parameters: Type[], constraints: Type[][]) {
+        if parameters == null || constraints == null {
+            throw new InvalidOperationException("Generic interface constraints require the parameter and constraint rows.")
+        }
+        GenericInterfaceConstraints = ColumnarGenericConstraintPlanner.BuildGenericInterfaceConstraintMap(
+            parameters,
+            constraints,
+            new Dictionary<Type, Type[]>()
+        )
     }
 
     func SetEnclosingTypeDefinition(enclosingTypeDefinition: ColumnarStructDef?) {

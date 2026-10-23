@@ -2,6 +2,7 @@ namespace NSharpLang.OwnershipAudit
 
 import System
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Text
 
@@ -254,6 +255,38 @@ func OwnershipFixtureBinaryObservedList(path: string, bytes: byte[]): List<Owner
     return observed
 }
 
+func OwnershipAuditRunGit(root: string, arguments: string) {
+    startInfo := new ProcessStartInfo {
+        FileName: "git",
+        Arguments: arguments,
+        WorkingDirectory: root,
+        UseShellExecute: false,
+        RedirectStandardOutput: true,
+        RedirectStandardError: true
+    }
+    process := Process.Start(startInfo)
+    if process == null {
+        throw new InvalidOperationException("could not start git " + arguments)
+    }
+    output := process.StandardOutput.ReadToEnd()
+    errorText := process.StandardError.ReadToEnd()
+    process.WaitForExit()
+    exitCode := process.ExitCode
+    process.Dispose()
+    if exitCode != 0 {
+        throw new InvalidOperationException("git " + arguments + " failed: " + output + errorText)
+    }
+}
+
+func OwnershipAuditContainsPath(observed: List<OwnershipObservedFile>, path: string): bool {
+    for item in observed {
+        if item.Path == path {
+            return true
+        }
+    }
+    return false
+}
+
 test "ownership facts normalize text and compute stable fingerprints" {
     assert OwnershipFacts.Fingerprint("abc") == "text-v1:e71fa2190541574b"
     assert OwnershipFacts.Fingerprint("a\r\nb\r") == OwnershipFacts.Fingerprint("a\nb\n")
@@ -446,6 +479,7 @@ test "the docs website grows freely while code placed under it stays audited" {
     assert OwnershipPolicy.Classify("website/src/Compiler.cs").Language == "csharp"
     assert OwnershipPolicy.Classify("website/static/playground/runtime.wasm").Language == "wasm-binary"
     assert OwnershipPolicy.Classify("website/static/playground/NSharpLang.Compiler.dll").Language == "managed-binary"
+    assert OwnershipPolicy.Classify("website/static/playground/wasm/references.zip").Language == "package-binary"
     assert OwnershipPolicy.Classify("website/scripts/publish.sh").Language == "shell"
     assert OwnershipPolicy.Classify("website/tools/emit.py").Language == "python"
     assert OwnershipPolicy.Classify("website/Site.csproj").Language == "msbuild"
@@ -955,6 +989,75 @@ test "multi-error reports are deterministic complete and actionable" {
     )
     expected := "N# ownership growth audit failed with 2 violation(s):\n" + "  OWN006 [tests/native-fixtures/A.cs]: active debt entry disappeared; mark it removed in the same deletion commit\n" + "  OWN003 [tests/native-fixtures/B.cs]: new unclassified non-N# file; implement this behavior in N# or remove the file. Do not add it to the E1 code epoch\n"
     assert result.Report() == expected
+}
+
+test "repository scan excludes ignored generated files without changing their classification" {
+    root := OwnershipAudit.FindRepositoryRoot(Environment.CurrentDirectory) ?? ""
+    relative := "website/static/playground/wasm/ownership-audit-ignored-probe-" + Guid.NewGuid().ToString("N") + ".zip"
+    path := Path.Combine(root, relative)
+    Directory.CreateDirectory(Path.GetDirectoryName(path) ?? root)
+    try {
+        File.WriteAllBytes(path, new byte[](1))
+        result := new OwnershipAuditResult()
+        observed := OwnershipAudit.ScanRepository(root, result)
+        assert result.Succeeded
+        found := false
+        for item in observed {
+            if item.Path == relative {
+                found = true
+            }
+        }
+        assert !found
+        assert OwnershipPolicy.Classify(relative).Language == "package-binary"
+    } finally {
+        if File.Exists(path) {
+            File.Delete(path)
+        }
+    }
+}
+
+test "repository scan ignores untracked generated package outputs" {
+    root := Directory.CreateTempSubdirectory("nsharp-ownership-untracked-output-").FullName
+    try {
+        OwnershipAuditRunGit(root, "init -q")
+        Directory.CreateDirectory(Path.Combine(root, "src"))
+        File.WriteAllText(Path.Combine(root, "src/Tracked.cs"), "class Tracked {}\n")
+        OwnershipAuditRunGit(root, "add -- src/Tracked.cs")
+        outputPath := Path.Combine(root, "playground-output.zip")
+        File.WriteAllBytes(outputPath, new byte[](1))
+
+        result := new OwnershipAuditResult()
+        observed := OwnershipAudit.ScanRepository(root, result)
+        assert result.Succeeded, result.Report()
+        assert !OwnershipAuditContainsPath(observed, "playground-output.zip")
+        assert OwnershipPolicy.Classify("playground-output.zip").Language == "package-binary"
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "repository scan flags untracked CSharp source while retaining tracked files" {
+    root := Directory.CreateTempSubdirectory("nsharp-ownership-untracked-source-").FullName
+    try {
+        OwnershipAuditRunGit(root, "init -q")
+        Directory.CreateDirectory(Path.Combine(root, "src"))
+        trackedText := "class Tracked {}\n"
+        File.WriteAllText(Path.Combine(root, "src/Tracked.cs"), trackedText)
+        OwnershipAuditRunGit(root, "add -- src/Tracked.cs")
+        File.WriteAllText(Path.Combine(root, "src/Unexpected.cs"), "class Unexpected {}\n")
+
+        scanResult := new OwnershipAuditResult()
+        observed := OwnershipAudit.ScanRepository(root, scanResult)
+        assert scanResult.Succeeded
+        assert OwnershipAuditContainsPath(observed, "src/Tracked.cs")
+        assert OwnershipAuditContainsPath(observed, "src/Unexpected.cs")
+
+        manifest := OwnershipFixtureOne("src/Tracked.cs", trackedText, 0)
+        audit := OwnershipAudit.AuditSnapshot(manifest, observed, false)
+        assert audit.HasCode("OWN003")
+    } finally {
+        Directory.Delete(root, true)
+    }
 }
 
 test "repository non-NSharp ownership matches the E1 growth baseline" {

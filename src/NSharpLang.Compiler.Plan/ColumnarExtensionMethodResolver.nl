@@ -632,6 +632,7 @@ class ColumnarExtensionMethodResolver {
             result.IsNullLiteral[target] = argumentFacts.IsNullLiteral[index]
             result.IsByRefArgument[target] = argumentFacts.IsByRefArgument[index]
             result.IsInArgument[target] = argumentFacts.IsInArgument[index]
+            result.IsOutArgument[target] = argumentFacts.IsOutArgument[index]
             result.IsIntegerConstantArrayLiteral[target] = argumentFacts.IsIntegerConstantArrayLiteral[index]
             result.ArrayLiteralMinimumValues[target] = argumentFacts.ArrayLiteralMinimumValues[index]
             result.ArrayLiteralMaximumValues[target] = argumentFacts.ArrayLiteralMaximumValues[index]

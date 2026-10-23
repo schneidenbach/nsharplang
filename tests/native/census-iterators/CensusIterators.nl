@@ -34,6 +34,10 @@ class CensusTrace {
     }
 }
 
+func CensusHasStackTrace(error: Exception): bool {
+    return error.StackTrace != null
+}
+
 // A collection built and read INSIDE the machine: `new`, an instance call, an indexer and a classic
 // `for` with a compound-assignment increment.
 func* DoubledThrough(count: int): IEnumerable<int> {

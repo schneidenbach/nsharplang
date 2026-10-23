@@ -44,20 +44,16 @@ class ColumnarDirectCallArgumentFacts {
     IntegerLiteralValues: long[]
     IsNullLiteral: bool[]
 
-    // WHETHER THE ARGUMENT WAS WRITTEN `ref x` / `out x`. It is a SYNTAX fact like the others here,
-    // and it has to be one: `f(x)` and `f(ref x)` are different calls even when `x` has the same type,
-    // and only the second may bind a `ref` parameter. The recorded `argumentTypes` entry stays the
-    // ELEMENT type (the storage's own type), because that is what the parameter's element type is
-    // compared against.
+    // WHETHER THE ARGUMENT WAS WRITTEN WITH `ref`, `out` OR `in`. It is a SYNTAX fact like the others
+    // here: the recorded `argumentTypes` entry stays the ELEMENT type (the storage's own type), because
+    // that is what a selected by-reference parameter's element type is compared against.
     IsByRefArgument: bool[]
 
     // WHETHER THAT WORD WAS `in`. It is a separate column because the three directions are not
-    // interchangeable at a call site: `ref` and `out` must be written and must match, while `in` may be
-    // written or omitted and may NOT be substituted for either of the other two. A single bool cannot
-    // say which of three words was used, and getting that wrong would let `f(ref x)` bind an `in`
-    // parameter — which C# refuses (CS1615) for a reason: the callee promised not to write, and the
-    // caller wrote a word that says it expects a write.
+    // interchangeable at a call site. `IsOutArgument` keeps the third spelling distinct so the shared
+    // `RefKindCompatibilityFacts` rule can classify each parameter/argument pair.
     IsInArgument: bool[]
+    IsOutArgument: bool[]
 
     // AN ARRAY LITERAL WHOSE ELEMENTS ARE ALL UNSUFFIXED INTEGER CONSTANTS, and the widest constant it
     // wrote in each direction. `[0]` has the provisional type `int[]` and no element of its own that a
@@ -71,6 +67,14 @@ class ColumnarDirectCallArgumentFacts {
     ArrayLiteralMaximumValues: long[]
     IsContextualGenericUnionConstruction: bool[]
     ContextualGenericUnionBases: Type?[]
+    // A lambda gets its type from the selected delegate parameter. Calls inside a resumable body
+    // cannot defer that choice to the ordinary expression emitter, so candidate scoring carries a
+    // syntax marker until `AppendArgumentSlot` has the selected parameter type.
+    IsContextualLambda: bool[]
+    ContextualLambdaParameterCounts: int[]
+    ContextualLambdaReturnsVoid: bool[]
+    ContextualLambdaParameterTypes: Type[][]
+    ContextualLambdaInvocationArities: int[][]
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
 
     // THE EXPRESSION NODE THAT SUPPLIES EACH SLOT, with a `name:` wrapper already removed. Every other
@@ -106,11 +110,18 @@ class ColumnarDirectCallArgumentFacts {
         IsNullLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
         IsByRefArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
         IsInArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
+        IsOutArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
         IsIntegerConstantArrayLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
         ArrayLiteralMinimumValues = new long[](isUnsuffixedIntegerLiteral.Length)
         ArrayLiteralMaximumValues = new long[](isUnsuffixedIntegerLiteral.Length)
         IsContextualGenericUnionConstruction = new bool[](isUnsuffixedIntegerLiteral.Length)
         ContextualGenericUnionBases = new Type?[](isUnsuffixedIntegerLiteral.Length)
+        IsContextualLambda = new bool[](isUnsuffixedIntegerLiteral.Length)
+        ContextualLambdaParameterCounts = new int[](isUnsuffixedIntegerLiteral.Length)
+        ContextualLambdaReturnsVoid = new bool[](isUnsuffixedIntegerLiteral.Length)
+        ContextualLambdaParameterTypes = new Type[][](isUnsuffixedIntegerLiteral.Length)
+        ContextualLambdaInvocationArities = new int[][](isUnsuffixedIntegerLiteral.Length)
+        Array.Fill(ContextualLambdaParameterCounts, -1)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
         ArgumentNodes = new int[](isUnsuffixedIntegerLiteral.Length)
         WrittenOrderSlots = new int[](isUnsuffixedIntegerLiteral.Length)
@@ -120,6 +131,8 @@ class ColumnarDirectCallArgumentFacts {
         while slot < isUnsuffixedIntegerLiteral.Length {
             ArgumentNodes[slot] = -1
             WrittenOrderSlots[slot] = slot
+            ContextualLambdaParameterTypes[slot] = new Type[](0)
+            ContextualLambdaInvocationArities[slot] = new int[](0)
             slot = slot + 1
         }
     }
@@ -1191,13 +1204,37 @@ class ColumnarSourceDirectCallResolver {
         score := 0
         index := 0
         while index < expected.Length {
+            if argumentFacts.IsContextualLambda[index] {
+                if argumentFacts.IsByRefArgument[index] || expected[index].IsByRef || !IsContextualLambdaTarget(expected[index], argumentFacts.ContextualLambdaParameterCounts[index], argumentFacts.ContextualLambdaReturnsVoid[index], argumentFacts.ContextualLambdaParameterTypes[index], argumentFacts.ContextualLambdaInvocationArities[index]) {
+                    return -1
+                }
+                // The lambda is checked against this exact signature when it is appended. Equal
+                // delegate conversions stay tied here, leaving overload selection to its body.
+                score += argumentFacts.ContextualLambdaReturnsVoid[index] ? 8 : 4
+                index += 1
+                continue
+            }
+
+            parameterModifierKind := index < expectedModifierKinds.Length ? expectedModifierKinds[index] : (expected[index].IsByRef ? 1 : 0)
+            argumentModifierKind := 0
+            if argumentFacts.IsByRefArgument[index] {
+                argumentModifierKind = 1
+                if argumentFacts.IsInArgument[index] {
+                    argumentModifierKind = 5
+                } else if argumentFacts.IsOutArgument[index] {
+                    argumentModifierKind = 2
+                }
+            }
+            if RefKindCompatibilityFacts.ClassifyColumnarDirection(parameterModifierKind, argumentModifierKind, expected[index].IsByRef) == RefKindCompatibilityResult.Incompatible {
+                return -1
+            }
 
             // A BY-REFERENCE POSITION ON EITHER SIDE MAKES THIS A BY-REFERENCE MATCH. The argument
             // aliases the caller's storage, so there is no conversion to make: the parameter's element
             // type has to BE the storage's type. A `ref`/`out`/`in` ARGUMENT never binds a by-value
             // parameter — `f(ref x)` may not bind an ordinary one — and the three directions' own
             // call-site rules are read immediately below, because they are not the same rule.
-            expectsReadOnlyByRef := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 5
+            expectsReadOnlyByRef := parameterModifierKind == 5
             if expected[index].IsByRef && expectsReadOnlyByRef && !argumentFacts.IsByRefArgument[index] {
                 // Bare `in` arguments are values first. An exact storage location can be passed
                 // directly, while every other expression converts to the parameter element and is
@@ -1233,43 +1270,13 @@ class ColumnarSourceDirectCallResolver {
                     return -1
                 }
 
-                // THE THREE DIRECTIONS, EACH WITH ITS OWN CALL-SITE RULE.
-                //
-                // `in` is the one by-reference position the caller need not spell: the reference is
-                // read-only, so the caller is not being told its storage may change and there is
-                // nothing for a word to warn about. It may be written `in`, or omitted.
-                //
-                // `ref` and `out` must be written, and `in` may NOT stand in for either — nor either
-                // for `in`. A caller that writes `ref` is asking for a writable alias, and an `in`
-                // parameter is not one; C# refuses the pair for exactly that reason.
-                //
-                // `ref readonly` (6, reflected only) asks for a LOCATION and takes it written `ref` or
-                // `in` -- never bare, which would need a temporary where the callee asked for storage.
-                // `out` is not separated from `ref` by the argument facts; the ordinary runtime gate
-                // refuses it by its written word.
-                expectsReadOnlyLocation := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 6
-                if expectsReadOnlyByRef {
-                    if argumentFacts.IsByRefArgument[index] && !argumentFacts.IsInArgument[index] {
-                        return -1
-                    }
-                } else if expectsReadOnlyLocation {
-                    if !argumentFacts.IsByRefArgument[index] {
-                        return -1
-                    }
-                } else {
-                    if !argumentFacts.IsByRefArgument[index] || argumentFacts.IsInArgument[index] {
-                        return -1
-                    }
-                }
-
                 byRefElement := expected[index].GetElementType()
                 if byRefElement == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(byRefElement, actual[index]) {
                     return -1
                 }
 
-                // A WRITTEN `in` OUTSCORES AN OMITTED ONE, so a call that says what it means is never
-                // ambiguous with one that does not, and a BY-VALUE overload still beats an omitted
-                // `in` — passing by value is what an unadorned argument asks for.
+                // A WRITTEN by-reference argument receives the exact address. A bare argument to
+                // `in` remains the lower-ranked temporary/address case above.
                 if argumentFacts.IsByRefArgument[index] {
                     score += 8
                 } else {
@@ -1353,7 +1360,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.IsContextualGenericUnionConstruction == null || argumentFacts.ContextualGenericUnionBases == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length || argumentFacts.IsContextualGenericUnionConstruction.Length != argumentTypes.Length || argumentFacts.ContextualGenericUnionBases.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsOutArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.IsContextualGenericUnionConstruction == null || argumentFacts.ContextualGenericUnionBases == null || argumentFacts.IsContextualLambda == null || argumentFacts.ContextualLambdaParameterCounts == null || argumentFacts.ContextualLambdaReturnsVoid == null || argumentFacts.ContextualLambdaParameterTypes == null || argumentFacts.ContextualLambdaInvocationArities == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsOutArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length || argumentFacts.IsContextualGenericUnionConstruction.Length != argumentTypes.Length || argumentFacts.ContextualGenericUnionBases.Length != argumentTypes.Length || argumentFacts.IsContextualLambda.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterCounts.Length != argumentTypes.Length || argumentFacts.ContextualLambdaReturnsVoid.Length != argumentTypes.Length || argumentFacts.ContextualLambdaParameterTypes.Length != argumentTypes.Length || argumentFacts.ContextualLambdaInvocationArities.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 
@@ -1375,6 +1382,38 @@ class ColumnarSourceDirectCallResolver {
                 throw new InvalidOperationException("A direct-call argument cannot be both null and an integer literal.")
             }
 
+            if argumentFacts.IsContextualLambda[index] != (argumentFacts.ContextualLambdaParameterCounts[index] >= 0) {
+                throw new InvalidOperationException("A contextual lambda argument must carry its declared parameter count.")
+            }
+
+            contextualParameterTypes := argumentFacts.ContextualLambdaParameterTypes[index]
+            if contextualParameterTypes == null || (!argumentFacts.IsContextualLambda[index] && contextualParameterTypes.Length != 0) || (contextualParameterTypes.Length != 0 && contextualParameterTypes.Length != argumentFacts.ContextualLambdaParameterCounts[index]) {
+                throw new InvalidOperationException("Contextual lambda parameter types must match the declared lambda shape.")
+            }
+            contextualParameterIndex := 0
+            while contextualParameterIndex < contextualParameterTypes.Length {
+                if contextualParameterTypes[contextualParameterIndex] == null {
+                    throw new InvalidOperationException("A resolved contextual lambda parameter type cannot be null.")
+                }
+                contextualParameterIndex += 1
+            }
+
+            invocationArities := argumentFacts.ContextualLambdaInvocationArities[index]
+            if invocationArities == null || invocationArities.Length % 2 != 0 || (!argumentFacts.IsContextualLambda[index] && invocationArities.Length != 0) {
+                throw new InvalidOperationException("Contextual lambda invocation facts must be parameter-index/arity pairs.")
+            }
+            invocationIndex := 0
+            while invocationIndex < invocationArities.Length {
+                if invocationArities[invocationIndex] < 0 || invocationArities[invocationIndex] >= argumentFacts.ContextualLambdaParameterCounts[index] || invocationArities[invocationIndex + 1] < 0 {
+                    throw new InvalidOperationException("Contextual lambda invocation facts must name a valid parameter and argument count.")
+                }
+                invocationIndex += 2
+            }
+
+            if argumentFacts.ContextualLambdaReturnsVoid[index] && !argumentFacts.IsContextualLambda[index] {
+                throw new InvalidOperationException("A contextual lambda return fact must describe a contextual lambda argument.")
+            }
+
             if argumentFacts.IsByRefArgument[index] && (argumentFacts.IsNullLiteral[index] || argumentFacts.IsUnsuffixedIntegerLiteral[index] || argumentFacts.IsNegativeIntegerLiteral[index]) {
                 throw new InvalidOperationException("A by-reference direct-call argument names storage, so it cannot also be a literal.")
             }
@@ -1391,6 +1430,106 @@ class ColumnarSourceDirectCallResolver {
 
             index += 1
         }
+    }
+
+    static func IsContextualLambdaTarget(targetType: Type, parameterCount: int, returnsVoid: bool, writtenParameterTypes: Type[]? = null, invocationArities: int[]? = null): bool {
+        if targetType == null || targetType.IsByRef || targetType.IsGenericParameter || targetType == typeof(Delegate) || targetType == typeof(MulticastDelegate) {
+            return false
+        }
+        candidate := targetType
+        try {
+            if candidate.IsGenericType && !candidate.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(candidate) {
+                candidate = candidate.GetGenericTypeDefinition()
+            }
+            if candidate is TypeBuilder {
+                return candidate.BaseType != null && typeof(Delegate).IsAssignableFrom(candidate.BaseType)
+            }
+            if !typeof(Delegate).IsAssignableFrom(candidate) {
+                return false
+            }
+            invoke := candidate.GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance)
+            if invoke == null || invoke.GetParameters().Length != parameterCount || (returnsVoid && invoke.ReturnType != ColumnarTypeOfPlanner.RequiredVoidType()) {
+                return false
+            }
+            if invocationArities != null && !ContextualLambdaInvocationsMatch(invoke.GetParameters(), invocationArities) {
+                return false
+            }
+            if writtenParameterTypes != null && writtenParameterTypes.Length > 0 {
+                invokeParameters := invoke.GetParameters()
+                if invokeParameters.Length != writtenParameterTypes.Length {
+                    return false
+                }
+                index := 0
+                while index < invokeParameters.Length {
+                    if writtenParameterTypes[index] == null || !ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(writtenParameterTypes[index], invokeParameters[index].ParameterType) {
+                        return false
+                    }
+                    index += 1
+                }
+            }
+            return true
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
+    }
+
+    // A delegate-valued lambda parameter must support each call shape the body writes against it.
+    // This lets overload resolution reject a `Func<Task>` candidate for `next(context)` even when an
+    // untyped lambda parameter's visible-variable fact reflects an earlier provisional candidate.
+    static func ContextualLambdaInvocationsMatch(lambdaParameters: ParameterInfo[], invocationArities: int[]): bool {
+        if lambdaParameters == null || invocationArities == null || invocationArities.Length % 2 != 0 {
+            return false
+        }
+        index := 0
+        while index < invocationArities.Length {
+            parameterIndex := invocationArities[index]
+            suppliedCount := invocationArities[index + 1]
+            if parameterIndex < 0 || parameterIndex >= lambdaParameters.Length || suppliedCount < 0 {
+                return false
+            }
+            delegateType := lambdaParameters[parameterIndex].ParameterType
+            if delegateType == null || delegateType.IsByRef {
+                return false
+            }
+            try {
+                candidate := delegateType
+                if candidate.IsGenericType && !candidate.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(candidate) {
+                    candidate = candidate.GetGenericTypeDefinition()
+                }
+                invoke := candidate.GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance)
+                if invoke == null || !ContextualDelegateCallArityMatches(invoke.GetParameters(), suppliedCount) {
+                    return false
+                }
+            } catch ex: NotSupportedException {
+                return false
+            } catch ex: NotImplementedException {
+                return false
+            }
+            index += 2
+        }
+        return true
+    }
+
+    static func ContextualDelegateCallArityMatches(parameters: ParameterInfo[], suppliedCount: int): bool {
+        if parameters == null || suppliedCount < 0 {
+            return false
+        }
+        if suppliedCount < parameters.Length {
+            index := suppliedCount
+            while index < parameters.Length {
+                if !parameters[index].IsOptional {
+                    return false
+                }
+                index += 1
+            }
+            return true
+        }
+        if suppliedCount == parameters.Length {
+            return true
+        }
+        return parameters.Length > 0 && ColumnarExtensionMethodResolver.IsParamsParameter(parameters[parameters.Length - 1]) && suppliedCount >= parameters.Length - 1
     }
 
     static func CanAdoptIntegerLiteral(targetType: Type, value: long): bool {

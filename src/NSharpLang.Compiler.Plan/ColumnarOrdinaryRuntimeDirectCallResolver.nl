@@ -172,7 +172,15 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func ResolveWithFacts(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
-        return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, false)
+        return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, false, false)
+    }
+
+    // Writable ref-return indexers have storage owned by the returned managed reference, so they are
+    // resolvable for a store target even though an ordinary value expression cannot consume the
+    // address as a value. Keep that distinction at the call site rather than broadening ordinary
+    // invocation planning to treat every ref return as an element value.
+    static func ResolveByRefReturn(lookupType: Type, memberName: string, argumentTypes: Type[]): ColumnarOrdinaryRuntimeDirectCallSelection {
+        return ResolveWithFactsCore(lookupType, memberName, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length), false, false, true)
     }
 
     // The planner's generic tier consumes this same reflected candidate table when its overload
@@ -186,7 +194,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         genericDefinition := typeof(object)
         closedArguments := new Type[](0)
         if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
-            return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, false)
+            return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, false, false)
         }
 
         try {
@@ -215,10 +223,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // inherited-base call sites enter here; every other receiver keeps the public surface, and the
     // level filter still refuses `private` and `assembly` because the base is in another assembly.
     static func ResolveInheritedWithFacts(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
-        return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, true)
+        return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, true, false)
     }
 
-    static func ResolveWithFactsCore(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, allowInheritedProtected: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+    static func ResolveWithFactsCore(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, allowInheritedProtected: bool, allowByRefReturn: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         ValidateInputs(lookupType, memberName, argumentTypes)
         ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
 
@@ -238,7 +246,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     throw new InvalidOperationException("Runtime generic method enumeration returned null.")
                 }
 
-                return ResolveFromCandidatesCore(lookupType, genericDefinition, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected)
+                return ResolveFromCandidatesCore(lookupType, genericDefinition, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected, allowByRefReturn)
             } catch ex: NotSupportedException {
                 return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
             } catch ex: NotImplementedException {
@@ -256,7 +264,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 throw new InvalidOperationException("Runtime method enumeration returned null.")
             }
 
-            return ResolveFromCandidatesCore(lookupType, lookupType, new Type[](0), memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected)
+            return ResolveFromCandidatesCore(lookupType, lookupType, new Type[](0), memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected, allowByRefReturn)
         } catch ex: NotSupportedException {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         } catch ex: InvalidOperationException {
@@ -486,10 +494,14 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func ResolveFromCandidatesCore(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[]): ColumnarOrdinaryRuntimeDirectCallSelection {
-        return ResolveFromCandidatesCore(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, false)
+        return ResolveFromCandidatesCore(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, false, false)
     }
 
     static func ResolveFromCandidatesCore(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        return ResolveFromCandidatesCore(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected, false)
+    }
+
+    static func ResolveFromCandidatesCore(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool, allowByRefReturn: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         hadExcludedShape := false
         hadOptionalExpansion := false
         hadFixedArity := false
@@ -510,6 +522,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     throw new InvalidOperationException("Runtime method parameters cannot be null.")
                 }
 
+                if !ContextualLambdaShapesMatch(parameters, argumentFacts) {
+                    continue
+                }
+
                 if IsIntrinsicExcludedShape(candidate, parameters) {
                     if ExcludedShapeCanOwnArity(candidate, parameters, argumentTypes.Length) {
                         hadExcludedShape = true
@@ -517,7 +533,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 } else {
                     parameterTypes := ResolveParameterTypes(candidate, candidateLookupType, parameters, closedArguments)
                     returnType := ResolveReturnType(candidate, candidateLookupType, closedArguments)
-                    if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) {
+                    if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments, allowByRefReturn) {
                         if ExcludedShapeCanOwnArity(candidate, parameters, argumentTypes.Length) {
                             hadExcludedShape = true
                         }
@@ -1191,6 +1207,63 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return false
     }
 
+    // A lambda with a known void body cannot target a Func delegate. This fact can remove a generic
+    // overload such as ContinueWith<TResult>(Func<Task,TResult>, ...) from the candidate set before
+    // it is classified as an excluded generic shape; otherwise it incorrectly blocks the applicable
+    // Action overload even though the lambda's body has no value to infer TResult from.
+    static func ContextualLambdaShapesMatch(parameters: ParameterInfo[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+        if parameters == null || argumentFacts == null || parameters.Length != argumentFacts.ContextualLambdaReturnsVoid.Length || parameters.Length != argumentFacts.ContextualLambdaParameterCounts.Length || parameters.Length != argumentFacts.ContextualLambdaParameterTypes.Length || parameters.Length != argumentFacts.ContextualLambdaInvocationArities.Length {
+            return true
+        }
+
+        index := 0
+        while index < parameters.Length {
+            lambdaParameterCount := argumentFacts.ContextualLambdaParameterCounts[index]
+            if lambdaParameterCount >= 0 || argumentFacts.ContextualLambdaReturnsVoid[index] {
+                parameterType := parameters[index].ParameterType
+                if parameterType == null || parameterType.IsByRef {
+                    return false
+                }
+                invoke: MethodInfo? = null
+                try {
+                    invoke = parameterType.GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance)
+                } catch ex: NotSupportedException {
+                    return false
+                } catch ex: NotImplementedException {
+                    return false
+                }
+                if invoke == null {
+                    return false
+                }
+                if lambdaParameterCount >= 0 && invoke.GetParameters().Length != lambdaParameterCount {
+                    return false
+                }
+                if !ColumnarSourceDirectCallResolver.ContextualLambdaInvocationsMatch(invoke.GetParameters(), argumentFacts.ContextualLambdaInvocationArities[index]) {
+                    return false
+                }
+                if argumentFacts.ContextualLambdaReturnsVoid[index] && invoke.ReturnType != ColumnarTypeOfPlanner.RequiredVoidType() {
+                    return false
+                }
+                writtenParameterTypes := argumentFacts.ContextualLambdaParameterTypes[index]
+                if writtenParameterTypes != null && writtenParameterTypes.Length > 0 {
+                    invokeParameters := invoke.GetParameters()
+                    if invokeParameters.Length != writtenParameterTypes.Length {
+                        return false
+                    }
+                    parameterIndex := 0
+                    while parameterIndex < invokeParameters.Length {
+                        if writtenParameterTypes[parameterIndex] == null || !ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(writtenParameterTypes[parameterIndex], invokeParameters[parameterIndex].ParameterType) {
+                            return false
+                        }
+                        parameterIndex += 1
+                    }
+                }
+            }
+            index += 1
+        }
+        return true
+    }
+
     // A RESOLVED SIGNATURE IS ONE THE EMITTER CAN SPELL, and after substitution the surviving generic
     // parameters are not all the same thing. `closedArguments` are the type arguments the RECEIVER was
     // closed over, and `ResolveParameterTypes` has already put them where the definition's own
@@ -1202,6 +1275,17 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // A PARAMETER is asked the by-ref-aware question and a RETURN is not, because `ref`/`out` is a
     // parameter spelling only.
     static func HasUnsupportedResolvedSignature(parameters: ParameterInfo[], parameterTypes: Type[], returnType: Type, closedArguments: Type[]): bool {
+        return HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments, false)
+    }
+
+    static func HasUnsupportedResolvedSignature(parameters: ParameterInfo[], parameterTypes: Type[], returnType: Type, closedArguments: Type[], allowByRefReturn: bool): bool {
+        if returnType.IsByRef && allowByRefReturn {
+            elementType := returnType.GetElementType()
+            if elementType == null || elementType.IsByRef || elementType.IsPointer {
+                return true
+            }
+            returnType = elementType
+        }
         if parameters.Length != parameterTypes.Length || IsUnsupportedResolvedSignatureType(returnType, closedArguments) {
             return true
         }

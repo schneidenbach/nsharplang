@@ -10,6 +10,10 @@ on:
       - 'src/NSharpLang.Playground/**'
       - 'src/NSharpLang.Playground.Wasm/**'
       - 'scripts/build-playground-wasm.sh'
+      - 'scripts/prepare-playground-wasm-async-tests.sh'
+      - 'scripts/test-playground-wasm-async.sh'
+      - 'tests/fixtures/async-awaitable-patterns/**'
+      - 'tests/fixtures/async-constructor-reflection/**'
       - 'global.json'
   workflow_dispatch:
 
@@ -49,6 +53,9 @@ jobs:
 
       - name: Build playground WebAssembly
         run: ./scripts/build-playground-wasm.sh
+
+      - name: Verify async playground WebAssembly execution
+        run: ./scripts/test-playground-wasm-async.sh
 
       - name: Install dependencies
         working-directory: website

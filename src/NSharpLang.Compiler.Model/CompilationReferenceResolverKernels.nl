@@ -397,6 +397,7 @@ class CompilationReferenceResolverKernels {
         projectReferenceOptions := new ReferenceResolutionOptions(options.Configuration, false, options.BuildProjectReferences, options.Quiet, options.AotMode)
         projectReferenceOptions.PackagesFolder = options.PackagesFolder
         projectReferenceOptions.UseBuiltProjectReferences = options.UseBuiltProjectReferences
+        projectReferenceOptions.EmitReferenceAssembly = options.EmitReferenceAssembly
         return projectReferenceOptions
     }
 

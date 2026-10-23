@@ -8,6 +8,7 @@ class ColumnarInterpolationPart {
     IsHole: bool
     Text: string
     Format: string?
+    SourceOffset: int
 }
 
 class ColumnarInterpolationSplitter {
@@ -17,8 +18,9 @@ class ColumnarInterpolationSplitter {
         texts := new string[](capacity)
         formats := new string[](capacity)
         formatFlags := new int[](capacity)
+        sourceOffsets := new int[](capacity)
 
-        count := ColumnarInterpolatedStringParts(literal, kinds, texts, formats, formatFlags)
+        count := ColumnarInterpolatedStringParts(literal, kinds, texts, formats, formatFlags, sourceOffsets)
         if count < 0 {
             return false
         }
@@ -28,7 +30,8 @@ class ColumnarInterpolationSplitter {
             part := new ColumnarInterpolationPart {
                 IsHole: kinds[i] == 1,
                 Text: texts[i],
-                Format: formats[i]
+                Format: formats[i],
+                SourceOffset: sourceOffsets[i]
             }
 
             if formatFlags[i] == 0 {
@@ -42,7 +45,7 @@ class ColumnarInterpolationSplitter {
         return true
     }
 
-    static func ColumnarInterpolatedStringParts(literal: string, outKinds: int[], outTexts: string[], outFormats: string[], outFormatFlags: int[]): int {
+    static func ColumnarInterpolatedStringParts(literal: string, outKinds: int[], outTexts: string[], outFormats: string[], outFormatFlags: int[], outSourceOffsets: int[]): int {
         if literal.Length < 3 {
             return -1
         }
@@ -137,7 +140,7 @@ class ColumnarInterpolationSplitter {
                 }
 
                 if text.Length > 0 {
-                    partCount = EmitColumnarInterpolatedStringPart(outKinds, outTexts, outFormats, outFormatFlags, partCount, 0, text.ToString(), "", 0)
+                    partCount = EmitColumnarInterpolatedStringPart(outKinds, outTexts, outFormats, outFormatFlags, outSourceOffsets, partCount, 0, text.ToString(), "", 0, i)
                     if partCount < 0 {
                         return -1
                     }
@@ -150,7 +153,7 @@ class ColumnarInterpolationSplitter {
                     formatText = literal.Substring(formatStart, formatLength)
                 }
 
-                partCount = EmitColumnarInterpolatedStringPart(outKinds, outTexts, outFormats, outFormatFlags, partCount, 1, literal.Substring(exprStart, exprLength), formatText, hasFormat)
+                partCount = EmitColumnarInterpolatedStringPart(outKinds, outTexts, outFormats, outFormatFlags, outSourceOffsets, partCount, 1, literal.Substring(exprStart, exprLength), formatText, hasFormat, exprStart)
                 if partCount < 0 {
                     return -1
                 }
@@ -184,7 +187,7 @@ class ColumnarInterpolationSplitter {
         }
 
         if text.Length > 0 {
-            partCount = EmitColumnarInterpolatedStringPart(outKinds, outTexts, outFormats, outFormatFlags, partCount, 0, text.ToString(), "", 0)
+            partCount = EmitColumnarInterpolatedStringPart(outKinds, outTexts, outFormats, outFormatFlags, outSourceOffsets, partCount, 0, text.ToString(), "", 0, end)
             if partCount < 0 {
                 return -1
             }
@@ -193,7 +196,7 @@ class ColumnarInterpolationSplitter {
         return partCount
     }
 
-    static func EmitColumnarInterpolatedStringPart(outKinds: int[], outTexts: string[], outFormats: string[], outFormatFlags: int[], partCount: int, kind: int, text: string, format: string, hasFormat: int): int {
+    static func EmitColumnarInterpolatedStringPart(outKinds: int[], outTexts: string[], outFormats: string[], outFormatFlags: int[], outSourceOffsets: int[], partCount: int, kind: int, text: string, format: string, hasFormat: int, sourceOffset: int): int {
         if partCount < 0 {
             return -1
         }
@@ -214,10 +217,15 @@ class ColumnarInterpolationSplitter {
             return -1
         }
 
+        if partCount >= outSourceOffsets.Length {
+            return -1
+        }
+
         outKinds[partCount] = kind
         outTexts[partCount] = text
         outFormats[partCount] = format
         outFormatFlags[partCount] = hasFormat
+        outSourceOffsets[partCount] = sourceOffset
         return partCount + 1
     }
 

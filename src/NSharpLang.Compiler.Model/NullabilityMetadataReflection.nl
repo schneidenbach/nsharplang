@@ -444,7 +444,16 @@ class NullabilityMetadataReflection {
 
     static func CreateNullabilityInfoForParameter(parameter: ParameterInfo): NullabilityInfo? {
         context := CreateNullabilityContext()
-        return context.Create(parameter)
+        // Some AOT reflection profiles expose the ParameterInfo but do not implement the
+        // NullabilityInfoContext walk over its declaring method. The caller still has the CLR
+        // parameter type and explicit attributes, so keep analyzing with oblivious nullability.
+        try {
+            return context.Create(parameter)
+        } catch ex: NotImplementedException {
+            return null
+        } catch ex: NotSupportedException {
+            return null
+        }
     }
 
     static func GetElementNullability(info: NullabilityInfo?): NullabilityInfo? {

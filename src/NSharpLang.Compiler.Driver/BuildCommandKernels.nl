@@ -160,6 +160,7 @@ class BuildCommandKernels {
         timings := false
         perfReport := false
         aot := false
+        emitReferenceAssembly := false
         showHelp := false
 
         i := 0
@@ -197,6 +198,8 @@ class BuildCommandKernels {
             } else if kind == 9 {
                 aot = true
             } else if kind == 10 {
+                emitReferenceAssembly = true
+            } else if kind == 11 {
                 showHelp = true
             }
 
@@ -208,11 +211,11 @@ class BuildCommandKernels {
             output = outputLong
         }
 
-        return new BuildOptionSummary(output, backend, project, release, verbose, timings, perfReport, aot, showHelp)
+        return new BuildOptionSummary(output, backend, project, release, verbose, timings, perfReport, aot, emitReferenceAssembly, showHelp)
     }
 
     static func GetHelpText(): string {
-        return "N# Build\n" + "\n" + "Usage: nlc build [file.nl] [options]\n" + "\n" + "Build a project or a single N# source file.\n" + "\n" + "When run in a directory with project.yml, compiles directly from project.yml\n" + "through the native IL backend. No user-authored .csproj is needed.\n" + "\n" + "Options:\n" + "  --backend <mode>   Compilation backend: il\n" + "  --project <dir>    Project root directory (default: current directory)\n" + "  --release          Build with Release configuration/output layout (default: Debug)\n" + "  --verbose          Show detailed build output\n" + "  --timings          Emit per-phase timing breakdown after build\n" + "  --perf-report      Emit a versioned JSON performance report after build\n" + "  --stats[=<path>]   Write one JSON line of time and work counters (files parsed,\n" + "                     assemblies emitted, ...) to stderr, or to <path>\n" + "  --aot              Analyze for Native AOT safety; AOT blockers become build errors\n" + "  --output <path>    Output directory for build artifacts (-o shorthand)\n" + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n" + "                     repeatable, and accepts comma-separated lists\n" + "  --color=<when>     Colour diagnostics: auto (default), always, never\n" + "  --help, -h         Show this help text\n" + "\n" + "Conditional compilation:\n" + "  DEBUG is defined automatically for debug builds (omitted with --release).\n" + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n" + "\n" + "Examples:\n" + "  nlc build              Build the current project\n" + "  nlc build --backend il Build the current project with the IL backend\n" + "  nlc build --release    Release configuration/output layout\n" + "  nlc build --verbose    Show detailed build output\n" + "  nlc build --timings    Show phase-level timing breakdown\n" + "  nlc build --perf-report Emit a JSON performance report\n" + "  nlc build --aot        Fail the build on Native AOT blockers\n" + "  nlc build -o ./dist    Build to a specific output directory\n" + "  nlc build --define FEATURE_X  Build with FEATURE_X defined\n" + "  nlc build Program.nl   Build a single file\n" + "\n" + "Exit codes:\n" + "  0  Build succeeded\n" + "  1  Build failed"
+        return "N# Build\n" + "\n" + "Usage: nlc build [file.nl] [options]\n" + "\n" + "Build a project or a single N# source file.\n" + "\n" + "When run in a directory with project.yml, compiles directly from project.yml\n" + "through the native IL backend. No user-authored .csproj is needed.\n" + "\n" + "Options:\n" + "  --backend <mode>   Compilation backend: il\n" + "  --project <dir>    Project root directory (default: current directory)\n" + "  --release          Build with Release configuration/output layout (default: Debug)\n" + "  --verbose          Show detailed build output\n" + "  --timings          Emit per-phase timing breakdown after build\n" + "  --perf-report      Emit a versioned JSON perf report after build\n" + "  --stats[=<path>]   Write one JSON line of time and work counters (files parsed,\n" + "                     assemblies emitted, ...) to stderr, or to <path>\n" + "  --aot              Analyze for Native AOT safety; AOT blockers become build errors\n" + "  --emit-reference-assembly  Write a public reference assembly beside the implementation\n" + "  --output <path>    Output directory for build artifacts (-o shorthand)\n" + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n" + "                     repeatable, and accepts comma-separated lists\n" + "  --color=<when>     Colour diagnostics: auto (default), always, never\n" + "  --help, -h         Show this help text\n" + "\n" + "Conditional compilation:\n" + "  DEBUG is defined automatically for debug builds (omitted with --release).\n" + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n" + "\n" + "Examples:\n" + "  nlc build              Build the current project\n" + "  nlc build --backend il Build the current project with the IL backend\n" + "  nlc build --release    Release configuration/output layout\n" + "  nlc build --verbose    Show detailed build output\n" + "  nlc build --timings    Show phase-level timing breakdown\n" + "  nlc build --perf-report Emit a JSON performance report\n" + "  nlc build --aot        Fail the build on Native AOT blockers\n" + "  nlc build --emit-reference-assembly  Emit a reference assembly for downstream compilation\n" + "  nlc build -o ./dist    Build to a specific output directory\n" + "  nlc build --define FEATURE_X  Build with FEATURE_X defined\n" + "  nlc build Program.nl   Build a single file\n" + "\n" + "Exit codes:\n" + "  0  Build succeeded\n" + "  1  Build failed"
     }
 
     static func GetFailedMessage(message: string): string {
@@ -417,8 +420,12 @@ class BuildCommandKernels {
             return 9
         }
 
-        if arg == "--help" || arg == "-h" {
+        if arg == "--emit-reference-assembly" {
             return 10
+        }
+
+        if arg == "--help" || arg == "-h" {
+            return 11
         }
 
         return 0
@@ -475,7 +482,7 @@ class BuildCommandKernels {
             return 4
         }
 
-        if arg == "--aot" || arg == "--release" || arg == "--timings" || arg == "--verbose" || arg == "--perf-report" {
+        if arg == "--aot" || arg == "--release" || arg == "--timings" || arg == "--verbose" || arg == "--perf-report" || arg == "--emit-reference-assembly" {
             return 5
         }
 

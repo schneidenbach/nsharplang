@@ -881,7 +881,9 @@ test "NL003 reads a while condition as well as an if condition" {
 // ── NL004: async without await ────────────────────────────────────────────────────────────────
 
 test "NL004 names the async function that never awaits" {
-    assert LntHas(LntLint("\nasync func process(): Task {\n    x := 5\n    return Task.CompletedTask\n}"), "NL004", "process")
+    diagnostics := LntLint("\nasync func process(): Task {\n    x := 5\n    return Task.CompletedTask\n}")
+    assert LntHas(diagnostics, "NL004", "process")
+    assert LntHas(diagnostics, "NL004", "never uses 'await'")
 }
 
 test "NL004 says nothing when the function does await" {

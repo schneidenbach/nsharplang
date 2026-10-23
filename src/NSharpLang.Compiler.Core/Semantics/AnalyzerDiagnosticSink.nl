@@ -128,6 +128,50 @@ class AnalyzerDiagnosticSink {
         }
     }
 
+    // WHETHER A TARGET-TYPED LAMBDA MADE AN INNER INVOCATION INAPPLICABLE FOR ONE REFLECTED
+    // OVERLOAD. The candidate walk asks this immediately after that lambda is analysed: invocation
+    // binding failures can disqualify the candidate and allow another delegate overload to bind,
+    // while warnings and body diagnostics such as NL309/NL323 stay attached to the selected lambda.
+    // The caller captures the mark at the lambda boundary, so sibling arguments do not participate.
+    func HasLambdaInvocationBindingFailureSince(count: int): bool {
+        index := count
+        if index < 0 {
+            index = 0
+        }
+
+        while index < errorsValue.Count {
+            error := errorsValue[index]
+            if error.Severity == ErrorSeverity.Error {
+                code := error.Code
+                if code == ErrorCode.WrongArgumentCount || code == ErrorCode.NoMatchingOverload || code == ErrorCode.MemberNotCallable || code == ErrorCode.AmbiguousCall || code == ErrorCode.TypeNotCallable {
+                    return true
+                }
+            }
+            index = index + 1
+        }
+
+        return false
+    }
+
+    // A reflected overload candidate can be withdrawn because its target-typed lambda body did not
+    // bind. Preserve that candidate's diagnostics before rollback so a later generic no-overload
+    // report cannot erase the unresolved name or the inner invocation that explains the failure.
+    func CandidateDiagnosticsSince(count: int): List<CompilerError> {
+        result := new List<CompilerError>()
+        index := count
+        if index < 0 {
+            index = 0
+        }
+        while index < errorsValue.Count {
+            error := errorsValue[index]
+            if error.Severity == ErrorSeverity.Error {
+                result.Add(error)
+            }
+            index += 1
+        }
+        return result
+    }
+
     // HAS THIS EXACT REPORT ALREADY BEEN MADE? Identity is code + line + column + message, and
     // deliberately NOT severity: the one caller — the expression-tree validator — asks so that a
     // lambda reached twice (once through the dispatch arm and once through a target-typed door)

@@ -1083,6 +1083,28 @@ test "direct-call planner reuses the implicit receiver slot across nested calls"
     assert plan.Methods[plan.OperandIndices[3]].get_Name() == "Outer"
 }
 
+test "direct-call planner preserves the address of an async machine receiver" {
+    owner := SourceCallDefinition("DirectCallAsyncReceiverOwner", true)
+    machine := SourceCallDefinition("DirectCallAsyncReceiverMachine", false)
+    receiverField := machine.Builder.DefineField("<>__this", owner.Builder, FieldAttributes.Public)
+    bindings := ColumnarRangePlannerEmptyBindings()
+    bindings.SetEnclosingTypeDefinition(owner)
+    bindings.CurrentInstance = new ColumnarCurrentInstanceFacts(machine.Builder, false)
+    bindings.SetCapturedReceiver(receiverField)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    ColumnarDirectCallPlanner.AppendImplicitReceiverLoad(plan, bindings, owner.Builder, false)
+
+    assert plan.ArgumentCount == 1
+    assert plan.ArgumentOrdinals[0] == 0
+    assert plan.ArgumentIsAddress[0]
+    assert Object.ReferenceEquals(plan.Types[plan.ArgumentTypeIndices[0]], machine.Builder)
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldfld()
+}
+
 test "direct-call planner declines synthetic contextual lambda instance frames atomically" {
     owner := SourceCallDefinition("DirectCallContextualLambdaOwner", true)
     intParameters := new Type[](1)

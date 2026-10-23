@@ -225,6 +225,13 @@ class ColumnarLambdaPlacementPlanner {
         if ColumnarTypeEquivalenceFacts.TypesEquivalent(written, delegateParameter) {
             return true
         }
+        // Extension candidates are read in the compilation's MetadataLoadContext, while analyzer
+        // parameter facts can carry the matching runtime Type. Cross that representation boundary
+        // by the complete assembly-qualified identity the reference catalog admits; ordinary CLR
+        // assignability cannot compare these two Type universes even when they name the same slot.
+        if ExternalAssemblyScan.HasExactTypeIdentity(written, delegateParameter.AssemblyQualifiedName ?? "") {
+            return true
+        }
         if written.IsGenericParameter || delegateParameter.IsGenericParameter || RuntimeTypeShapeFacts.ContainsBuilderBoundType(written) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateParameter) {
             return true
         }

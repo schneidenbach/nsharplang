@@ -93,6 +93,16 @@ The task is `ValueTask` by default, or `Task` when `project.yml` sets
 member it replaces, and writing the task type (`: Task<string>`) always wins. See
 [Implicit Task Wrapping](./functions.md#implicit-task-wrapping) for the full rule.
 
+The compiler lowers async bodies to resumable state machines. The body starts on the calling thread
+and runs until it returns or reaches an incomplete `await`; at that point the call returns its task
+and the continuation runs when the awaitable completes. The suspended method does not hold a thread,
+so independent operations can overlap without blocking a thread per `await`. Already-completed awaits
+continue inline, and a method with no incomplete await may finish before its call returns. Exceptions
+from the body are recorded on its task, including exceptions before the first suspension. The CLR
+entry wrapper is the one place that waits synchronously: it waits once for a task-returning `main`
+before the process exits. Use `await` only in an async function or lambda; `await` elsewhere is
+[`NL353`](./errors/NL353.md).
+
 ### Lambda Expressions
 
 N# supports lambda expressions for inline functions:

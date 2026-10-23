@@ -266,6 +266,30 @@ class TypeInfoIdentityFacts {
         return HaveSameNonConstructedReflectionTypeIdentity(left, right)
     }
 
+    // Reference-pack assemblies may define a framework contract in System.Runtime while the
+    // executing runtime defines the same contract in System.Private.CoreLib. Treat those two CLR
+    // identities as equivalent only when their full type names and exact framework contract /
+    // implementation assembly identities match. Same-spelled user types from other assemblies
+    // remain distinct.
+    static func HaveSameRuntimeAndReferenceTypeIdentity(referenceType: Type, runtimeType: Type): bool {
+        if HaveSameReflectionTypeIdentity(referenceType, runtimeType) {
+            return true
+        }
+        if referenceType == null || runtimeType == null || !string.Equals(referenceType.FullName, runtimeType.FullName, StringComparison.Ordinal) {
+            return false
+        }
+
+        referenceAssembly := referenceType.Assembly.GetName()
+        runtimeAssembly := runtimeType.Assembly.GetName()
+        if !string.Equals(referenceAssembly.Name, "System.Runtime", StringComparison.Ordinal) || !string.Equals(runtimeAssembly.Name, "System.Private.CoreLib", StringComparison.Ordinal) {
+            return false
+        }
+
+        referenceToken := referenceAssembly.GetPublicKeyToken()
+        runtimeToken := runtimeAssembly.GetPublicKeyToken()
+        return referenceToken != null && runtimeToken != null && Convert.ToHexString(referenceToken) == "B03F5F7F11D50A3A" && Convert.ToHexString(runtimeToken) == "7CEC85D7BEA7798E"
+    }
+
     // THE GATE ABOVE `IsKnownGenericConversion`, AND THE TABLE IS THE ADMISSION ITSELF. A known
     // generic conversion is only consulted once BOTH sides carry a definition this table names, so a
     // conversion row published without its identity rows is dead: that is exactly how finding 97.6

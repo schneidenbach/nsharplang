@@ -100,6 +100,10 @@ class ColumnarGenericMethodFacts {
 // would otherwise surface to C# as Item1/Item2/Item3.
 class ColumnarInstanceMethodDef {
     Builder: MethodBuilder
+    SourceFileId: int
+    SourceFilePath: string?
+    SourceLine: int
+    SourceColumn: int
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
@@ -130,6 +134,10 @@ class ColumnarInstanceMethodDef {
         }
 
         Builder = builder
+        SourceFileId = -1
+        SourceFilePath = null
+        SourceLine = 0
+        SourceColumn = 0
         ParamTypes = paramTypes
         ParamModifierKinds = new int[](0)
         ReturnType = returnType
@@ -152,6 +160,10 @@ class ColumnarInstanceMethodDef {
         }
 
         Builder = builder
+        SourceFileId = -1
+        SourceFilePath = null
+        SourceLine = 0
+        SourceColumn = 0
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
@@ -180,6 +192,10 @@ class ColumnarInstanceMethodDef {
 
 class ColumnarStaticMethodDef {
     Builder: MethodBuilder
+    SourceFileId: int
+    SourceFilePath: string?
+    SourceLine: int
+    SourceColumn: int
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
@@ -202,6 +218,10 @@ class ColumnarStaticMethodDef {
 
     constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnLabeledCanonical: string? = null) {
         Builder = builder
+        SourceFileId = -1
+        SourceFilePath = null
+        SourceLine = 0
+        SourceColumn = 0
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
@@ -373,6 +393,9 @@ class ColumnarPropertyDef {
     Getter: MethodBuilder
     Setter: MethodBuilder?
     PropertyType: Type
+    SourceFilePath: string?
+    SourceLine: int
+    SourceColumn: int
     GetterParameterCount: int
     SetterParameterCount: int
     // WHETHER THE SETTER IS AN `init` ACCESSOR — that is, whether its return type carries
@@ -391,6 +414,9 @@ class ColumnarPropertyDef {
         Getter = getter
         Setter = setter
         PropertyType = propertyType
+        SourceFilePath = null
+        SourceLine = 0
+        SourceColumn = 0
         GetterParameterCount = 0
         SetterParameterCount = setter == null ? 0 : 1
         IsInitOnly = isInitOnly
@@ -655,6 +681,10 @@ class ColumnarStructDef {
     // every explicitly implemented interface unsatisfied — so the declaration pass records what it
     // filled, and the walk consults it before it fails.
     ExplicitInterfaceSlots: HashSet<string>
+    // THE EXACT INTERFACE METHOD TARGETS FILLED EXPLICITLY. A public same-name method may still
+    // implement another overload, but it must not also receive a MethodImpl row for the slot an
+    // explicit method already owns. MethodInfo identity keeps overloads and inherited slots distinct.
+    ExplicitInterfaceTargetMethods: HashSet<MethodInfo>
     MethodOverloads: Dictionary<string, List<ColumnarInstanceMethodDef>>
     StaticMethods: Dictionary<string, List<ColumnarStaticMethodDef>>
     StaticFields: Dictionary<string, FieldBuilder>
@@ -733,6 +763,7 @@ class ColumnarStructDef {
         DefaultInterfaceMethodNames = new HashSet<string>(StringComparer.Ordinal)
         Methods = new Dictionary<string, ColumnarInstanceMethodDef>(StringComparer.Ordinal)
         ExplicitInterfaceSlots = new HashSet<string>(StringComparer.Ordinal)
+        ExplicitInterfaceTargetMethods = new HashSet<MethodInfo>()
         MethodOverloads = new Dictionary<string, List<ColumnarInstanceMethodDef>>(StringComparer.Ordinal)
         StaticMethods = new Dictionary<string, List<ColumnarStaticMethodDef>>(StringComparer.Ordinal)
         StaticFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)

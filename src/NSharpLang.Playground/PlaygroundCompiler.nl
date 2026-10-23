@@ -3,6 +3,7 @@ namespace NSharpLang.Playground
 import System
 import System.Collections.Generic
 import System.IO
+import System.Threading.Tasks
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
@@ -21,7 +22,7 @@ sealed class PlaygroundCompiler {
         limitations := new string[](4)
         limitations[0] = "The hosted playground runs compiler analysis, formatting, completions, hover, syntax highlighting, and a bounded execution subset entirely in the browser."
         limitations[1] = "The Run button supports tutorial-scale code: functions, print, simple control flow, records/classes, object initializers, string/numeric helpers, and selected match patterns."
-        limitations[2] = "Full build, test execution, NuGet restore, filesystem workflows, async, LINQ, and unrestricted .NET interop require the local nlc toolchain."
+        limitations[2] = "Full build, test execution, NuGet restore, filesystem workflows, LINQ, and unrestricted .NET interop require the local nlc toolchain. The browser runner supports Task and ValueTask awaits, custom awaiter patterns, ConfigureAwait, and awaits in async try/catch/finally blocks."
         limitations[3] = "External assembly resolution is intentionally bounded for browser reliability."
         capabilities := new PlaygroundCapabilities(true, true, true, true, true, true, true, false, limitations)
         examples := PlaygroundExamples.get_All()
@@ -132,8 +133,8 @@ sealed class PlaygroundCompiler {
         return new PlaygroundHoverResponse(schemaVersion, true, normalizedFileName, hover, diagnostics, summary)
     }
 
-    func RunProject(files: IEnumerable<PlaygroundFile>?, activeFile: string? = null): PlaygroundRunResponse {
-        schemaVersion := SchemaVersion
+    async func RunProject(files: IEnumerable<PlaygroundFile>?, activeFile: string? = null): Task<PlaygroundRunResponse> {
+        schemaVersion := PlaygroundCompiler.SchemaVersion
         normalizedFiles := NormalizeFiles(files)
         normalizedActiveFile := NormalizeExistingFileName(activeFile, normalizedFiles)
         analysis := AnalyzeProject(normalizedFiles)
@@ -156,36 +157,82 @@ sealed class PlaygroundCompiler {
 
         try {
             orderedUnits := new List<CompilationUnit>()
+            semanticModelsByDeclaration := new Dictionary<object, SemanticModel>()
             sourceFiles := analysis.Snapshot.get_SourceFiles()
             for path in sourceFiles {
                 unit: CompilationUnit? = null
                 if analysis.Snapshot.get_CompilationUnits().TryGetValue(path, out unit) {
                     if unit != null {
                         orderedUnits.Add(unit)
+                        semanticModel: SemanticModel? = null
+                        if analysis.Snapshot.get_SemanticModels().TryGetValue(path, out semanticModel) && semanticModel != null {
+                            for declaration in unit.Declarations {
+                                RecordSemanticModelForDeclaration(declaration, semanticModel, semanticModelsByDeclaration)
+                            }
+                        }
                     }
                 }
             }
-            runner := new PlaygroundRunner(orderedUnits)
-            run := runner.Run()
+            runner := new PlaygroundRunner(orderedUnits, semanticModelsByDeclaration, analysis.AsyncDefaultFamily)
+            run := await runner.RunAsync()
             return new PlaygroundRunResponse(schemaVersion, run.ExitCode == 0, normalizedActiveFile, run.ExitCode, run.Stdout, run.Stderr, null, diagnostics, summary)
         } catch caught: Exception {
-            unsupported := caught as PlaygroundRunUnsupportedException
-            if unsupported != null {
-                runDiagnostics := new List<PlaygroundDiagnostic>()
-                for diagnostic in diagnostics {
-                    runDiagnostics.Add(diagnostic)
-                }
-                runDiagnostics.Add(new PlaygroundDiagnostic(unsupported.Code, "error", unsupported.Message, normalizedActiveFile, 1, 1, 1, null, "The hosted playground intentionally runs a bounded browser execution subset.", "Install nlc locally for full CLR execution, or try one of the smaller runnable samples.", "Diagnostics, formatting, hover, and completions still work for this code in the browser."))
-                return BuildFailedRunResponse(normalizedActiveFile, Deduplicate(runDiagnostics), unsupported.Message, unsupported.Message)
-            }
+            return BuildRunExceptionResponse(caught, diagnostics, normalizedActiveFile)
+        }
+    }
 
+    private static func RecordSemanticModelForDeclaration(declaration: Declaration, semanticModel: SemanticModel, models: Dictionary<object, SemanticModel>) {
+        if declaration == null || semanticModel == null || models == null {
+            return
+        }
+        models[declaration] = semanticModel
+        members: List<Declaration>? = null
+        classDeclaration := declaration as ClassDeclaration
+        if classDeclaration != null {
+            members = classDeclaration.Members
+        } else {
+            structDeclaration := declaration as StructDeclaration
+            if structDeclaration != null {
+                members = structDeclaration.Members
+            } else {
+                recordDeclaration := declaration as RecordDeclaration
+                if recordDeclaration != null {
+                    members = recordDeclaration.Members
+                } else {
+                    interfaceDeclaration := declaration as InterfaceDeclaration
+                    if interfaceDeclaration != null {
+                        members = interfaceDeclaration.Members
+                    }
+                }
+            }
+        }
+        if members != null {
+            for member in members {
+                RecordSemanticModelForDeclaration(member, semanticModel, models)
+            }
+        }
+    }
+
+    private static func BuildRunExceptionResponse(caught: Exception, diagnostics: IReadOnlyList<PlaygroundDiagnostic>, activeFile: string): PlaygroundRunResponse {
+        unsupported := caught as PlaygroundRunUnsupportedException
+        if unsupported != null {
             runDiagnostics := new List<PlaygroundDiagnostic>()
             for diagnostic in diagnostics {
                 runDiagnostics.Add(diagnostic)
             }
-            runDiagnostics.Add(new PlaygroundDiagnostic("PG299", "error", "Run failed: " + caught.Message, normalizedActiveFile, 1, 1, 1, null, "The browser runner hit an unexpected execution failure.", "If this is reproducible, file an issue with the sample source.", null))
-            return BuildFailedRunResponse(normalizedActiveFile, Deduplicate(runDiagnostics), caught.Message, null)
+            line := unsupported.Line > 0 ? unsupported.Line : 1
+            column := unsupported.Column > 0 ? unsupported.Column : 1
+            length := unsupported.Length > 0 ? unsupported.Length : 1
+            runDiagnostics.Add(new PlaygroundDiagnostic(unsupported.Code, "error", unsupported.Message, activeFile, line, column, length, null, "The hosted playground intentionally runs a bounded browser execution subset.", "Install nlc locally for full CLR execution, or try one of the smaller runnable samples.", "Diagnostics, formatting, hover, and completions still work for this code in the browser."))
+            return BuildFailedRunResponse(activeFile, Deduplicate(runDiagnostics), unsupported.Message, unsupported.Message)
         }
+
+        runDiagnostics := new List<PlaygroundDiagnostic>()
+        for diagnostic in diagnostics {
+            runDiagnostics.Add(diagnostic)
+        }
+        runDiagnostics.Add(new PlaygroundDiagnostic("PG299", "error", "Run failed: " + caught.Message, activeFile, 1, 1, 1, null, "The browser runner hit an unexpected execution failure.", "If this is reproducible, file an issue with the sample source.", null))
+        return BuildFailedRunResponse(activeFile, Deduplicate(runDiagnostics), caught.Message, null)
     }
 
     private static func AnalyzeProject(files: IReadOnlyList<PlaygroundFile>): ProjectAnalysis {
@@ -228,6 +275,8 @@ sealed class PlaygroundCompiler {
         }
 
         config := ProjectFileParser.CreateDefault("NSharpPlayground")
+        AddBrowserFrameworkReferences(config)
+        defaultAsyncFamily := AsyncTaskFamilyFacts.ForLanguage(config.Language)
         firstFile := files[0]
         config.set_Entry(firstFile.Name)
         config.set_Exclude(new List<string>())
@@ -247,7 +296,24 @@ sealed class PlaygroundCompiler {
             diagnostics.Add(ToPlaygroundDiagnostic(diagnostic))
         }
         AddLintDiagnostics(snapshot, diagnostics)
-        return new ProjectAnalysis(snapshot, diagnostics)
+        return new ProjectAnalysis(snapshot, diagnostics, defaultAsyncFamily)
+    }
+
+    // The browser registers the target-framework reference pack before requests reach the compiler.
+    // Pass its common compile assemblies to analysis just as a project build does; runtime copies
+    // alone omit the facade ownership needed to resolve framework interfaces such as awaiter
+    // completion contracts.
+    private static func AddBrowserFrameworkReferences(config: ProjectConfig): void {
+        baseDirectory := AppContext.BaseDirectory
+        for assemblyName in ExternalAssemblyScan.CommonAssemblyNames() {
+            if assemblyName == "System.Private.CoreLib" {
+                continue
+            }
+            referencePath := Path.Combine(baseDirectory, assemblyName + ".dll")
+            if File.Exists(referencePath) {
+                config.Dependencies.Add(new Reference { Dll: referencePath })
+            }
+        }
     }
 
     private static func AddLintDiagnostics(snapshot: ProjectSnapshot, diagnostics: List<PlaygroundDiagnostic>) {
@@ -492,6 +558,6 @@ sealed class PlaygroundCompiler {
         return Path.Combine(Path.GetTempPath(), "nsharp-playground")
     }
 
-    private sealed record ProjectAnalysis(Snapshot: ProjectSnapshot?, Diagnostics: List<PlaygroundDiagnostic>) {
+    private sealed record ProjectAnalysis(Snapshot: ProjectSnapshot?, Diagnostics: List<PlaygroundDiagnostic>, AsyncDefaultFamily: AsyncTaskFamily = AsyncTaskFamily.ValueTask) {
     }
 }

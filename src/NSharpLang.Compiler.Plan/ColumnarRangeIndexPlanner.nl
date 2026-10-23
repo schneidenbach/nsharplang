@@ -450,14 +450,23 @@ class ColumnarRangeIndexPlanner {
 
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression || kind == ColumnarExpressionNodeKind.FloatLiteralExpression || kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression {
             iteratorEmitter := bindings.IteratorMoveNextEmitter
-            if kind == ColumnarExpressionNodeKind.StringLiteralExpression && iteratorEmitter != null && !plan.IteratorTypeDiscovery {
+            if kind == ColumnarExpressionNodeKind.StringLiteralExpression && iteratorEmitter != null {
                 literal := ""
                 parts := new List<ColumnarInterpolationPart>()
                 holeNodes := new ColumnarNodeTable[](0)
                 holeSources := new string[](0)
                 holeRoots := new int[](0)
-                if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
-                    planned = ColumnarIteratorBodyPlanner.AppendIteratorInterpolatedString(iteratorEmitter, literal, parts, holeNodes, holeSources, holeRoots, out resultType)
+                holeSourceOffsets := new int[](0)
+                if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots, out holeSourceOffsets) {
+                    if plan.IteratorTypeDiscovery {
+                        // This plan is thrown away after call binding. Keep its stack shape and type
+                        // without evaluating interpolation holes; the selected live call emits them.
+                        resultType = typeof(string)
+                        plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), plan.AddString(""))
+                        planned = true
+                    } else {
+                        planned = ColumnarIteratorBodyPlanner.AppendIteratorInterpolatedString(iteratorEmitter, literal, parts, holeNodes, holeSources, holeRoots, holeSourceOffsets, out resultType)
+                    }
                 } else {
                     planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, node, plan, out resultType)
                 }
@@ -503,11 +512,11 @@ class ColumnarRangeIndexPlanner {
             iteratorEmitter := bindings.IteratorMoveNextEmitter
             if iteratorEmitter != null && !plan.IteratorTypeDiscovery {
                 planned = ColumnarIteratorBodyPlanner.AppendAwait(iteratorEmitter, node, out resultType)
-            } else if bindings.BlockingAwaitEnabled || plan.IteratorTypeDiscovery {
+            } else if plan.IteratorTypeDiscovery {
                 awaitableType := typeof(object)
                 planned = TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out awaitableType, out nestedOwnership)
                 if planned {
-                    planned = AppendBlockingAwaitOfStackValue(plan, awaitableType, out resultType)
+                    planned = AppendAwaitTypeDiscoveryResult(nodes, source, node, bindings, plan, awaitableType, out resultType)
                 }
             }
         } else if kind == ColumnarExpressionNodeKind.BinaryExpression {
@@ -534,6 +543,10 @@ class ColumnarRangeIndexPlanner {
         } else if kind == ColumnarExpressionNodeKind.UnaryExpression {
             planned = ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(nodes, source, node, plan, fragment, out resultType)
 
+            if !planned {
+                planned = ColumnarUnaryOperatorPlanner.TryAppend(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
+            }
+
             if !planned && ColumnarConditionalPlanner.IsBooleanNot(nodes, source, node) {
                 planned = ColumnarConditionalPlanner.TryPlanBooleanNot(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
             }
@@ -543,6 +556,10 @@ class ColumnarRangeIndexPlanner {
             }
         } else if kind == ColumnarExpressionNodeKind.CastExpression {
             planned = TryPlanNumericCast(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
+        } else if kind == ColumnarExpressionNodeKind.AsExpression {
+            planned = ColumnarTypeTestPlanner.TryAppendAs(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
+        } else if kind == ColumnarExpressionNodeKind.MustExpression {
+            planned = ColumnarMustExpressionPlanner.TryAppend(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.RangeExpression {
             planned = TryPlanRange(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.TernaryExpression {
@@ -569,48 +586,35 @@ class ColumnarRangeIndexPlanner {
         return true
     }
 
-    // The async-lambda expression scope's await owner. This mirrors the ordinary emitter's current
-    // BLOCKING semantics, including ValueTask.AsTask before waiting and an address call for the
-    // value-type awaiter. It receives the awaitable already on the stack so nested expression order
-    // remains the recursive value planner's order.
-    static func AppendBlockingAwaitOfStackValue(plan: ColumnarCodePlan, awaitableType: Type, out resultType: Type): bool {
+    // Type-only await planning is used in speculative expression plans. The live MoveNext plan owns
+    // suspension; its speculative siblings only need a correctly typed placeholder result so overload
+    // selection and plan validation can proceed without emitting a second await.
+    static func AppendAwaitTypeDiscoveryResult(nodes: ColumnarNodeTable, source: string, awaitNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, awaitableType: Type, out resultType: Type): bool {
         resultType = typeof(object)
-        if awaitableType == null || awaitableType.IsGenericParameter {
+        if nodes == null || source == null || bindings == null || bindings.SemanticModel == null || plan == null || awaitableType == null || awaitableType.IsGenericParameter || awaitableType.IsByRef || awaitableType.IsPointer {
             return false
         }
-
-        if awaitableType == typeof(System.Threading.Tasks.ValueTask) || (awaitableType.IsGenericType && !awaitableType.IsGenericTypeDefinition && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition()) {
-            valueTaskLocal := plan.DeclarePlanLocal(plan.AddType(awaitableType))
-            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueTaskLocal)
-            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), valueTaskLocal)
-            asTask := awaitableType.GetMethod("AsTask", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
-            if asTask == null {
-                return false
-            }
-            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(asTask))
-            return AppendBlockingAwaitOfStackValue(plan, asTask.ReturnType, out resultType)
-        }
-
-        getAwaiter := awaitableType.GetMethod("GetAwaiter", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
-        if getAwaiter == null {
+        emitter := bindings.IteratorMoveNextEmitter
+        if emitter == null {
             return false
         }
-        awaiterType := getAwaiter.ReturnType
-        getResult := awaiterType.GetMethod("GetResult", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
-        if getResult == null {
+        selected := ColumnarIteratorBodyPlanner.SelectedAwaitablePatternForNode(emitter, awaitNode)
+        if selected == null || !ColumnarIteratorBodyPlanner.TryResolveAwaitPatternType(emitter, selected.ResultType, out resultType) || resultType == null || resultType.IsByRef || resultType.IsPointer {
             return false
         }
-        if awaitableType.IsValueType {
-            awaitableLocal := plan.DeclarePlanLocal(plan.AddType(awaitableType))
-            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), awaitableLocal)
-            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), awaitableLocal)
+        awaitableLocal := plan.DeclarePlanLocal(plan.AddType(awaitableType))
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), awaitableLocal)
+        if resultType == typeof(void) {
+            return true
         }
-        plan.AppendMethodInstruction((short)(awaitableType.IsValueType ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()), plan.AddMethod(getAwaiter))
-        awaiterLocal := plan.DeclarePlanLocal(plan.AddType(awaiterType))
-        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), awaiterLocal)
-        plan.AppendPlanLocalInstruction((short)(awaiterType.IsValueType ? ColumnarCodePlanContract.Ldloca() : ColumnarCodePlanContract.Ldloc()), awaiterLocal)
-        plan.AppendMethodInstruction((short)(awaiterType.IsValueType ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()), plan.AddMethod(getResult))
-        resultType = getResult.ReturnType
+        if resultType.IsValueType || resultType.IsGenericParameter {
+            local := plan.DeclarePlanLocal(plan.AddType(resultType))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), local)
+            plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), plan.AddType(resultType))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), local)
+        } else {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+        }
         return true
     }
 
@@ -962,9 +966,21 @@ class ColumnarRangeIndexPlanner {
             return false
         }
 
+        iteratorEmitter := bindings.IteratorMoveNextEmitter
+        spillReceiverFieldName := ""
+        if iteratorEmitter != null && !plan.IteratorTypeDiscovery && ColumnarIteratorPlanner.ContainsAwait(nodes, nodes.Child(node, 1)) {
+            spillReceiverFieldName = ColumnarIteratorPlanner.SpillFieldName(iteratorEmitter.NextSpill)
+            iteratorEmitter.NextSpill += 1
+        }
+
         indexedType := typeof(int)
         if !TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out indexedType, out nestedOwnership) {
             return false
+        }
+        if spillReceiverFieldName != "" {
+            if iteratorEmitter == null || !ColumnarIteratorBodyPlanner.AppendSpillToMachineField(iteratorEmitter, spillReceiverFieldName, indexedType) {
+                return false
+            }
         }
 
         isString := indexedType == typeof(string)
@@ -978,6 +994,18 @@ class ColumnarRangeIndexPlanner {
         accessType := typeof(int)
         if !TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 1), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out accessType, out nestedOwnership) {
             return false
+        }
+        if spillReceiverFieldName != "" {
+            if iteratorEmitter == null {
+                return false
+            }
+            accessLocal := plan.DeclarePlanLocal(plan.AddType(iteratorEmitter.Context.StructuralTypeReferences.SelectRuntimeType(accessType), iteratorEmitter.Context.StructuralTypeReferences))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), accessLocal)
+            receiverType := typeof(int)
+            if !ColumnarIteratorBodyPlanner.AppendLoadFromMachineField(iteratorEmitter, spillReceiverFieldName, out receiverType) {
+                return false
+            }
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), accessLocal)
         }
 
         if isRuntimeIndexer {

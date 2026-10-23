@@ -732,7 +732,7 @@ class LinterWalkState {
         }
     }
 
-    // NL004. A function declared `async` that never awaits will run synchronously.
+    // NL004. A function declared `async` without an await creates a task boundary without asynchronous work.
     //
     // THE C# CARRIED A GUARD THAT COULD NOT DECIDE ANYTHING: a local was set to `true` and then tested,
     // with nothing between the two. The rule is stated here as the three conditions that actually
@@ -743,7 +743,7 @@ class LinterWalkState {
             return
         }
 
-        AddDiagnostic("NL004", "Function '" + declaration.Name + "' is marked 'async' but never uses 'await' — it will run synchronously", declaration.Line, FindTokenColumn(declaration.Line, declaration.Name, declaration.Column), config.GetSeverity("NL004"), "Either add an 'await' expression inside '" + declaration.Name + "', or remove the 'async' modifier if this function doesn't need to be asynchronous", 0)
+        AddDiagnostic("NL004", "Function '" + declaration.Name + "' is marked 'async' but never uses 'await'", declaration.Line, FindTokenColumn(declaration.Line, declaration.Name, declaration.Column), config.GetSeverity("NL004"), "Either add an 'await' expression inside '" + declaration.Name + "', or remove the 'async' modifier if this function doesn't need to be asynchronous", 0)
     }
 
     // ---- the rules that read one node and the configuration --------------------------------------

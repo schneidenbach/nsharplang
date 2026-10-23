@@ -269,6 +269,7 @@ if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
     build_native_test "nullable conversions" "$REPO_ROOT/tests/native/nullable-conversions" "$REPO_ROOT/tests/native/nullable-conversions/bin/Debug/net10.0/tests/NSharpLang.NullableConversions.Tests.dll" || BUILD_FAILED=1
     build_native_test "readonly init" "$REPO_ROOT/tests/native/readonly-init" "$REPO_ROOT/tests/native/readonly-init/bin/Debug/net10.0/tests/NSharpLang.ReadonlyInit.Tests.dll" || BUILD_FAILED=1
     build_native_test "iterator" "$REPO_ROOT/tests/native/iterators" "$REPO_ROOT/tests/native/iterators/bin/Debug/net10.0/tests/NSharpLang.Iterators.Tests.dll" || BUILD_FAILED=1
+    build_native_test "async state machine" "$REPO_ROOT/tests/native/async-task-like" "$REPO_ROOT/tests/native/async-task-like/bin/Debug/net10.0/tests/NSharpLang.AsyncTaskLike.Tests.dll" || BUILD_FAILED=1
     build_native_test "pattern foreach" "$REPO_ROOT/tests/native/census-pattern-foreach" "$REPO_ROOT/tests/native/census-pattern-foreach/bin/Debug/net10.0/tests/NSharpLang.PatternForeach.Tests.dll" || BUILD_FAILED=1
     build_native_test "local function closures" "$REPO_ROOT/tests/native/census-local-functions" "$REPO_ROOT/tests/native/census-local-functions/bin/Debug/net10.0/tests/NSharpLang.CensusLocalFunctions.Tests.dll" || BUILD_FAILED=1
     build_native_test "census iterator" "$REPO_ROOT/tests/native/census-iterators" "$REPO_ROOT/tests/native/census-iterators/bin/Debug/net10.0/tests/NSharpLang.CensusIterators.Tests.dll" || BUILD_FAILED=1

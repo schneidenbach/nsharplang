@@ -527,3 +527,27 @@ test "persisted generic realization rebinds its retained machine-VAR field throu
     assert key.GenericOwnerMemberOrdinal == 19
     assert key.GenericParameterOrdinal == 0
 }
+
+class IteratorRealizationAsyncBuilderSignatureDecoy {
+    func Start<TStateMachine>(_stateMachine: TStateMachine): int {
+        return 1
+    }
+
+    func AwaitOnCompleted<TAwaiter, TStateMachine>(_awaiter: TAwaiter, _stateMachine: TStateMachine): int {
+        return 1
+    }
+}
+
+test "async builder lookup accepts exact byref signatures and rejects same-name generic decoys" {
+    builderType := typeof(System.Runtime.CompilerServices.AsyncTaskMethodBuilder)
+    start := ColumnarIteratorRealization.FindAsyncBuilderMethod(builderType, "Start", 1, 1)
+    awaitOnCompleted := ColumnarIteratorRealization.FindAsyncBuilderMethod(builderType, "AwaitOnCompleted", 2, 2)
+
+    assert ColumnarIteratorRealization.IsExactAsyncBuilderMethod(start, "Start", 1, 1)
+    assert ColumnarIteratorRealization.IsExactAsyncBuilderMethod(awaitOnCompleted, "AwaitOnCompleted", 2, 2)
+
+    decoyStart := typeof(IteratorRealizationAsyncBuilderSignatureDecoy).GetMethod("Start")
+    decoyAwaitOnCompleted := typeof(IteratorRealizationAsyncBuilderSignatureDecoy).GetMethod("AwaitOnCompleted")
+    assert decoyStart != null && !ColumnarIteratorRealization.IsExactAsyncBuilderMethod(decoyStart, "Start", 1, 1)
+    assert decoyAwaitOnCompleted != null && !ColumnarIteratorRealization.IsExactAsyncBuilderMethod(decoyAwaitOnCompleted, "AwaitOnCompleted", 2, 2)
+}

@@ -178,9 +178,9 @@ func IteratorBindingReadDeclineProperty(target: object, name: string): string {
     return Convert.ToString(property.GetValue(target)) ?? ""
 }
 
-// Invalid shapes cannot be compiled as part of this test assembly.  This invokes the regular
-// parser and emitter entry points, requires parsing first, and makes successful twins prove that
-// the path can emit an image.  A one-record result is the exact production emitter decline.
+// Invalid shapes cannot be compiled as part of this test assembly. This invokes the parser and
+// emitter entry points directly, without running analysis, so an await must decline instead of
+// looking up a replacement pattern after the semantic handoff was omitted.
 func IteratorBindingEmitOutcome(source: string): string {
     parse := ColumnarInputBuilderPrivateMethod("TryBuild", 2)
     parseArguments := new object?[](2)
@@ -424,13 +424,17 @@ test "an async iterator maps all async routes including CancellationToken and re
     IteratorBindingValueTaskResult(disposeAsync.InterfaceMethod.Invoke(second, empty))
 }
 
-test "generic and instance async iterators emit beside their non-generic top-level twins" {
+test "direct async iterator emission requires analyzer-owned await bindings" {
     genericTwin := "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* IteratorBindingGenericTwin(value: int): IAsyncEnumerable<int> {\n    await Task.Delay(1)\n    yield value\n}\n"
     genericAsync := "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* IteratorBindingGenericAsync<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}\n"
     instanceTwin := "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* IteratorBindingInstanceTwin(): IAsyncEnumerable<int> {\n    await Task.Delay(1)\n    yield 1\n}\n"
     instanceAsync := "import System.Collections.Generic\nimport System.Threading.Tasks\n\nclass IteratorBindingAsyncHost {\n    async func* InstanceAsync(): IAsyncEnumerable<int> {\n        await Task.Delay(1)\n        yield 1\n    }\n}\n"
-    assert IteratorBindingEmitOutcome(genericTwin) == "success"
-    assert IteratorBindingEmitOutcome(genericAsync) == "success"
-    assert IteratorBindingEmitOutcome(instanceTwin) == "success"
-    assert IteratorBindingEmitOutcome(instanceAsync) == "success"
+    genericTwinOutcome := IteratorBindingEmitOutcome(genericTwin)
+    assert genericTwinOutcome.Contains("emit.iterator.async-await-binding|"), genericTwinOutcome
+    genericAsyncOutcome := IteratorBindingEmitOutcome(genericAsync)
+    assert genericAsyncOutcome.Contains("emit.iterator.async-await-binding|"), genericAsyncOutcome
+    instanceTwinOutcome := IteratorBindingEmitOutcome(instanceTwin)
+    assert instanceTwinOutcome.Contains("emit.iterator.async-await-binding|"), instanceTwinOutcome
+    instanceAsyncOutcome := IteratorBindingEmitOutcome(instanceAsync)
+    assert instanceAsyncOutcome.Contains("emit.iterator.async-await-binding|"), instanceAsyncOutcome
 }

@@ -12,9 +12,10 @@ class BuildOptionSummary {
     Timings: bool
     PerfReport: bool
     Aot: bool
+    EmitReferenceAssembly: bool
     ShowHelp: bool
 
-    constructor(outputDir: string?, backendOption: string?, projectOption: string?, release: bool, verbose: bool, timings: bool, perfReport: bool, aot: bool, showHelp: bool) {
+    constructor(outputDir: string?, backendOption: string?, projectOption: string?, release: bool, verbose: bool, timings: bool, perfReport: bool, aot: bool, emitReferenceAssembly: bool, showHelp: bool) {
         OutputDir = outputDir
         BackendOption = backendOption
         ProjectOption = projectOption
@@ -23,6 +24,7 @@ class BuildOptionSummary {
         Timings = timings
         PerfReport = perfReport
         Aot = aot
+        EmitReferenceAssembly = emitReferenceAssembly
         ShowHelp = showHelp
     }
 }

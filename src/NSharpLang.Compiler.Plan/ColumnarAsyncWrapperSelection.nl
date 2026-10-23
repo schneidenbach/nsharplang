@@ -118,7 +118,8 @@ class ColumnarAsyncWrapperSelection {
                 memberName,
                 returnType,
                 parameterTypes,
-                table
+                table,
+                definition.ExplicitInterfaceTargetMethods
             )
         }
         for implementedInterfaceType in definition.ImplementedInterfaceTypes {
@@ -135,7 +136,8 @@ class ColumnarAsyncWrapperSelection {
                 memberName,
                 returnType,
                 parameterTypes,
-                table
+                table,
+                definition.ExplicitInterfaceTargetMethods
             )
         }
         ColumnarExternalInterfaceMethodResolver.AddMatchingTargets(
@@ -144,7 +146,9 @@ class ColumnarAsyncWrapperSelection {
             memberName,
             returnType,
             parameterTypes,
-            table
+            table,
+            ColumnarExternalInterfaceMethodMatch.EmptyTypeParameters(),
+            definition.ExplicitInterfaceTargetMethods
         )
     }
 }

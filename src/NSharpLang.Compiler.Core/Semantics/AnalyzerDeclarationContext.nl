@@ -511,6 +511,23 @@ class AnalyzerDeclarationContext {
         return null
     }
 
+    // Resolve the owning source file of a declaration by its AST identity. Top-level extension
+    // functions are materialized from their declaration after all project files have been indexed,
+    // so their signature factory must be given the same file context ordinary member lookup uses.
+    func GetDeclarationFileFor(declaration: object): string? {
+        if declaration == null {
+            return null
+        }
+        for facts in files {
+            for candidate in facts.Declarations {
+                if Object.ReferenceEquals(candidate, declaration) {
+                    return facts.FilePath
+                }
+            }
+        }
+        return null
+    }
+
     // THE ATTRIBUTES A SOURCE TYPE'S OWN DECLARATION CARRIES.
     //
     // `[AttributeUsage(...)]` on a source-declared attribute class cannot be read the way it is read

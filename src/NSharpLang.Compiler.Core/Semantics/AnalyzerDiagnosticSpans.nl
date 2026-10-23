@@ -671,6 +671,14 @@ class AnalyzerDiagnosticSpans {
     // the same source snapshot used to render the diagnostic. The value's parser position is the
     // start of its syntax, including an opening parenthesis or `new` keyword when either is present.
     func GetInArgumentModifierDiagnosticSpan(argument: Argument): DiagnosticSpan {
+        return GetArgumentModifierDiagnosticSpan(argument, "in")
+    }
+
+    func GetRefArgumentModifierDiagnosticSpan(argument: Argument): DiagnosticSpan {
+        return GetArgumentModifierDiagnosticSpan(argument, "ref")
+    }
+
+    func GetArgumentModifierDiagnosticSpan(argument: Argument, modifier: string): DiagnosticSpan {
         value := argument.Value
         sourceLine := SourceSnippet(value.Line)
         if sourceLine != null {
@@ -685,13 +693,13 @@ class AnalyzerDiagnosticSpans {
             }
 
             wordStart := cursor + 1
-            if wordEnd - wordStart == 2 && sourceLine.Substring(wordStart, 2) == "in" && (wordStart == 0 || !(Char.IsLetterOrDigit(sourceLine[wordStart - 1]) || sourceLine[wordStart - 1] == '_')) {
-                return new DiagnosticSpan(value.Line, wordStart + 1, 2)
+            if wordEnd - wordStart == modifier.Length && sourceLine.Substring(wordStart, modifier.Length) == modifier && (wordStart == 0 || !(Char.IsLetterOrDigit(sourceLine[wordStart - 1]) || sourceLine[wordStart - 1] == '_')) {
+                return new DiagnosticSpan(value.Line, wordStart + 1, modifier.Length)
             }
         }
 
-        fallbackColumn := Math.Max(1, value.Column - 3)
-        return new DiagnosticSpan(value.Line, fallbackColumn, 2)
+        fallbackColumn := Math.Max(1, value.Column - modifier.Length - 1)
+        return new DiagnosticSpan(value.Line, fallbackColumn, modifier.Length)
     }
 
     // THE WRITTEN PATH, LOCATED IN THE LINE. The path is found by searching FORWARD from the

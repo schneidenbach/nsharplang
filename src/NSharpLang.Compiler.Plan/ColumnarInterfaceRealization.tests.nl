@@ -147,6 +147,13 @@ func InterfaceRealizationPublicMethod(
     )
 }
 
+func InterfaceRealizationRemoveMethod(owner: ColumnarStructDef, name: string) {
+    // `Methods` is the compatibility first-method row; the interface matcher uses the complete
+    // overload set, so remove both when a contract test models deleting a declaration.
+    owner.Methods.Remove(name)
+    owner.MethodOverloads.Remove(name)
+}
+
 func InterfaceRealizationDefaultVoidMethod(
     owner: ColumnarStructDef,
     name: string
@@ -615,7 +622,7 @@ test "interface completeness orchestrates source defaults missing and mismatched
         out realizationUnsatisfiedDetail
     )
 
-    implementation.Methods.Remove("Read")
+    InterfaceRealizationRemoveMethod(implementation, "Read")
     assert !ColumnarInterfaceRealization.InterfacesSatisfied(
         InterfaceRealizationSingleInput(sourceInput),
         InterfaceRealizationSingleDefinition(implementation),
@@ -638,7 +645,7 @@ test "interface completeness orchestrates source defaults missing and mismatched
         out realizationUnsatisfiedDetail
     )
 
-    implementation.Methods.Remove("Read")
+    InterfaceRealizationRemoveMethod(implementation, "Read")
     requiredInterface.DefaultInterfaceMethodNames.Add("Read")
     assert ColumnarInterfaceRealization.InterfacesSatisfied(
         InterfaceRealizationSingleInput(sourceInput),
@@ -713,7 +720,7 @@ test "interface completeness selects closed-source and external checks after its
         out realizationUnsatisfiedDetail
     )
 
-    externalImplementation.Methods.Remove("Dispose")
+    InterfaceRealizationRemoveMethod(externalImplementation, "Dispose")
     assert !ColumnarInterfaceRealization.InterfacesSatisfied(
         inputs,
         definitions,

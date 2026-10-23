@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import NSharpLang.Compiler
 
 
 // THE LIVE SEMANTIC FACTS AN ITERATOR BODY NEEDS TO PLAN AN ORDINARY EXPRESSION.
@@ -24,10 +25,12 @@ class ColumnarIteratorBodyFacts {
     UnionDefinitions: IEnumerable<ColumnarUnionDef>
     ExactSourceTypes: Dictionary<string, Type>
     SiblingCallables: Dictionary<string, ColumnarSiblingCallFacts>
+    SiblingOverloads: IReadOnlyDictionary<string, List<ColumnarSiblingMethodDefinition>>?
     SiblingNames: IEnumerable<string>
     EnclosingTypeDefinition: ColumnarStructDef?
     StructuralTypeReferences: ColumnarStructuralTypeReferenceTable
     ModifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?
+    SemanticModel: SemanticModel?
 
     constructor(
         enums: Dictionary<string, ColumnarEnumDef>,
@@ -37,7 +40,8 @@ class ColumnarIteratorBodyFacts {
         siblingCallables: Dictionary<string, ColumnarSiblingCallFacts>,
         siblingNames: IEnumerable<string>,
         enclosingTypeDefinition: ColumnarStructDef?,
-        structuralTypeReferences: ColumnarStructuralTypeReferenceTable
+        structuralTypeReferences: ColumnarStructuralTypeReferenceTable,
+        siblingOverloads: IReadOnlyDictionary<string, List<ColumnarSiblingMethodDefinition>>? = null
     ) {
         if enums == null || structDefinitions == null || unionDefinitions == null || exactSourceTypes == null || siblingCallables == null || siblingNames == null || structuralTypeReferences == null {
             throw new InvalidOperationException("Iterator body facts cannot be null.")
@@ -47,10 +51,12 @@ class ColumnarIteratorBodyFacts {
         UnionDefinitions = unionDefinitions
         ExactSourceTypes = exactSourceTypes
         SiblingCallables = siblingCallables
+        SiblingOverloads = siblingOverloads
         SiblingNames = siblingNames
         EnclosingTypeDefinition = enclosingTypeDefinition
         StructuralTypeReferences = structuralTypeReferences
         ModifiedMemberReferences = null
+        SemanticModel = null
     }
 
     // The live emission facts of one program, in the shape the fragment-binding contract wants them.
@@ -63,7 +69,8 @@ class ColumnarIteratorBodyFacts {
         siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>,
         exactSourceTypes: Dictionary<string, Type>,
         enclosingTypeDefinition: ColumnarStructDef?,
-        structuralTypeReferences: ColumnarStructuralTypeReferenceTable
+        structuralTypeReferences: ColumnarStructuralTypeReferenceTable,
+        siblingOverloads: IReadOnlyDictionary<string, List<ColumnarSiblingMethodDefinition>>? = null
     ): ColumnarIteratorBodyFacts {
         structDefinitions := new List<ColumnarStructDef>()
         for entry in structs {
@@ -100,7 +107,8 @@ class ColumnarIteratorBodyFacts {
             callables,
             names,
             enclosingTypeDefinition,
-            structuralTypeReferences
+            structuralTypeReferences,
+            siblingOverloads
         )
     }
 
@@ -118,6 +126,24 @@ class ColumnarIteratorBodyFacts {
             null,
             structuralTypeReferences
         )
+    }
+
+    // Local async-function kickoffs are synthesized on the enclosing state machine after its fields
+    // are known. Publish their exact method and signature as ordinary callable facts so the shared
+    // direct-call planner selects the same overload and argument conversions as it does for siblings.
+    func AddLocalAsyncCallable(name: string, method: MethodInfo, parameterTypes: Type[], parameterNames: string[], parameterModifierKinds: int[], returnType: Type, defaultKinds: int[], defaultTexts: string[], typeParameterCount: int = 0, typeParameterSpecialConstraints: int[]? = null, typeParameterBaseConstraints: Type?[]? = null, typeParameterInterfaceConstraints: Type[][]? = null) {
+        if name == null || name.Length == 0 || method == null || parameterTypes == null || parameterNames == null || parameterModifierKinds == null || returnType == null || defaultKinds == null || defaultTexts == null || parameterTypes.Length != parameterNames.Length || parameterTypes.Length != parameterModifierKinds.Length || parameterTypes.Length != defaultKinds.Length || parameterTypes.Length != defaultTexts.Length {
+            throw new InvalidOperationException("An async local callable requires a complete exact signature.")
+        }
+        if SiblingCallables.ContainsKey(name) {
+            throw new InvalidOperationException("An async local callable cannot replace an existing sibling named '" + name + "'.")
+        }
+        SiblingCallables[name] = new ColumnarSiblingCallFacts(method, parameterTypes, parameterModifierKinds, returnType, typeParameterCount, parameterNames, defaultKinds, defaultTexts, typeParameterSpecialConstraints, typeParameterBaseConstraints, typeParameterInterfaceConstraints)
+        names := SiblingNames as List<string>
+        if names == null {
+            throw new InvalidOperationException("Emission sibling names must be mutable while async local methods are added.")
+        }
+        names.Add(name)
     }
 }
 
@@ -174,8 +200,8 @@ class ColumnarIteratorBodyScope {
     // `stateMachineType` is the SAME handle the MoveNext plan pools as argument 0 — a closed generic
     // instantiation for a generic machine — so the identifier owner's `GetOrAddArgument` reuses that
     // pool row instead of adding a conflicting one.
-    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?): ColumnarIteratorBodyScope {
-        return Create(stateMachineType, facts, typeParameters, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal))
+    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, stateMachineIsValueType: bool = false): ColumnarIteratorBodyScope {
+        return Create(stateMachineType, facts, typeParameters, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), stateMachineIsValueType, new Type[](0), new Type[][](0))
     }
 
     // THE SAME SCOPE, FOR A METHOD THAT ALSO HAS ARGUMENTS OF ITS OWN. A lambda in a generator body
@@ -183,7 +209,7 @@ class ColumnarIteratorBodyScope {
     // binds, so it already IS the closure's display — and that method's own parameters are ordinary
     // arguments 1..n beside the machine at argument 0. Nothing else about the body changes: the same
     // fields, the same enclosing members, the same one expression door.
-    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>): ColumnarIteratorBodyScope {
+    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, stateMachineIsValueType: bool = false, genericParameters: Type[]? = null, genericInterfaceConstraints: Type[][]? = null): ColumnarIteratorBodyScope {
         if stateMachineType == null || facts == null || parameterOrdinals == null || parameterTypes == null {
             throw new InvalidOperationException("An iterator body scope requires a state-machine type and its body facts.")
         }
@@ -215,12 +241,16 @@ class ColumnarIteratorBodyScope {
         bindings.ExactSourceTypes = facts.ExactSourceTypes
         bindings.SiblingCallables = facts.SiblingCallables
         bindings.SetEnclosingTypeDefinition(facts.EnclosingTypeDefinition)
+        if genericParameters != null && genericInterfaceConstraints != null {
+            bindings.SetGenericInterfaceConstraints(genericParameters, genericInterfaceConstraints)
+        }
 
-        // The machine is a CLASS, so the receiver is loaded by value; the runtime-facts mode of the
-        // current-instance contract is what a synthesized type uses — there is no `ColumnarStructDef`
-        // for a state machine and inventing one would be a second definition of the same fields.
-        instanceFacts := new ColumnarCurrentInstanceFacts(stateMachineType, true)
+        // Iterator machines are reference types; C# async method machines are structs whose `this`
+        // is a managed pointer. Both use runtime current-instance facts because there is no source
+        // `ColumnarStructDef` for a synthesized type.
+        instanceFacts := new ColumnarCurrentInstanceFacts(stateMachineType, !stateMachineIsValueType)
         bindings.CurrentInstance = instanceFacts
+        bindings.SemanticModel = facts.SemanticModel
         return new ColumnarIteratorBodyScope(stateMachineType, facts, bindings, instanceFacts)
     }
 
@@ -231,6 +261,13 @@ class ColumnarIteratorBodyScope {
             throw new InvalidOperationException("A published iterator field requires a name and an exact field handle.")
         }
         instanceFacts.Fields[name] = field
+    }
+
+    // A local dead at every suspension belongs to this MoveNext invocation's IL frame. Its plan slot
+    // and name binding are published together only after its initializer has been evaluated.
+    func PublishPlanLocal(name: string, index: int, valueType: Type) {
+        Bindings.DeclarePlanLocal(name, index, valueType)
+        HideEnclosingMember(name)
     }
 
     func PublishBoxedCapture(name: string, boxField: FieldInfo, valueType: Type) {
@@ -339,6 +376,7 @@ class ColumnarIteratorBodyScope {
             last := hidingNames.Count - 1
             name := hidingNames[last]
             hidingNames.RemoveAt(last)
+            Bindings.PlanLocals.Remove(name)
             if IsEnclosingMemberVisible(name) {
                 Reveal(name)
             }
@@ -407,14 +445,44 @@ class ColumnarIteratorBodyScope {
     // nobody executes, the pattern `ColumnarDirectCallPlanner` and `ColumnarConstructionPlanner`
     // already use to type an argument before they commit to it.
     func TryDiscoverValueType(nodes: ColumnarNodeTable, source: string, node: int, out resultType: Type): bool {
+        if !TryDiscoverExpressionType(nodes, source, node, out resultType) {
+            return false
+        }
+        return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+    }
+
+    // Contextual overload selection sometimes needs to distinguish a void expression lambda from
+    // a value-producing one before it can choose Action versus Func. Keep the discovered void type
+    // available to that scorer while sharing the same method-body scratch used for ordinary values.
+    func TryDiscoverExpressionType(nodes: ColumnarNodeTable, source: string, node: int, out resultType: Type): bool {
         resultType = typeof(int)
         scratch := new ColumnarCodePlan()
+        if ContainsPlanLocalReference(nodes, source, node, Bindings) {
+            scratch.EnablePlanLocalMirror(Bindings.PlanLocalMirrorTypes())
+        }
         scratch.PrepareMethodBody()
         scratch.IteratorTypeDiscovery = true
         if !TryAppendValue(nodes, source, node, scratch, out resultType) {
             return false
         }
-        return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+        return resultType != null
+    }
+
+    static func ContainsPlanLocalReference(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings): bool {
+        if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression && bindings.PlanLocals.ContainsKey(nodes.Text(source, node)) {
+            return true
+        }
+        childIndex := 0
+        while childIndex < nodes.ChildCount(node) {
+            if ContainsPlanLocalReference(nodes, source, nodes.Child(node, childIndex), bindings) {
+                return true
+            }
+            childIndex += 1
+        }
+        return false
     }
 
     // A value at a position whose type is known — a hoisted field, the current field a `yield` writes.

@@ -1013,6 +1013,7 @@ class AnalyzerLoopSequence {
     // THE `await foreach` STATEMENT'S ENTRY — the same walk with `IsAsync` set, which is the whole
     // difference between the two arms.
     func BeginAwaitForeach(statement: AwaitForEachStatement): LoopStatementState {
+        ambientValue.ReportAwaitPlacementIfNeeded(statement.Line, statement.Column)
         return new LoopStatementState(0, statement.VariableName, statement.Collection, null, null, null, statement.Body, null, statement.Line, statement.Column, true, null)
     }
 

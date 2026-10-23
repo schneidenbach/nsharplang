@@ -2,6 +2,50 @@ namespace NSharpLang.Compiler.Columnar
 
 import NSharpLang.Compiler
 
+test "builder-bound key-value pairs resolve their value getter" {
+    sourceValueType := TypeOfCreateBuilder("RuntimeMemberSourceValue", "RuntimeMemberSourceValueAsm", 0)
+    pairArguments := new System.Type[](2)
+    pairArguments[0] = typeof(string)
+    pairArguments[1] = sourceValueType
+    pairType := typeof(System.Collections.Generic.KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(pairArguments)
+
+    selection := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(pairType, "Value", out selection)
+    assert !selection.IsField
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(selection.ResultType, sourceValueType)
+    getter := selection.Getter
+    assert getter != null
+    if getter != null {
+        getterDeclaringType := getter.DeclaringType
+        assert getterDeclaringType != null
+        if getterDeclaringType != null {
+            assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(getterDeclaringType, pairType)
+        }
+    }
+
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "pair", 0, pairType)
+    tree := InstanceMemberTree("pair", "Value")
+    plan := InstanceMemberPlan(tree, bindings)
+    assert plan.MethodCount == 1
+
+    discoveryPlan := new ColumnarCodePlan()
+    discoveryPlan.PrepareMethodBody()
+    discoveryPlan.IteratorTypeDiscovery = true
+    discoveredType := typeof(object)
+    assert ColumnarRangeIndexPlanner.TryAppendConstructionValue(
+        tree.Nodes,
+        tree.Source,
+        tree.Root,
+        bindings,
+        ColumnarRangeIndexHandles.Resolve(),
+        discoveryPlan,
+        -1,
+        0,
+        out discoveredType
+    )
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(discoveredType, sourceValueType)
+}
 
 // THE INHERITED-EXTERNAL-BASE FORM OF THE RELATION, which both the analyzer's metadata arm and the
 // emitter's candidate filter ask. A member of a REFERENCED assembly is never reachable by its

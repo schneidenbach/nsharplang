@@ -418,10 +418,34 @@ Three rules follow from "read-only":
 - **It may not be captured** by a lambda or a local function, for the reason every by-reference
   parameter cannot be: the closure outlives the frame the reference points into.
 
-`in` is not interchangeable with `ref` or `out` at a call site, in either direction. `ref` and `out`
-must be written; writing `ref` where the parameter is `in` is refused, and omitting the word where the
-parameter is `ref` is refused too. What `in` adds is that *omitting* it is fine — there is nothing for
-the word to warn a reader about, because the callee cannot change what they passed.
+`in` is not interchangeable with `out`, and it does not make a `ref` parameter optional: `ref` and
+`out` must be written, and omitting either is refused. A `ref` argument can also bind to an `in`
+parameter; the callee still sees it as read-only. N# reports [NL908](./errors/NL908.md), the same
+advice as C# 12's CS9191, because writing `in` better describes the selected parameter. What `in` adds
+is that *omitting* the modifier is fine — there is nothing for the word to warn a reader about,
+because the callee cannot change what they passed.
+
+When a call omits the modifier and both `Pick(value: T)` and `Pick(in value: T)` apply, the by-value
+overload is better. Writing `in` selects the `in` overload and does not apply to a by-value parameter.
+Writing `ref` makes an `in` overload applicable; when compared with a `ref` overload of the same
+parameter type, both have the same effective ref-kind for better-function comparison. Constructors
+follow the same applicability and better-member rules as methods:
+
+```n#
+class Choice {
+    constructor(value: int) { }
+    constructor(in value: int) { }
+}
+
+func Pick(value: int): int { return 1 }
+func Pick(in value: int): int { return 2 }
+
+value := 7
+byValue := new Choice(value)    // constructor(value: int)
+byIn := new Choice(in value)    // constructor(in value: int)
+ordinary := Pick(value)         // Pick(value: int)
+explicit := Pick(in value)      // Pick(in value: int)
+```
 
 In CLR metadata an `in` parameter is `&T` carrying `ParameterAttributes.In` and
 `[IsReadOnlyAttribute]` — exactly what C# writes, so C# and F# consumers see an `in` parameter and not
@@ -1368,6 +1392,16 @@ value from the body and N# wraps it in `Task<T>`. Explicit `Task` signatures
 are unit-returning async methods, so no `return` statement is required after the
 last `await`.
 
+The compiler emits a value-type state machine for each async method. Calling the method starts its
+body immediately; when an `await` sees an incomplete awaiter, the method stores its live locals and
+awaiter, registers a continuation, and returns its task. No thread stays parked while the operation
+is pending. When the awaiter completes, the state machine resumes, obtains the result, and continues
+from that point. A completed await stays on the current call, so an async method with no incomplete
+await can finish before returning its already-completed task. Exceptions before or after suspension
+fault the returned task; cancellation propagates through the task's canceled state. Task awaiters use
+the current `SynchronizationContext` by default, while `ConfigureAwait(false)` opts out when the
+awaitable provides that API. The synchronous CLR entry wrapper waits once for an async `main`.
+
 ```n#
 async func save(path: string, content: string): Task {
     await File.WriteAllTextAsync(path, content)
@@ -1400,12 +1434,12 @@ async func work(x: int): Task {
 }
 ```
 
-### Generic async methods
+### Generic async functions and methods
 
-An `async` method on a type (static or instance) may declare its own type parameters. The result is
-the project's async family over the written result, as for any async function: `ValueTask<T>` by
-default, `Task<T>` under `language.asyncDefaultType: Task`, or whatever `Task<T>` / `ValueTask<T>` the
-signature writes. This matches C#, where `async Task<T> Read<T>()` carries `T` on the method:
+An `async func` or method may declare type parameters. The result is the project's async family over
+the written result: `ValueTask<T>` by default, `Task<T>` under `language.asyncDefaultType: Task`, or
+the `Task<T>` / `ValueTask<T>` family written in the signature. The state machine carries the
+function's generic parameters, as C# does:
 
 ```n#
 import System.Text.Json
@@ -1426,13 +1460,17 @@ func main() {
 
 Type arguments are inferred from arguments where they can be, a constraint (`where T : class`)
 applies, a `T` local may live across an `await`, and the result may be `T`, `T[]`, a tuple, or
-`Box<T>`. A generic **free** `async func` and a generic **local** `async` function are not supported
-yet; declare the generic async function as a method on a type instead.
+`Box<T>`. Generic async local functions and async lambdas also work inside generic and async owners:
+their generated state machines close over the owner's type parameters and preserve their constraints.
 
-### Async Void
+### No `async void`
+
+An async function always returns a task-like value. When its return type is omitted, N# uses the
+project's configured default (`ValueTask` unless `language.asyncDefaultType: Task` is set). An async
+lambda targeting a void-returning delegate is rejected by [`NL334`](./errors/NL334.md), so callers
+always have a task through which to observe completion or failure.
 
 ```n#
-// Only for event handlers
 async func onButtonClick() {
     await Task.Delay(1000)
     Console.WriteLine("Clicked!")
@@ -1505,8 +1543,8 @@ func loadAll(paths: string[]): int {
 
 Two diagnostics guard the keyword. Writing `async` where the target returns no task is
 [`NL335`'s mirror, `NL334`](./errors/NL334.md) — there is no `async void` lambda in N#, because
-`await` is lowered synchronously and the keyword would change nothing. Leaving it off when the target
-wants a task is [`NL335`](./errors/NL335.md).
+N# requires async work to return an observable task. Leaving it off when the target wants a task is
+[`NL335`](./errors/NL335.md); using `await` outside an async body is [`NL353`](./errors/NL353.md).
 
 ### Implicit Task Wrapping
 
@@ -1563,13 +1601,13 @@ The wrapper is chosen in this order:
      asyncDefaultType: Task   # or ValueTask, the default
    ```
 
-An N# `async func` has finished by the time it returns, because `await` is lowered synchronously.
-A `ValueTask` is therefore built straight from the result and the call allocates nothing, while a
-`Task<T>` costs one task object per call. The trade is that a `ValueTask` may be awaited only once:
-choose `Task` for a project whose async members are awaited more than once, stored, or handed to
-APIs that expect `Task`. There is no setting for pooled `ValueTask` builders, since a function that
-never suspends keeps no state to pool; a `language.pooledAsync` key in `project.yml` is reported as
-a configuration error.
+An N# `async func` runs until it reaches an incomplete await, then returns an incomplete task and
+resumes through its state machine when the awaiter completes. An already-completed await continues
+inline. Exceptions before or after suspension are recorded on the returned task. The process entry
+wrapper waits for a task-returning `main` once before exiting. A `ValueTask` may be awaited only
+once: choose `Task` for a project whose async members are awaited more than once, stored, or handed
+to APIs that expect `Task`. Pooled async builders are not currently configurable; a
+`language.pooledAsync` key in `project.yml` is reported as a configuration error.
 
 **APIs that find a method by name need the setting, not inference.** ASP.NET Core middleware is
 duck-typed: the framework looks up `Invoke`/`InvokeAsync` by name at startup and requires it to
@@ -1981,8 +2019,12 @@ async func* rows(): IAsyncEnumerable<string> {
 ```
 
 The awaited operand may be any awaitable — a `Task`, a `Task<T>`, a `ValueTask<T>`, or a type of your
-own — because the compiler asks the operand's own type for `GetAwaiter()`, and that awaiter for
-`IsCompleted`, `OnCompleted(Action)` and `GetResult()`. An `await` may appear inside a larger
+own — because the compiler asks the operand's own type for `GetAwaiter()`, and that awaiter for a
+readable `bool IsCompleted`, parameterless `GetResult()` and the `INotifyCompletion` contract.
+An explicit `INotifyCompletion.OnCompleted` implementation is valid; a public method with that
+name does not satisfy the contract by itself. Critical awaiters use `ICriticalNotifyCompletion` and
+register through `UnsafeOnCompleted`. A malformed
+awaiter pattern is reported at the `await` expression. An `await` may appear inside a larger
 expression. Values evaluated earlier in the expression are spilled to the iterator state machine and
 reloaded after the await, preserving left-to-right evaluation order across call arguments, binary
 operands, conditions and interpolation holes:
@@ -2307,8 +2349,9 @@ func passThrough<T>(value: T): T {
 The compiler preserves the two owners in CLR metadata: a capture-free local copies enclosing
 parameters onto its synthesized static method, while a capturing local places them on its display
 type. Declaring a local parameter with the same name as an enclosing parameter is still NL316; use a
-distinct name such as `U`. An `async` generic local function is not supported yet; declare it as a method
-(see [Generic async methods](#generic-async-methods)).
+distinct name such as `U`. Generic async local functions can also be nested inside generic or async
+owners; their state machines close over the owner's parameters and preserve the local function's own
+constraints. See [generic async functions and methods](#generic-async-functions-and-methods).
 
 ### Scope: a local function is visible in its whole block
 
@@ -2546,6 +2589,12 @@ Only when the conversions cannot separate two candidates do the remaining rules 
 **non-generic** signature beats a generic one whose supplied parameter types are identical after
 substitution, a call in **normal form** beats one that had to expand a `params` tail, and an exact-arity
 candidate beats one that needs optional parameters filled.
+
+For an unmodified argument, otherwise-identical by-value and `in` parameters are separated by a
+by-value preference. An explicit `in` argument is applicable to an `in` parameter; it is not
+applicable to a by-value parameter. An explicit `ref` argument is also applicable to an `in`
+parameter and reports NL908 after selection. It is not applicable to a by-value parameter. The same
+rules select constructors and methods, for source types and referenced types.
 
 For example, given `Pick(value: string)` and `Pick(value: string, suffix: string = "")`,
 `Pick("x")` selects the exact-arity overload because the supplied conversions tie and only the other

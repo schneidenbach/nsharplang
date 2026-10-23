@@ -73,9 +73,18 @@ class ProbeWorker: BackgroundService {
 
     protected override async func ExecuteAsync(stoppingToken: CancellationToken): Task {
         probe.Report("started by the host")
-        await Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_completed => { })
+        await Task.Delay(Timeout.Infinite, stoppingToken)
     }
 }
+
+func CreateProbeHost(): IHost {
+    builder := Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings())
+    builder.Services.AddSingleton<StartupProbe>()
+    builder.Services.AddHostedService<ProbeWorker>()
+    return builder.Build()
+}
+
+func ResolveProbe(host: IHost): StartupProbe => host.Services.GetRequiredService<StartupProbe>()
 
 // A conventional middleware: a `RequestDelegate` constructor and an `InvokeAsync(HttpContext)`.
 class RequestStampMiddleware {
@@ -108,7 +117,8 @@ async func RunInlineMiddlewareCore(): Task<string> {
     pipeline := (app as IApplicationBuilder).Build()
     context := new DefaultHttpContext()
     await pipeline(context)
-    return context.Items["seen"]?.ToString() ?? "missing"
+    seen := context.Items["seen"] as string
+    return seen ?? "missing"
 }
 
 func RunInlineMiddlewareUntyped(): Task<string> {
@@ -125,7 +135,8 @@ async func RunInlineMiddlewareUntypedCore(): Task<string> {
     pipeline := (app as IApplicationBuilder).Build()
     context := new DefaultHttpContext()
     await pipeline(context)
-    return context.Items["seen"]?.ToString() ?? "missing"
+    seen := context.Items["seen"] as string
+    return seen ?? "missing"
 }
 
 func RunInlineMiddlewareRequestDelegate(): Task<string> {
@@ -142,7 +153,8 @@ async func RunInlineMiddlewareRequestDelegateCore(): Task<string> {
     pipeline := (app as IApplicationBuilder).Build()
     context := new DefaultHttpContext()
     await pipeline(context)
-    return context.Items["seen"]?.ToString() ?? "missing"
+    seen := context.Items["seen"] as string
+    return seen ?? "missing"
 }
 
 func RunInlineMiddlewareRequestDelegateUntyped(): Task<string> {
@@ -159,5 +171,6 @@ async func RunInlineMiddlewareRequestDelegateUntypedCore(): Task<string> {
     pipeline := (app as IApplicationBuilder).Build()
     context := new DefaultHttpContext()
     await pipeline(context)
-    return context.Items["seen"]?.ToString() ?? "missing"
+    seen := context.Items["seen"] as string
+    return seen ?? "missing"
 }

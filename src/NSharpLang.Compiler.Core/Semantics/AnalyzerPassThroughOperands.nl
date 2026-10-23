@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
@@ -143,20 +142,43 @@ class AnalyzerPassThroughOperands {
     typeResolverValue: AnalyzerTypeResolver
     ambientValue: AnalyzerAmbientContext
     declarationContextValue: AnalyzerDeclarationContext
+    extensionMethodResolutionValue: AnalyzerExtensionMethodResolution?
+    awaitMemberResolutionValue: AnalyzerMemberResolution?
+    awaitSourceCallWalkValue: AnalyzerSyntheticCallWalk?
+    awaitSourceCallValidatorValue: AnalyzerSyntheticCallValidator?
+    awaitReflectionArgumentBinderValue: AnalyzerReflectionArgumentBinder?
+    awaitClrTypeConversionValue: AnalyzerClrTypeConversion?
+    semanticModelValue: SemanticModel?
     loopSequenceValue: AnalyzerLoopSequence
     constantFactsValue: AnalyzerConstantExpressionFacts
     mustVerdictsValue: Dictionary<object, bool>
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, declarationContext: AnalyzerDeclarationContext, loopSequence: AnalyzerLoopSequence, constantFacts: AnalyzerConstantExpressionFacts) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, declarationContext: AnalyzerDeclarationContext, loopSequence: AnalyzerLoopSequence, constantFacts: AnalyzerConstantExpressionFacts, extensionMethodResolution: AnalyzerExtensionMethodResolution? = null) {
         diagnosticsValue = diagnostics
         spansValue = spans
         soaEscapeValue = soaEscape
         typeResolverValue = typeResolver
         ambientValue = ambient
         declarationContextValue = declarationContext
+        extensionMethodResolutionValue = extensionMethodResolution
+        awaitMemberResolutionValue = null
+        awaitSourceCallWalkValue = null
+        awaitSourceCallValidatorValue = null
+        awaitReflectionArgumentBinderValue = null
+        awaitClrTypeConversionValue = null
+        semanticModelValue = null
         loopSequenceValue = loopSequence
         constantFactsValue = constantFacts
         mustVerdictsValue = new Dictionary<object, bool>()
+    }
+
+    func SetAwaitBindingServices(members: AnalyzerMemberResolution, sourceCalls: AnalyzerSyntheticCallWalk, sourceValidator: AnalyzerSyntheticCallValidator, reflectionCalls: AnalyzerReflectionArgumentBinder, clrConversion: AnalyzerClrTypeConversion, semanticModel: SemanticModel) {
+        awaitMemberResolutionValue = members
+        awaitSourceCallWalkValue = sourceCalls
+        awaitSourceCallValidatorValue = sourceValidator
+        awaitReflectionArgumentBinderValue = reflectionCalls
+        awaitClrTypeConversionValue = clrConversion
+        semanticModelValue = semanticModel
     }
 
     // THE ENTRY, AND IT DECIDES NOTHING. Unlike the compile-time constants, no form in this family
@@ -672,10 +694,10 @@ class AnalyzerPassThroughOperands {
         return expectedTuple.Elements[elementIndex].Type
     }
 
-    // WHAT AWAITING SOMETHING HANDS BACK. Three answers are recognised and a fourth case is
-    // deliberately left alone: a class, struct, record or interface that this analyzer cannot see a
-    // `GetAwaiter` on may still have one at run time or through a source it has not bound yet, so it
-    // is not accused. Everything else — an `int`, a `string`, a function type — is told plainly.
+    // WHAT AWAITING SOMETHING HANDS BACK. Task-like types use their built-in result, reflection
+    // types use their CLR awaiter members, and declared source types use their bound member model.
+    // A synthetic or unresolved nominal type has no declaration to inspect, so it is left to the
+    // caller that supplied it; known malformed patterns receive a positioned diagnostic here.
     func FinishAwait(state: PassThroughOperandState, awaitNode: AwaitExpression) {
         state.ResultType = BuiltInTypes.Unknown
         ambientValue.ReportAwaitPlacementIfNeeded(awaitNode.Line, awaitNode.Column)
@@ -688,62 +710,61 @@ class AnalyzerPassThroughOperands {
         }
 
         awaited: TypeInfo = BuiltInTypes.Unknown
-        if TryAwaitResultType(state.OperandType, out awaited) {
+        binding: AnalyzerAwaitablePatternBinding? = null
+        if TryAwaitResultType(state.OperandType, out awaited, out binding) && binding != null {
             state.ResultType = awaited
+            model := semanticModelValue
+            if model != null {
+                model.RecordAwaitablePattern(awaitNode.Line, awaitNode.Column, binding)
+            }
             return
         }
 
         if ShouldReportAwaitMismatch(state.OperandType) {
             span := spansValue.GetExpressionDiagnosticSpan(awaitNode.Expression)
-            diagnosticsValue.Report(ErrorCode.TypeMismatch, "await expression needs an awaitable value, but this expression is '" + TypeText(state.OperandType) + "'", span.Line, span.Column, "Await a Task, ValueTask, or another value with a GetAwaiter() pattern.", span.Length)
+            message := AwaitMismatchMessage(state.OperandType)
+            diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, "Await a Task or ValueTask, or provide GetAwaiter(), IsCompleted, GetResult(), and an awaiter that implements INotifyCompletion.", span.Length)
         }
     }
 
-    // THE THREE WAYS A VALUE CAN BE AWAITABLE, IN THE ONLY ORDER THAT WORKS. An UNRESOLVED shape and
-    // an EXTERNAL type both answer "no" before anything is asked of them — the first because there is
-    // nothing to ask, the second because an external type's members are not this analyzer's to
-    // enumerate. Then the source-known task shapes, then the unit task shapes, and only then the
-    // reflected `GetAwaiter` pattern, which is the expensive one.
-    func TryAwaitResultType(awaitableType: TypeInfo, out resultType: TypeInfo): bool {
+    // TASK-LIKE TYPES, REFLECTED CLR TYPES, AND DECLARED SOURCE TYPES ALL USE THE SAME BINDER.
+    // Unresolved shapes answer "no" because there is nothing to ask; external types without a bound
+    // shape are rejected at the await site rather than being sent to an unpositioned emit decline.
+    // Reflected and source awaiters provide the complete pattern emission invokes, and Task families
+    // do not bypass member or overload resolution just because their result type is familiar.
+    func TryAwaitResultType(awaitableType: TypeInfo, out resultType: TypeInfo, out binding: AnalyzerAwaitablePatternBinding?): bool {
         resultType = BuiltInTypes.Unknown
+        binding = null
+        if AwaitablePatternBinder.IsNullableValueType(awaitableType) {
+            return false
+        }
         resolved := loopSequenceValue.NormalizeShapeType(awaitableType)
         if BuiltInTypes.IsUnknown(resolved) {
             return false
         }
 
-        external := resolved as ExternalTypeInfo
-        if external != null {
+        memberResolution := awaitMemberResolutionValue
+        sourceCalls := awaitSourceCallWalkValue
+        sourceValidator := awaitSourceCallValidatorValue
+        reflectionCalls := awaitReflectionArgumentBinderValue
+        clrConversion := awaitClrTypeConversionValue
+        semanticModel := semanticModelValue
+        if !AwaitablePatternBinder.TryBindAnalyzerAwaitable(resolved, declarationContextValue, semanticModel, memberResolution, extensionMethodResolutionValue, sourceCalls, sourceValidator, reflectionCalls, clrConversion, ambientValue.CurrentTypeName, out binding) || binding == null {
             return false
         }
-
-        taskResult: TypeInfo = BuiltInTypes.Unknown
-        if AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(resolved, out taskResult) {
-            resultType = taskResult
-            return true
-        }
-
-        if AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(resolved) {
-            resultType = BuiltInTypes.Void
-            return true
-        }
-
-        reflected := resolved as ReflectionTypeInfo
-        if reflected != null {
-            reflectedResult: TypeInfo = BuiltInTypes.Unknown
-            if TryReflectionAwaitResultType(reflected.Type, out reflectedResult) {
-                resultType = reflectedResult
-                return true
-            }
-        }
-
-        return false
+        resultType = binding.ResultType
+        return !BuiltInTypes.IsUnknown(resultType)
     }
 
-    // WHEN A NON-AWAITABLE VALUE IS ACCUSED. Only when its shape leaves no room for a `GetAwaiter`
-    // this analyzer has not seen: a class, struct, record or interface is left alone, and so is an
-    // unresolved shape. The remaining shapes — the built-ins, arrays, functions, tuples, unions —
-    // cannot carry the pattern, so awaiting one is always the mistake it looks like.
+    // WHEN A NON-AWAITABLE VALUE IS ACCUSED. An unresolved shape stays quiet because an earlier
+    // diagnostic owns it. Synthetic nominal shapes stay quiet because their declarations are not
+    // part of this analysis. A source nominal type is reported when its complete awaiter pattern
+    // cannot be resolved; reflected CLR shapes follow the same rule. Built-ins, arrays, functions,
+    // tuples and unions cannot carry the pattern and are reported directly.
     func ShouldReportAwaitMismatch(awaitableType: TypeInfo): bool {
+        if AwaitablePatternBinder.IsNullableValueType(awaitableType) {
+            return true
+        }
         resolved := loopSequenceValue.NormalizeShapeType(awaitableType)
         if BuiltInTypes.IsUnknown(resolved) {
             return false
@@ -751,65 +772,39 @@ class AnalyzerPassThroughOperands {
 
         classType := resolved as ClassTypeInfo
         if classType != null {
-            return false
+            return declarationContextValue.ContainsSourceType(resolved) && !HasSourceAwaiterPattern(resolved)
         }
 
         structType := resolved as StructTypeInfo
         if structType != null {
-            return false
+            return declarationContextValue.ContainsSourceType(resolved) && !HasSourceAwaiterPattern(resolved)
         }
 
         recordType := resolved as RecordTypeInfo
         if recordType != null {
-            return false
+            return declarationContextValue.ContainsSourceType(resolved) && !HasSourceAwaiterPattern(resolved)
         }
 
         interfaceType := resolved as InterfaceTypeInfo
         if interfaceType != null {
-            return false
+            return declarationContextValue.ContainsSourceType(resolved) && !HasSourceAwaiterPattern(resolved)
         }
 
         return true
     }
 
-    // THE DUCK-TYPED AWAITER PATTERN: a parameterless `GetAwaiter` whose return type carries a
-    // parameterless `GetResult`. Visibility is deliberately wide — a non-public member satisfies the
-    // pattern here, as it did in `Analyzer.cs` — and a `Nullable<T>` is unwrapped first so that
-    // `Task<int>?` finds the awaiter `Task<int>` has.
-    //
-    // `System.Void` is compared by IDENTITY against the LIVE one rather than by name, which is the
-    // comparison `Analyzer.cs` made with `typeof(void)`; a type read through a MetadataLoadContext
-    // answers with THAT context's void and is deliberately not recognised, because recognising it
-    // would change what an awaited external unit task answers.
-    static func TryReflectionAwaitResultType(clrType: Type, out resultType: TypeInfo): bool {
-        resultType = BuiltInTypes.Unknown
-        runtimeType := clrType
-        underlying := Nullable.GetUnderlyingType(clrType)
-        if underlying != null {
-            runtimeType = underlying
-        }
+    func HasSourceAwaiterPattern(awaitableType: TypeInfo): bool {
+        resultType: TypeInfo = BuiltInTypes.Unknown
+        binding: AnalyzerAwaitablePatternBinding? = null
+        return TryAwaitResultType(awaitableType, out resultType, out binding)
+    }
 
-        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-        noParameters := new Type[](0)
-        getAwaiterMethod := runtimeType.GetMethod("GetAwaiter", flags, null, noParameters, null)
-        if getAwaiterMethod == null {
-            return false
+    func AwaitMismatchMessage(awaitableType: TypeInfo): string {
+        resolved := loopSequenceValue.NormalizeShapeType(awaitableType)
+        if resolved as ClassTypeInfo != null || resolved as StructTypeInfo != null || resolved as RecordTypeInfo != null || resolved as InterfaceTypeInfo != null || resolved as ReflectionTypeInfo != null || resolved as GenericTypeInfo != null || resolved as ExternalTypeInfo != null {
+            return "await expression cannot use '" + TypeText(awaitableType) + "' because its awaiter pattern is incomplete; it needs GetAwaiter() and an awaiter with bool IsCompleted, GetResult(), and INotifyCompletion"
         }
-
-        awaiterType := getAwaiterMethod.ReturnType
-        getResultMethod := awaiterType.GetMethod("GetResult", flags, null, noParameters, null)
-        if getResultMethod == null {
-            return false
-        }
-
-        returnType := getResultMethod.ReturnType
-        if returnType == AnalyzerReflectionArgumentBinder.LiveVoidType() {
-            resultType = BuiltInTypes.Void
-            return true
-        }
-
-        resultType = AnalyzerReflectionTypeConversion.ConvertReflectionType(returnType)
-        return true
+        return "await expression needs an awaitable value, but this expression is '" + TypeText(awaitableType) + "'"
     }
 
     // A TYPE'S RENDERED TEXT, TAKEN THROUGH `object`. `Analyzer.cs` wrote `$"{type}"`; the columnar
