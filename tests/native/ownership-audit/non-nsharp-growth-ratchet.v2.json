@@ -4,7 +4,7 @@
   "codeEpochFileCount": 217,
   "codeEpochPathFingerprint": "pathset-v2:8753f45f767649bf",
   "codeEpochFactFingerprint": "epochfacts-v2:bbd44c5fc149a36c",
-  "reviewedHeadFingerprint": "head-v2:2d819441de76353e",
+  "reviewedHeadFingerprint": "head-v2:94fef533ce3c0f4e",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":446,"currentNonBlankLines":391,"currentBytes":0,"currentFingerprint":"text-v1:c4fff4cafe6f3d2a"},
@@ -413,7 +413,7 @@
     {"path":"tests/TypeReferenceFactsTests.cs","language":"csharp","surface":"compiler-tests","campaignScope":"closeout","state":"removed","epochLines":137,"currentLines":0,"epochNonBlankLines":119,"currentNonBlankLines":0,"epochAssertionMarkers":22,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"tests/VscodeIntegrationHarnessTests.cs","language":"csharp","surface":"compiler-tests","campaignScope":"closeout","state":"removed","epochLines":82,"currentLines":0,"epochNonBlankLines":70,"currentNonBlankLines":0,"epochAssertionMarkers":8,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"tests/fixtures/async-constructor-reflection/AsyncConstructorReflectionFixtures.csproj","language":"msbuild","surface":"compiler-tests","campaignScope":"closeout","state":"reviewed","currentLines":1,"currentNonBlankLines":1,"currentBytes":0,"currentFingerprint":"text-v1:602911e16d5b3be1"},
-    {"path":"tests/fixtures/async-constructor-reflection/ConstructorFixtures.cs","language":"test-fixture","surface":"compiler-tests","campaignScope":"closeout","state":"reviewed","currentLines":58,"currentNonBlankLines":44,"currentBytes":0,"currentFingerprint":"text-v1:3ece3ca7122d3b2b"},
+    {"path":"tests/fixtures/async-constructor-reflection/ConstructorFixtures.cs","language":"test-fixture","surface":"compiler-tests","campaignScope":"closeout","state":"reviewed","currentLines":88,"currentNonBlankLines":69,"currentBytes":0,"currentFingerprint":"text-v1:15d1de66471a3fff"},
     {"path":"tests/fixtures/issue-tracker/.gitignore","language":"product-config","surface":"compiler-tests","campaignScope":"closeout","state":"reviewed","currentLines":1,"currentNonBlankLines":1,"currentBytes":0,"currentFingerprint":"text-v1:d6130ad7733d5f39"},
     {"path":"tests/fixtures/issue-tracker/IssueTracker.csproj","language":"msbuild","surface":"compiler-tests","campaignScope":"closeout","state":"reviewed","currentLines":1,"currentNonBlankLines":1,"currentBytes":0,"currentFingerprint":"text-v1:cdc0ce7d1c6a19ce"},
     {"path":"tests/fixtures/issue-tracker/NuGet.config","language":"product-config","surface":"compiler-tests","campaignScope":"closeout","state":"reviewed","currentLines":8,"currentNonBlankLines":8,"currentBytes":0,"currentFingerprint":"text-v1:6a3458345e83c274"},
