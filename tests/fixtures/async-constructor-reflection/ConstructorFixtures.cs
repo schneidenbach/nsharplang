@@ -1,4 +1,34 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace NSharpLang.AsyncConstructorReflectionFixtures;
+
+public sealed class CancellationTokenTestFacts
+{
+    public bool Matches(Exception exception, CancellationToken expected) =>
+        exception is OperationCanceledException canceled && canceled.CancellationToken == expected;
+
+    public bool MatchesInvalidOperation(Exception exception, string expectedMessage) =>
+        exception is InvalidOperationException failure && failure.Message == expectedMessage;
+
+    public bool HasTaskFailureCount(Task task, int expectedCount)
+    {
+        AggregateException? failure = task.Exception;
+        return task.IsFaulted && failure != null && failure.InnerExceptions.Count == expectedCount;
+    }
+
+    public Task<int> CreateFaultedTaskWithMultipleExceptions()
+    {
+        var source = new TaskCompletionSource<int>();
+        source.SetException(new Exception[]
+        {
+            new InvalidOperationException("first-failure"),
+            new ArgumentException("second-failure")
+        });
+        return source.Task;
+    }
+}
 
 public sealed class ReflectedArrayBox<T> { }
 

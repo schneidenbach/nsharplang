@@ -3919,11 +3919,33 @@ internal sealed class PlaygroundTaskCompletionSignal {
             Completion.TrySetException(new InvalidOperationException("A configured Task continuation ran before its source Task completed."))
             return
         }
+        if Source.IsCanceled {
+            try {
+                Source.GetAwaiter().GetResult()
+            } catch canceled: OperationCanceledException {
+                Completion.TrySetCanceled(canceled.CancellationToken)
+                return
+            } catch failure: Exception {
+                Completion.TrySetException(failure)
+                return
+            }
+            Completion.TrySetCanceled(CancellationToken.None)
+            return
+        }
+        if Source.IsFaulted {
+            failure := Source.Exception
+            if failure == null {
+                Completion.TrySetException(new InvalidOperationException("The configured Task faulted without an exception."))
+                return
+            }
+            Completion.TrySetException(failure.InnerExceptions)
+            return
+        }
         try {
             Source.GetAwaiter().GetResult()
             Completion.TrySetResult(null)
         } catch canceled: OperationCanceledException {
-            Completion.TrySetCanceled()
+            Completion.TrySetCanceled(canceled.CancellationToken)
         } catch failure: Exception {
             Completion.TrySetException(failure)
         }
@@ -3978,7 +4000,16 @@ internal sealed class RuntimeTaskRunResultSignal {
             return
         }
         if Source.IsCanceled {
-            CompleteCanceled()
+            try {
+                Source.GetAwaiter().GetResult()
+            } catch canceled: OperationCanceledException {
+                CompleteCanceled(canceled.CancellationToken)
+                return
+            } catch failure: Exception {
+                CompleteException(failure)
+                return
+            }
+            CompleteCanceled(CancellationToken.None)
             return
         }
         if Source.IsFaulted {
@@ -3987,11 +4018,7 @@ internal sealed class RuntimeTaskRunResultSignal {
                 CompleteException(new InvalidOperationException("The Task.Run source task faulted without an exception."))
                 return
             }
-            if failure.InnerException != null {
-                CompleteException(failure.InnerException)
-                return
-            }
-            CompleteException(failure)
+            CompleteExceptions(failure.InnerExceptions)
             return
         }
         try {
@@ -4030,12 +4057,28 @@ internal sealed class RuntimeTaskRunResultSignal {
         method.Invoke(Completion, arguments)
     }
 
-    private func CompleteCanceled(): void {
-        method := Completion.GetType().GetMethod("TrySetCanceled", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+    private func CompleteExceptions(failures: IEnumerable<Exception>): void {
+        parameterTypes := new Type[](1)
+        parameterTypes[0] = typeof(IEnumerable<Exception>)
+        method := Completion.GetType().GetMethod("TrySetException", BindingFlags.Public | BindingFlags.Instance, null, parameterTypes, null)
+        if method == null {
+            throw new InvalidOperationException("The Task.Run exception-list completion method is missing.")
+        }
+        arguments := new object?[](1)
+        arguments[0] = failures
+        method.Invoke(Completion, arguments)
+    }
+
+    private func CompleteCanceled(token: CancellationToken): void {
+        parameterTypes := new Type[](1)
+        parameterTypes[0] = typeof(CancellationToken)
+        method := Completion.GetType().GetMethod("TrySetCanceled", BindingFlags.Public | BindingFlags.Instance, null, parameterTypes, null)
         if method == null {
             throw new InvalidOperationException("The Task.Run cancellation completion method is missing.")
         }
-        method.Invoke(Completion, new object?[](0))
+        arguments := new object?[](1)
+        arguments[0] = token
+        method.Invoke(Completion, arguments)
     }
 }
 

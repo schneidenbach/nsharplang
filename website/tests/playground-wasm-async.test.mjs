@@ -459,6 +459,103 @@ async func main(): Task {
         timeoutMs: 5000,
       },
       {
+        name: 'Task.Run result lambda preserves the inner cancellation token',
+        source: `import System
+import System.Threading
+import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+async func main(): Task {
+    delayToken := new CancellationToken(true)
+    pending := Task.Run(async () => {
+        await Task.Delay(new TimeSpan(100000), delayToken)
+        return 49
+    }, new CancellationToken(false))
+    try {
+        _result := await pending
+        throw new Exception("expected Task.Run result task to be canceled")
+    } catch canceled: Exception {
+        if !new CancellationTokenTestFacts().Matches(canceled, delayToken) { throw new Exception("Task.Run lost the inner cancellation token") }
+        print "cancellation-token-preserved"
+    }
+}
+`,
+        stdout: 'cancellation-token-preserved\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run result lambda preserves exception type and message after Task.Yield',
+        source: `import System
+import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+func ShouldThrowTaskRunException(): bool { return true }
+
+async func main(): Task {
+    pending := Task.Run(async () => {
+        await Task.Yield()
+        if ShouldThrowTaskRunException() { throw new InvalidOperationException("result-lambda-fault") }
+        return 50
+    })
+    try {
+        _result := await pending
+        throw new Exception("expected result task to fault")
+    } catch failure: Exception {
+        if !new CancellationTokenTestFacts().MatchesInvalidOperation(failure, "result-lambda-fault") { throw new Exception("Task.Run changed the result exception type or message") }
+        if !pending.IsFaulted { throw new Exception("Task.Run result task is not faulted") }
+        print failure.Message
+    }
+}
+`,
+        stdout: 'result-lambda-fault\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run no-result lambda preserves exception type and message after Task.Yield',
+        source: `import System
+import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+async func main(): Task {
+    pending := Task.Run(async () => {
+        await Task.Yield()
+        throw new InvalidOperationException("no-result-lambda-fault")
+    })
+    try {
+        await pending
+        throw new Exception("expected no-result task to fault")
+    } catch failure: Exception {
+        if !new CancellationTokenTestFacts().MatchesInvalidOperation(failure, "no-result-lambda-fault") { throw new Exception("Task.Run changed the no-result exception type or message") }
+        if !pending.IsFaulted { throw new Exception("Task.Run no-result task is not faulted") }
+        print failure.Message
+    }
+}
+`,
+        stdout: 'no-result-lambda-fault\n',
+        timeoutMs: 5000,
+      },
+      {
+        name: 'Task.Run result bridge preserves the full inner exception list',
+        source: `import System
+import System.Threading.Tasks
+import NSharpLang.AsyncConstructorReflectionFixtures
+
+async func main(): Task {
+    facts := new CancellationTokenTestFacts()
+    pending := Task.Run(() => facts.CreateFaultedTaskWithMultipleExceptions())
+    try {
+        _result := await pending
+        throw new Exception("expected Task.Run result task to fault")
+    } catch failure: Exception {
+        if !facts.HasTaskFailureCount(pending, 2) { throw new Exception("Task.Run did not preserve both source exceptions") }
+        print "two-exceptions-preserved"
+    }
+}
+`,
+        stdout: 'two-exceptions-preserved\n',
+        timeoutMs: 5000,
+      },
+      {
         name: 'Task.Run keeps the synchronous lambda adapter working',
         source: `import System.Threading.Tasks
 
