@@ -2406,13 +2406,6 @@ class ColumnarCodePlanExecutor {
     static func ApplyMethodReturn(plan: ColumnarCodePlan, operationIndex: int, returnType: Type, isStatic: bool, methodName: string, parameterCount: int, isSpecialName: bool, receiver: ColumnarCodePlanStackNode?, state: ColumnarCodePlanStackState, schemaName: string) {
         if IsVoidType(returnType) {
             ownerFragment := plan.OperationOwnerFragmentIndices[operationIndex]
-            preserved := state.Head
-            if preserved != null {
-                if isStatic || receiver == null || receiver.IsAddress || receiver.ValueKind != ColumnarCodePlanStackValueKind.Exact() || receiver.DuplicateOf != preserved || !isSpecialName || parameterCount != 1 || !methodName.StartsWith("set_", StringComparison.Ordinal) {
-                    throw new InvalidOperationException(schemaName + " residual void calls require an instance setter on an exact duplicated receiver.")
-                }
-                return
-            }
             // A VALUE TYPE'S OBJECT INITIALIZER WRITES THROUGH THE TEMP'S ADDRESS, not through a
             // duplicated object reference: there is no reference to duplicate. The setter is called
             // on the SAME plan-local address the `initobj` beside it established, which is exactly
@@ -2420,6 +2413,14 @@ class ColumnarCodePlanExecutor {
             // `init` member is never a field, so without this an init-only member could not be set
             // on a value type at all.
             if !isStatic && receiver != null && receiver.IsAddress && receiver.ValueKind == ColumnarCodePlanStackValueKind.Exact() && receiver.PlanLocalAddressIndex >= 0 && receiver.PlanLocalAddressIndex < plan.PlanLocalCount && isSpecialName && parameterCount == 1 && methodName.StartsWith("set_", StringComparison.Ordinal) {
+                return
+            }
+
+            preserved := state.Head
+            if preserved != null {
+                if isStatic || receiver == null || receiver.IsAddress || receiver.ValueKind != ColumnarCodePlanStackValueKind.Exact() || receiver.DuplicateOf != preserved || !isSpecialName || parameterCount != 1 || !methodName.StartsWith("set_", StringComparison.Ordinal) {
+                    throw new InvalidOperationException(schemaName + " residual void calls require an instance setter on an exact duplicated receiver.")
+                }
                 return
             }
 

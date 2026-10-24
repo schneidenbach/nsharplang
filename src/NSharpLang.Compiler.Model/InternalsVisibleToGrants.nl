@@ -122,8 +122,11 @@ class InternalsVisibleToGrants {
             return false
         }
 
+        // A PUBLIC FRAMEWORK TYPE THE REFERENCE PACK DOES NOT DECLARE IS NOT NAMEABLE: the runtime
+        // implementation makes it public, `dotnet build` compiles against the pack and refuses it
+        // (`FrameworkNamespaceIndex.IsImplementationOnlyType`).
         if candidate.IsVisible {
-            return true
+            return !FrameworkNamespaceIndex.IsImplementationOnlyType(candidate)
         }
 
         if !GrantsAccess(candidate.Assembly) {

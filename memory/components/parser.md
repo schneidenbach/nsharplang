@@ -444,6 +444,16 @@ and `Lexer.IsReservedKeyword` is DEFINED as "that table answers", so NL109 and t
 `TokenType.Type` stays in the enum because every ordinal above it is the columnar pipeline's
 token-kind currency; it moved into the NON-keyword table beside `Test` and `File`.
 
+### Reserved-name recovery follows the lexer keyword table
+
+`ParserTokenFacts.IsNameLikeReservedWord` delegates to `Lexer.IsReservedKeyword`, so recovery does
+not maintain a second hand-written list. A reserved token followed by a name-binding shape is
+recognized before statement or primary-keyword dispatch; other keyword-led forms keep their own
+grammar. In local declarations, parameter lists, and `for … in` headers, the parser reports NL109 at
+the reserved token and keeps its written spelling in the recovered tree. All reserved-name report
+paths pass through `ReportReservedNameOnce`, which suppresses a second NL109 for that spelling when
+it appears later in an identifier position.
+
 **THE HEAD IS THREE TOKENS — the word, a NAME, and `=` — and two of them are what tells a declaration
 from a use.** `type = 6` assigns to a local of that name and `type: string` declares a member of it;
 reading either as a declaration head would silently swallow the statement. `TypeAliasKeywordFacts`

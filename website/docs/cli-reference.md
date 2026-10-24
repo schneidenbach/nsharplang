@@ -20,7 +20,7 @@ are maintained against the CLI command kernels.
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
 | `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--aot`, `--stats`, `--output`, `--define`, `--color` | `nlc build --timings` |
-| `nlc run [file]` | Build and run a project or single file | `--backend`, `--define`, `--color` | `nlc run` |
+| `nlc run [file]` | Build and run a project or single file; arguments after `--` go to the program | `--backend`, `--project`, `--define`, `--color` | `nlc run --project src/App -- --port 8080` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`, `systems-cli`, `systems-lib`), `--type` alias, `--systems` | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | `--name`, `--type`, `--force` | `nlc init --type library` |
 | `nlc test` | Run `.tests.nl` suites through the N# test runner | `--project`, `--filter`, `--verbose`, `--json`, `--timings` | `nlc test --filter "should add"` |
@@ -109,8 +109,10 @@ deleted, on `nlc daemon stop`, and on SIGTERM (requests in flight finish first).
 Ctrl-C and hang-up of the terminal it was started from. Its socket is `{workspace}/.nlc/daemon.sock`
 (or `{TMPDIR}/nlc-daemon/{sha256-16}/daemon.sock` when that path would exceed 100 bytes), created
 owner-only (`0600`, in an owner-only directory for the fallback), so no other user can reach it. Its
-log is `.nlc/daemon.log`, restarted with each server. `.nlc/` is runtime state and should not be
-committed; all shipped `dotnet new` templates ignore it.
+log is `.nlc/daemon.log`, restarted with each server. `.nlc/` is runtime state and is never
+committed: nlc writes a `.nlc/.gitignore` containing `*` when it creates the directory (and adds it
+to a `.nlc/` left by an older nlc), so `git status` stays clean in a repository that has no ignore
+rule for it. A `.gitignore` you put there yourself is never replaced.
 
 `nlc daemon start` starts the server explicitly and waits until it answers and has finished its
 warm-up compile, so the next command is answered warm (120-second deadline; an early exit or a timeout reports the elapsed time, the socket path, whether the child was
@@ -197,6 +199,7 @@ nlc completion bash > /etc/bash_completion.d/nlc
 ## Build, Test, And Publish Truth
 
 - `nlc build --release` selects the Release configuration and `bin/Release/<targetFramework>` output layout unless `--output` is provided. The direct IL backend does not have a separate optimization mode yet.
+- **Test files (`*.tests.nl`).** `nlc build` compiles the product only, the way `go build` ignores `_test.go`: test files are not emitted into the output assembly, and errors inside them do not fail the build. Run `nlc check` to type-check them (it reads sources and tests together) and `nlc test` to run them. `nlc fix`, `nlc lint` and `nlc format` treat test files like any other source file. A library that contains only test files has nothing to build, so `nlc build` reports [NL936](errors/NL936.md) instead of producing an empty assembly; `nlc test` still runs it. Because `nlc lint` and `nlc fix` read test files, `nlc lint` can fail on lint errors in them (for example an unused import).
 - **Conditional compilation.** `#if`/`#elif`/`#else`/`#endif` are evaluated by the compiler against the set of defined symbols; only the live branch is compiled (`#region`/`#endregion` remain organizational pass-through). `DEBUG` is defined for debug builds (`nlc run`, `nlc build`, `nlc test`) and omitted under `nlc build --release`. Project-wide symbols come from `defines:` in `project.yml`; ad-hoc symbols come from `--define <symbol>` / `-d <symbol>` (repeatable, and comma/semicolon lists are accepted). Conditions support symbols, `true`/`false`, `!`, `&&`, `||`, and parentheses, matching established preprocessor semantics. Symbol names are case-sensitive.
 - `nlc test --coverage` and `nlc test --coverage-report` are unavailable in the native test runner today. They exit 1 with a clear text error, or with the same message in the schemaVersion 1 JSON `error` field when `--json` is present.
 - `nlc test --timings` reports where the run spent its time: the incremental build of the project with its tests, the runner over the emitted assembly, and the whole command. Text mode prints a `Test timings:` block on standard error, where `nlc build --timings` prints its own, so standard output is unchanged; with `--json` the envelope gains a `timings` object of integer milliseconds (`buildMs`, `runMs`, `totalMs`). Without the flag neither appears, so the schemaVersion 1 envelope a caller already reads is byte-for-byte the same.
@@ -209,6 +212,17 @@ nlc completion bash > /etc/bash_completion.d/nlc
 - Cross-runtime publish requests fail before building and report both the requested RID and the current host RID.
 - `nlc publish --self-contained` is planned, not implemented. It exits 1 with guidance instead of producing an artifact that only appears self-contained.
 
+
+## Dependencies At Run Time: NuGet Assets, `deps.json` And Project References
+
+`nlc build` resolves a `nuget:` dependency the way `dotnet build` does, and writes the same run-time facts beside the output.
+
+- **Framework selection follows NuGet's nearest-framework rule.** For `net10.0`, a package's dependency groups and its `lib/` and `ref/` folders are reduced to the best compatible framework: `net10.0`, then `net9.0` ... `net5.0`, then `netcoreapp3.1` ..., then `netstandard2.1`, `netstandard2.0`, then the group with no framework. A platform-qualified asset (`net8.0-android34.0`, `net8.0-ios17.0`) is compatible only with a target that names the same platform, and its platform version cannot be newer than the target's. An unqualified target such as `net10.0` therefore never selects the Android dependency group of `Microsoft.EntityFrameworkCore.Sqlite`.
+- **Native and RID-specific assets are copied.** Every package's `runtimes/<rid>/native/**`, nearest-compatible `runtimes/<rid>/nativeassets/<tfm>/**`, and nearest-compatible `runtimes/<rid>/lib/<tfm>/*` files are copied under the output directory with their `runtimes/<rid>/...` layout, including nested native subfolders and every RID the package ships (the output stays portable across machines, as `dotnet build` output does). A `lib/` or `nativeassets/` folder under a RID is chosen by the same nearest-framework rule.
+- **A .NET 5+ target gets `<assembly>.deps.json` next to each built assembly.** It lists the application, each package (with its `sha512`, `path` and `hashPath` from the NuGet cache), the other assemblies copied beside the output, and a `runtimeTargets` row per RID-specific file. The .NET host reads it to build the trusted-assembly list and to pick the native library for the RID it runs on (`osx-arm64` -> `osx` -> `unix-arm64` -> `unix` -> `any`; Linux distributions walk their base distributions first, `ubuntu` -> `debian` -> `linux` and Rocky 9 -> RHEL 9 -> RHEL -> Linux), so `nlc run` of an EF Core / SQLite application finds `e_sqlite3`. `<assembly>.runtimeconfig.json` is still written for executables. .NET Standard, .NET Framework, and pre-.NET 5 .NET Core targets do not get an application deps manifest.
+- **`nlc test` finds native libraries too.** Tests run inside the CLI's own process, which never reads the test project's `deps.json`; the runner applies the same RID fallback to the `runtimes/<rid>/native` files in the test output directory when a test assembly's package asks for a native library.
+- **A `project:` reference flows its dependencies.** Like MSBuild's `ProjectReference`, the packages (compile-time and run-time assets) and shared frameworks (`framework:`, or `sdk: Microsoft.NET.Sdk.Web`) the referenced project declares are references of the referencing project as well, transitively. A type that only the referenced project's package defines (`HtmlDocument` from `HtmlAgilityPack`) can be used, and its namespace imported (`import HtmlAgilityPack`), without declaring the package again. If the project and a referenced project use different versions of one package assembly, the project's own reference wins; between two referenced projects the higher version wins, so the compilation never sees two files of one assembly.
+- **`WebApplicationFactory<TEntryPoint>`.** When a test project references `Microsoft.AspNetCore.Mvc.Testing` and a `project:` application, `nlc test` does what the package's own MSBuild targets do: it copies the application's `<app>.deps.json` into the test output directory and writes `MvcTestingAppManifest.json` (the application's assembly full name to its project directory, which is its content root). Because `nlc test` runs the tests inside the CLI's own process, it runs such a project from its test output directory (current directory and `AppContext.BaseDirectory`), as `dotnet test` does, and restores both afterwards. No hand-written `deps.json` or solution-root shim is needed.
 
 ## Diagnostic Colour
 

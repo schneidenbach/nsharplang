@@ -305,13 +305,23 @@ THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the
 - TUPLE-TO-TUPLE comes next, and compares ELEMENT BY ELEMENT rather than by identity. Element names
   are not part of tuple identity, and a nullable annotation over a REFERENCE type is not a CLR type,
   so `(string, string)` fits `(string?, string)` and a `null` element fits any slot that accepts
-  null. A REPRESENTATION-CHANGING element conversion is refused on purpose — C# converts
-  `(int, int)` to `(long, long)` and `(string, string)` to `(object, object)` by taking the tuple
-  apart and rebuilding it, and N# emits no such per-element conversion, so accepting it would hand
-  the emitter a shape it can only decline. `Nullable<int>` is a real CLR type and stays a difference
-  from `int` for the same reason. Before this arm existed, a tuple whose declared type differed from
+  null. The ONE representation-changing element conversion admitted is the nullable WRAP: `(string,
+  int)` fits `(string?, int?)`, and the emitter (`TryEmitLiftedImplicitConversion`) takes the tuple
+  apart and builds the target tuple. Every OTHER one is refused on purpose — C# converts
+  `(int, int)` to `(long, long)` and `(string, string)` to `(object, object)` the same way, but N#
+  emits no such per-element conversion, so accepting it would hand the emitter a shape it can only
+  decline. `Nullable<int>` is a real CLR type and stays a difference from `int` in every other
+  direction. Before this arm existed, a tuple whose declared type differed from
   the literal's only by a nullable annotation reported NL202 against source the writer had spelled
   correctly.
+- A SOURCE method group with exactly one candidate also binds to the two abstract roots `System.Delegate`
+  and `System.MulticastDelegate` (`CanBindCallableReferenceToExpectedType` answers by name through
+  `IsBroadDelegateRoot`): C# 10's natural function type converts to them by reference, and the emitter
+  builds that `Func`/`Action` from the one signature (`TryGetNaturalMethodGroupDelegateType`). An
+  overloaded group has no natural type and still reports NL411/NL202. Reflected groups (an external
+  `Delegate` parameter) are NOT scored for the roots, so a concrete delegate overload keeps winning;
+  the emitter's contextual candidate selection applies C#'s better-conversion rule
+  (`CompareContextualConversionTargets`) for the same reason.
 - The CALLABLE-REFERENCE arms come before `object`. A bare method group is not a value, so it is NOT
   assignable to `object` — that single exception is what forces the whole ordering, and it composes:
   a union with a method-group arm is not assignable to `object` either. A method group WITH A
@@ -443,7 +453,7 @@ declared member read off a type's member table (optionally as seen from a declar
   parsed for a long time and consumed by nothing. Pooling (`PoolingAsyncValueTaskMethodBuilder`)
   recycles the box a SUSPENDED async method lives in; an ordinary N# `async func` never suspends —
   `await` is the blocking `TryEmitBlockingAwait` lowering in `ColumnarIlEmitter`, and
-  `EmitWrappedAsyncCompletedReturn` builds the result as `new ValueTask<T>(value)` /
+  `EmitWrappedAsyncCompletedReturn` builds a generic result through `ValueTask.FromResult<T>(value)` /
   `default(ValueTask)` — so a `ValueTask` call allocates 0 bytes already (measured: 100,000 calls,
   0 bytes; `Task<int>` 72 bytes per call). With nothing to pool, `LanguageConfig.RemovedPooledAsync`
   binds the key (`[YamlMember(Alias = "pooledAsync")]`) only so `ProjectFileParser.ValidateConfig`
@@ -1716,7 +1726,10 @@ on the new owner. `StrongBox<T>` construction and field access use `TypeBuilder.
 before bake. The generic ones ride a SEPARATE map on `ColumnarLocalFunctionLowering`
 (`GenericLocalFuncs`) because the direct map's entries are handles a call site dispatches without
 closing. The same model applies inside a generic method on a non-generic source type. An `async`
-generic local function remains refused (`emit.local-function.generic-async`).
+generic local function remains refused (`emit.local-function.generic-async`). Generic async METHODS (static and instance) resolve
+their task return through `ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope`; async lowering is
+synchronous, so no state-machine type needs the type arguments. A generic async free function is refused at
+`emit.declaration.function-return`.
 
 **THE CONTEXTUAL-TIER GATE ASKS ALL THREE METHOD-GROUP SHAPES** (2026-09-14, stream CAPTURE3).
 `ColumnarIlEmitter.IsContextualDelegateValueNode` — the predicate `HasContextualDelegateArgument`
@@ -1807,6 +1820,37 @@ shapes could not, and neither was about capture analysis:
   where argument zero is `this`, and put the lambda's own parameter on ordinal 0 on top of it. The
   inference shifts the lambda's ordinals by one inside an instance body, which is what the real
   lowering already does; only the TYPE it computes outlives the plan.
+
+**A LAMBDA'S SYNTHESIZED METHOD CARRIES ITS SOURCE PARAMETER NAMES** (2026-10-17, issue #216). No
+lambda lowering wrote `Param` rows, so `handler.Method.GetParameters()[0].Name` was null and every
+ASP.NET Core Minimal-API handler with a parameter failed at request time ("Encountered a parameter of
+type 'System.Int32' without a name"). `ColumnarLambdaSignature.ParameterNames` keeps the written
+names in declaration order and `ColumnarLambdaPlacementPlanner.DefineSourceParameterNames` writes one
+row per user parameter (sequence = ordinal + 1, no flags) for every shape a lambda lowers to: the
+program/lexical-owner static helper, the `this`-bound instance method, the display-class `<Lambda>`
+(whose receiver is `this`, so the sequence never shifts), the inferred `:=` method (named after
+`SetParameters`, the only order `DefineParameter` accepts) and the generator-body lambda in
+`ColumnarIteratorPlanner.AppendLambda`. That is Roslyn's `SynthesizedClosureMethod` rule.
+
+Two defects in the `MapGet`/`MapPost` route-handler residual surfaced with it. It built EVERY
+one-parameter lambda as `Func<HttpContext, R>` regardless of the written parameter type, so
+`(id: int) => …` was a delegate over a method it does not match (ilverify: "Unrecognized arguments
+for delegate .ctor"); `TrySelectAspNetLambdaHandlerDelegate` now picks the NATURAL delegate over the
+written types, as C# does for a lambda converted to `System.Delegate`, and `TryEmitLambdaLiteral`
+declines (`emit.lambda.parameter-type-mismatch`) a written parameter type the target delegate cannot
+bind — anything but the delegate's own type or a reference type its reference parameter converts to
+(`(value: object) => …` as a `Func<string, int>` stays legal; the rule is
+`ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType`). And it emitted the route string
+BEFORE learning the handler was not a shape it lowers (`f as Delegate`, `(Delegate)f`), so the
+extension tier re-emitted the arguments and the receiver was lost — `InvalidProgramException` at
+startup. `TryPlanAspNetRouteHandler` now decides the handler once, before anything is emitted, and
+`TryEmitPlannedAspNetRouteHandler` consumes that plan.
+
+This residual is the ONLY place a lambda literal converts to `System.Delegate`: `WebApplication`'s
+`MapGet`/`MapPost`. `MapPut`, `MapDelete`, a `RouteGroupBuilder`'s `MapGet` and a source method
+taking `Delegate` still decline a lambda literal at emit (a typed `Func<>` local works for all of
+them); the general natural-function-type conversion is open work.
+`tests/native/lambda-parameter-names` pins both through the real route table.
 
 **A FREE FUNCTION'S VISIBILITY WORD NOW REACHES METADATA** (2026-09-13, stream ACCESS). The word was
 parsed into `ColumnarFunctionInput.VisibilityModifierFlags` and read by free-function identity, but
@@ -3003,9 +3047,11 @@ delegate's RETURN position, repeating while anything moves.
   VALUE there, and boxed when the declared slot is a reference type.
 - An explicit site reaches a `params` TAIL through `CollectExplicitExpanded` /
   `ResolveExplicitExpanded`, asked only when nothing bound in normal form (a normal-form ambiguity
-  still declines). The inferred `ResolveExpanded` keeps generic definitions out because inferring
-  from a packed element is its own rule; written type arguments infer nothing, so the explicit tier
-  admits them. `ExplicitExpandedParameterTypesOrNull` also lets the site omit DEFAULTED fixed slots
+  still declines). The inferred `ResolveExpanded` now admits generic definitions too
+  (`ResolveExpandedShape`): the receiver and fixed arguments unify with their own slots and every PACKED
+  argument with the tail's element type, then `CloseInferredSubstitutedOrNull` closes the method with the
+  signature SUBSTITUTED (so a source-declared type argument like `DbSet<Person>` closes); written type
+  arguments infer nothing, so the explicit tier admits them directly. `ExplicitExpandedParameterTypesOrNull` also lets the site omit DEFAULTED fixed slots
   before the tail, which then packs nothing — `route.Produces<Todo>()` over `(int statusCode = 200,
   string? contentType = null, params string[])`. `TryEmitExplicitGenericExtensionCall` pushes the
   supplied fixed arguments, fills omitted ones with `TryEmitOptionalDefault`, then
@@ -3056,6 +3102,74 @@ Rows: `AnalyzerIndexAccess.tests.nl` (definition substitution, spelled nullabili
 indexer, no-indexer and range reads, and two whole-analyzer rows: the lambda analyses clean and the
 mistyped local is NL202), plus `tests/native/census-lambda-inference/CensusExternalGenericIndexers`
 (the `Vector<int>` lambda and an `ArraySegment` over a source record, end to end).
+
+### Member lookup: object members, hidden properties, extension fallback (2026-10 member-lookup slice)
+
+* **`object`'s members on an interface-typed receiver** (GitHub #240, C# §12.5). Metadata lists none
+  of them on an interface, so `AnalyzerMemberResolution.ResolveMember`'s reflection arm joins `object`'s
+  public instance methods of the name through `JoinInterfaceObjectMethods` (an interface group keeps
+  its own, then `object`'s are added unless an interface method has the same parameter type names —
+  so `IFormattable` keeps `object.ToString()` beside `ToString(string, IFormatProvider)`). The
+  source-interface arm projects those methods into the source overload group and hides only identical
+  parameter signatures; the surrogate arm applies the same reflection merge to `IList<SourceType>`.
+  `tests/native/member-lookup` checks the BCL and source-interface runtime values, while
+  `tests/native/external-hidden-members` exercises `DbContext.Model.ToString()` through EF Core's
+  `IModel` interface.
+  `ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods` appends the same surface on the emit
+  side for an interface lookup type after the inherited-interface walk; every runtime tier
+  (unique-at-arity, ordinary, `HasInstanceMethodAtArity`) reads that one list.
+* **A property redeclared with `new`** (GitHub #239): `Type.GetProperty(name)` throws
+  `AmbiguousMatchException` when a derived type hides a base property with a different type
+  (`DbContextOptionsBuilder<T>.Options`). `AnalyzerAttributeValidator.TryGetSettableAttributeNamedMemberType`
+  and `ColumnarSourceAttributeBinder.TryResolveMetadataNamedMember` both use
+  `ReflectedMemberLookup.FindProperty` (Compiler.Model). It accepts the binder's answer first, and
+  only on ambiguity walks `DeclaredOnly` properties from the type outward so the most derived wins.
+  `ReflectedMemberLookup.tests.nl` constructs the ambiguous base/derived shape with the BCL
+  `System.Reflection.Emit` API, without an EF dependency; `tests/native/external-hidden-members` then
+  verifies the generic EF Core surface end-to-end. N# source cannot currently emit a same-name hidden
+  property shape, so the metadata fixture stays in the compiler-owned resolver tests.
+  Fields and events do not throw (the runtime keeps the most derived), so they stay on `GetField` /
+  `GetEvent`. Fixed-name reads on compiler-known types (`Nullable<T>.HasValue`, `Task.CompletedTask`) were
+  left on `GetProperty`. An uncaught exception from any such lookup still surfaces as
+  `Error: Build failed: <message>` from the per-command `catch` in `CliIlBackend`, not as a positioned
+  diagnostic; `InternalErrorBoundary` (NL924) wraps only the process entry point.
+  Both paths therefore select a derived attribute property before its hidden base property.
+* **Extension fallback** (GitHub #236, C# §12.8.10.2). `ResolveMember` returns the receiver's instance
+  group whenever one has the name, so extensions were never candidates for such a call.
+  `AnalyzerCallAnalysis.FailReflectionBind` now calls `TryBeginReflectionExtensionFallback` once, when
+  the instance group is exhausted: it asks `AnalyzerExtensionMethodResolution.TryResolveExtensionMethod`
+  for the receiver (project `this` functions, then referenced `[Extension]` methods) and re-enters
+  `Dispatch` (phase 13) with that as the callee type. The instance candidates stay on
+  `CandidateMethods`, so the NL402 listing includes both. The direct-call planner now continues from a
+  rejected instance group to extension lookup, after optional and `params` instance forms; when a
+  contextual lambda cannot be typed by that plan, it yields the call to the emitter's contextual
+  instance/extension selection. For a single source instance function, `AnalyzerCallAnalysis` checks
+  argument placement and the lambda's written parameter count/types before target-typing it, then
+  retries source extension lookup when that shape rejects the instance signature. When one source
+  extension remains applicable, it returns to ordinary argument analysis so the chosen lambda body is
+  checked against that signature. Non-lambda argument mismatches on a single source instance function
+  or overloaded source instance group now retry source extension binding after their arguments have
+  types; an applicable instance method still wins, and NL402 lists both sets when in-scope extensions
+  also reject the arguments. The
+  emitter's `LambdaParametersFitDelegate` requires the
+  lambda to write the delegate's parameter COUNT and requires each written parameter type to equal
+  the delegate's. Contextual preflight also checks calls through a lambda parameter against each
+  candidate's delegate signature, so `next()` selects `Func<Task>` while `next(ctx)` selects
+  `RequestDelegate` for an implicitly typed middleware lambda. Together these checks let the two
+  `UseExtensions.Use` overloads and the instance `Use` be told apart.
+  `tests/native/member-lookup` pins a no-ASP.NET receiver-style extension pair and the applicable
+  instance control, `tests/native/cli-command-contracts` pins extension signatures in NL402, and
+  `tests/native/aspnetcore-hosted-services` runs the typed `Func<Task>` form, the untyped middleware
+  lambda, and the `RequestDelegate` overload against ASP.NET's real `IApplicationBuilder.Use`
+  extension methods.
+* **Bare calls with omitted defaults** (GitHub #238). `ColumnarDirectCallPlanner.TryAppendCall`'s entry
+  gate now admits a bare name whose current-type declaration takes MORE parameters than written
+  (`HasBareDeclarationBeyondArity`), and `TryAppendSparseNamedBareMemberCall` compares exact-arity and
+  default-filled candidates together, placing the written
+  arguments, evaluates them in written order through locals and fills the rest from the shared
+  constructor-default owner — for the current type's instance methods (implicit receiver) and the
+  enclosing type's statics. It runs in both the positional retry and the named-argument chain.
+  Candidates declared on a base class are not offered.
 
 ### Member lookup in CALLEE position
 
@@ -3139,9 +3253,9 @@ The EMIT side is where the gap actually was, and it is `ColumnarExplicitRuntimeG
 - Candidate admission is SHARED — `IsInferableCandidateShape` is the half of the inference tier's
   rule that does not depend on the arguments — so the two tiers cannot disagree about which
   declarations are reachable. The explicit tier adds only the arity rule.
-- `MakeGenericMethod` is what enforces the declared constraints; a candidate it refuses is dropped,
-  which is how a constraint violation becomes a "no such call" answer rather than an exception at
-  emit.
+- `CloseOrNull` checks the declared constraints before asking Reflection to close the method; a
+  TypeBuilder-bound argument does not get constraint validation from `MakeGenericMethod`. A candidate
+  that fails the explicit check is dropped as a "no such call" rather than throwing at emit.
 - The closed signature is SUBSTITUTED rather than read back, for the reason the inference tier states:
   a `MethodBuilderInstantiation` reports the DEFINITION's own parameters.
 - A trailing optional whose metadata default is the null reference is filled (the ordinary resolver's
@@ -5826,10 +5940,39 @@ them, which is a different gap from this one.
 existed: `ColumnarIlEmitter.TryGetPreflightBinaryExpressionType` typed both operands of a `??` and then
 fell off the end, so `census.IndexOf("returnLifetime=" + (value ?? ""), StringComparison.Ordinal)` had
 an untypable first argument and the table's emit-then-decide arm was the only thing that could bind it.
-The emit arm has always known the rule — a REFERENCE left yields the left's own type, a `Nullable<T>`
-left yields its ELEMENT — and the preflight now states the same one. A widening, a derived reference
-and a `throw` right-hand side stay un-typed rather than guessed: those are the shapes the emit arm
-decides WHILE emitting.
+That preflight has since moved to `TryGetPreflightNullCoalesceResult` and follows the same conversion
+order as the emitter, including null and throw right sides, nullable widening, and reference upcasts.
+It declines before an overload or emission route is selected when none of those conversions applies.
+
+## Coalesce result typing and lifted tuple conversions (nullable-with, 2026-10-18)
+
+`AnalyzerOperatorExpressions.NullCoalesceResult` checks C#'s nullable-left conversions in order:
+
+1. If the right side converts to the underlying `T`, `T? ?? right` is `T`. This includes an
+   in-range integer constant conversion (`byte? ?? 1` is `byte`); an out-of-range constant takes the
+   later rules (`byte? ?? 256` is `int`).
+2. Otherwise, if the right side converts to `T?`, the result is `T?`.
+3. Otherwise, if `T` converts to the right side's type, the result is that right-side type.
+
+The reference case applies those same conversions to the present left value with reference nullability
+removed. A bare `null` right side keeps the left nullable. When every conversion fails, the analyzer
+reports NL202 at the operator instead of guessing the right type and leaving the emitter to decline.
+An unknown operand stays in recovery without a second diagnostic; a `throw` right side has no value to
+convert and leaves the non-null left type as the result.
+
+`AnalyzerAssignability.AreTupleElementsAssignable` mirrors the emitter's lifted element set: identity,
+a recursive nested-tuple conversion, or an implicit numeric widening under the nullable wrap. It does
+not accept a non-nullable tuple widening such as `(int, int)` to `(long, long)`. Focused contracts live in
+`AnalyzerOperatorExpressions.tests.nl`, `tests/native/nullable-conversions`, and
+`tests/native/record-with-external`. The current emitter limit is seven top-level tuple elements;
+lifted `decimal` conversion cases remain outside this slice's verified matrix.
+
+`AnalyzerConstruction.WithTargetAnswered` also rejects a known ordinary reference class before it
+walks replacement members. Source records keep their `RecordTypeInfo`; referenced N# records are
+recognized through the public `<Clone>$()` method the emitter calls. The NL202 diagnostic is positioned
+on the receiver and names the missing record copy contract, so a plain class such as the referenced
+`Plain` fixture does not surface as a generic emission failure. The repository has no C#-compiled
+record fixture; protected C# clone methods are not asserted as compatible here.
 
 ## `nameof` names something; it does not read it (census 2026-09-14, SELFHOST)
 
@@ -6092,3 +6235,54 @@ OPEN: the direct-call DOOR types no receiver-style sibling call, generic or not,
 is typed only by the door (`ColumnarPrimitiveBinaryPlanner`), so `Console.WriteLine(name.Len() + 1)`
 declines while `n := name.Len() + 1` and `Console.WriteLine(name.Len())` emit. The door owning the
 shape (receiver as argument zero) is the fix; then the emitter's legacy extension-sibling tier retires.
+
+- INFERRED GENERIC CALLS THAT OMIT AN OPTIONAL TAIL OR PACK A `params` TAIL are owned by
+  `ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill` and `ResolveExpanded` (static and instance
+  receivers, called by `ColumnarDirectCallPlanner`) and, for extensions, by
+  `ColumnarExtensionMethodResolver.ResolveCandidateShape` and `ResolveExpandedShape`. Both resolvers
+  share `InferTypeArguments` and `ArgumentSlotTypesOrNull` to map supplied arguments to their declared
+  slots and skip null literals during inference. `InferExtensionCandidate` prepends the receiver at
+  slot 0 and searches matching base and interface instantiations, as C# input inference does. The
+  inference owner accumulates exact, lower, and upper bounds, fixes each method type argument against
+  all bounds, then sends the result through `CloseInferredSubstitutedOrNull`. That helper rejects
+  incomplete or unbindable inference, checks constraints and substitutes the signature. Source
+  constructor facts prove `new()` when the source definition records a public parameterless constructor.
+  Only supplied arguments take part, so a type parameter mentioned only by an omitted optional remains
+  unbound. Normal form (the caller already holds the array) is tried before packing, per ECMA-334
+  12.6.4.2. `JsonSerializer.Serialize(5)`, `set.FromSqlRaw(sql, n)` and
+  `RelationalQueryableExtensions.FromSqlRaw(set, sql, n)` previously declined at
+  `emit.call.static-member-unmodeled` / `instance-member-unmodeled`.
+- GENERIC AND NON-GENERIC CANDIDATES COMPETE. The planner asks both candidate families and reduces them
+  with a shared better-conversion comparison over supplied arguments. Expanded extension calls include
+  the receiver conversion, so a generic `IEnumerable<T>` receiver beats an `object` receiver when the
+  explicit arguments tie. A more-specific list (`IEnumerable<string>` over `object`) wins; identical
+  effective parameter types prefer the non-generic method only when applicable parameter counts also
+  tie. Incomparable lists, multiple equally best candidates and optional candidates with different
+  parameter counts remain ambiguous across both families. Runtime-value rows cover `Task.WhenAll`,
+  `Task.WhenAny`, `Array.Sort(int[])` and `Array.IndexOf`; resolver rows pin ambiguity and the
+  non-generic tie-break.
+- CONSTRAINTS ARE CHECKED BY US. `MakeGenericMethod` validates constraints only for runtime types; over
+  a type the compilation is still writing it accepts anything. `SatisfiesConstraints` (called by
+  `CloseOrNull`, so by every closure) checks `class`, `struct`, `new()` and type constraints
+  structurally. For `new()`, the source definition's constructor facts must show a public parameterless
+  constructor; an unregistered or private-only source constructor does not prove it.
+- WRITTEN TYPE ARGUMENTS BESIDE AN INLINE LAMBDA: `TrySelectExplicitGenericExtensionForLambdas` and the
+  lambda tier of `SelectExplicitGenericExternalCall` close every overload over the written arguments
+  and let the lambda choose by arity against each delegate parameter (`CanLambdaOrValueArgumentFit`),
+  so `services.AddSingleton<Svc>(sp => ...)` selects `Func<IServiceProvider, Svc>` over
+  `Svc instance`. Same-arity delegate overloads such as `Action<T>` and `Func<T, TResult>` stay
+  declined, as do zero-argument overloads the lambda body could distinguish (`Task.Run<int>(() => 1)`),
+  because body-type inference is not implemented in this emitter path.
+- AN INHERITED EXTERNAL GENERIC METHOD, bare or via `this`/an expression receiver (`Set<Person>()`,
+  `this.Set<Person>()`, `new Db().Set<Person>()` in a `DbContext` subclass), resolves on the
+  substituted external base: `TryEmitInheritedExternalExplicitGenericCall`. Source declarations are
+  filtered by the written generic arity, so a derived `Set(int)` leaves an inherited `Set<Person>()`
+  candidate available. Only PUBLIC generic methods of the external base are candidates; protected
+  generic base methods remain unsupported. Calls inside lambdas and local functions remain unsupported
+  because their receiver is a closure.
+
+Tests: `tests/native/generic-call-inference` (BCL shapes, runtime values),
+`tests/native/generic-call-inference-efcore` (real EF Core and DI packages, SQL read back through
+`ToQueryString()`), the refusal rows in
+`tests/native/columnar-emit-facts/MultiFileCompilerCanonicalHarness.tests.nl`, and the constraint and
+cross-tier selection rows in `ColumnarRuntimeGenericMethodResolver.tests.nl`.

@@ -3,6 +3,7 @@ namespace NSharpLang.Cli
 import System
 import System.Collections.Generic
 import System.IO
+import System.Text.Json
 import System.Threading
 import NSharpLang.Compiler
 
@@ -135,6 +136,11 @@ class ReferenceResolutionOptions {
 class ReferenceResolutionResult {
     runtimeAssets: HashSet<string>?
     projectOutputs: List<string>?
+    packageFiles: List<PackageRuntimeFile>?
+    packageFileKeys: HashSet<string>?
+    compileReferences: List<string>?
+    compileReferenceKeys: HashSet<string>?
+    contentRoots: SortedDictionary<string, string>?
 
     // EVERY PROJECT THIS PROJECT REFERENCES, TRANSITIVELY: the output assembly of each `project:`
     // reference and of each of ITS project references, in the order they were first reached. A project
@@ -144,6 +150,19 @@ class ReferenceResolutionResult {
     ProjectOutputAssemblies: IReadOnlyList<string> => ProjectOutputList
 
     RuntimeAssets: IReadOnlyList<string> => BuildRuntimeAssets()
+
+    // EVERY FILE A RESTORED PACKAGE CONTRIBUTES AT RUN TIME, with the package that owns it: the
+    // portable `lib/<tfm>` assemblies and the RID-specific `runtimes/<rid>/native` and
+    // `runtimes/<rid>/lib/<tfm>` files. `RuntimeAssets` is the flat managed set the build copies;
+    // this is what the copy of the `runtimes/` layout and the `deps.json` read.
+    PackageFiles: IReadOnlyList<PackageRuntimeFile> => PackageFileList
+
+    // THE COMPILE-TIME ASSEMBLIES OF EVERY PACKAGE THIS PROJECT REACHES, its project references'
+    // included. A project that references another compiles against the packages the other one
+    // depends on, as MSBuild's transitive `PackageReference` flow does.
+    CompileReferences: IReadOnlyList<string> => CompileReferenceList
+
+    ContentRoots: IReadOnlyDictionary<string, string> => ContentRootMap
 
     static func Create(projectRoot: string, dependencies: IReadOnlyList<Reference>?): ReferenceResolutionResult {
         result := new ReferenceResolutionResult()
@@ -166,6 +185,44 @@ class ReferenceResolutionResult {
         for asset in other.RuntimeAssets {
             AddRuntimeAsset(asset)
         }
+
+        for packageFile in other.PackageFiles {
+            AddPackageFile(packageFile)
+        }
+
+        for compileReference in other.CompileReferences {
+            AddCompileReference(compileReference)
+        }
+
+        for contentRoot in other.ContentRoots {
+            AddContentRoot(contentRoot.Key, contentRoot.Value)
+        }
+    }
+
+    // THE CONTENT ROOT OF A HOSTED APPLICATION: its assembly's full name -> its project directory.
+    // `WebApplicationFactory<TEntryPoint>` reads `MvcTestingAppManifest.json` in the test output
+    // directory to find the application's content root; Microsoft.AspNetCore.Mvc.Testing's MSBuild
+    // targets write that file from the test project's `ProjectReference`s, and `CopyRuntimeAssets`
+    // writes it from the same facts.
+    func AddContentRoot(assemblyFullName: string, projectDirectory: string) {
+        ContentRootMap[assemblyFullName] = Path.GetFullPath(projectDirectory)
+    }
+
+    func AddPackageFile(packageFile: PackageRuntimeFile) {
+        if PackageFileKeySet.Add(Path.GetFullPath(packageFile.SourcePath)) {
+            PackageFileList.Add(packageFile)
+        }
+    }
+
+    func AddCompileReference(path: string) {
+        if string.IsNullOrWhiteSpace(path) || !File.Exists(path) {
+            return
+        }
+
+        fullPath := Path.GetFullPath(path)
+        if CompileReferenceKeySet.Add(fullPath) {
+            CompileReferenceList.Add(fullPath)
+        }
     }
 
     // One referenced project's output, once, by full path.
@@ -184,15 +241,15 @@ class ReferenceResolutionResult {
         ProjectOutputList.Add(fullPath)
     }
 
-    func CopyRuntimeAssets(outputDirectory: string) {
-        assets := RuntimeAssets
-
-        // A diamond dependency can restore two versions of the same assembly (for example a project
-        // that pulls both Swashbuckle and Microsoft.AspNetCore.OpenApi resolves two Microsoft.OpenApi
-        // versions). NuGet unifies such a conflict to the single highest version; mirror that here so
-        // exactly one file per name is copied instead of failing on the runtime-asset name clash.
+    // THE FLAT MANAGED SET THE BUILD COPIES, one file per name. A diamond dependency can restore two
+    // versions of the same assembly (for example a project that pulls both Swashbuckle and
+    // Microsoft.AspNetCore.OpenApi resolves two Microsoft.OpenApi versions). NuGet unifies such a
+    // conflict to the single highest version; mirror that here so exactly one file per name is
+    // copied instead of failing on the runtime-asset name clash. The copy and the `deps.json` both
+    // read this, so the manifest names exactly the files that were copied.
+    func SelectFlatRuntimeAssets(): Dictionary<string, string> {
         destinations := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        for asset in assets {
+        for asset in RuntimeAssets {
             fileName := Path.GetFileName(asset)
             existing := ""
             if destinations.TryGetValue(fileName, out existing) {
@@ -206,17 +263,84 @@ class ReferenceResolutionResult {
             destinations.Add(fileName, asset)
         }
 
-        Directory.CreateDirectory(outputDirectory)
+        return destinations
+    }
 
-        for entry in destinations {
-            asset := entry.Value
-            destination := Path.Combine(outputDirectory, Path.GetFileName(asset))
-            if string.Equals(Path.GetFullPath(asset), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase) {
+    // THE `runtimes/<rid>/...` FILES THE BUILD COPIES, one per package-relative path (the highest
+    // package version wins a conflict, as above). They keep their layout under the output directory
+    // because the host resolves them through `deps.json` `runtimeTargets` rows by that path.
+    func SelectRuntimeTargetFiles(): List<PackageRuntimeFile> {
+        byPath := new Dictionary<string, PackageRuntimeFile>(StringComparer.OrdinalIgnoreCase)
+        for packageFile in PackageFileList {
+            if packageFile.Rid == null {
                 continue
             }
 
-            File.Copy(asset, destination, true)
+            let existing: PackageRuntimeFile? = null
+            if byPath.TryGetValue(packageFile.RelativePath, out existing) && existing != null {
+                if PrefersReplacementRuntimeAsset(existing.SourcePath, packageFile.SourcePath) {
+                    byPath[packageFile.RelativePath] = packageFile
+                }
+
+                continue
+            }
+
+            byPath[packageFile.RelativePath] = packageFile
         }
+
+        paths := new string[](byPath.Count)
+        pathIndex := 0
+        for entry in byPath {
+            paths[pathIndex] = entry.Key
+            pathIndex = pathIndex + 1
+        }
+
+        Array.Sort(paths, StringComparer.OrdinalIgnoreCase)
+        selected := new List<PackageRuntimeFile>()
+        for path in paths {
+            selected.Add(byPath[path])
+        }
+
+        return selected
+    }
+
+    func CopyRuntimeAssets(outputDirectory: string) {
+        Directory.CreateDirectory(outputDirectory)
+
+        for entry in SelectFlatRuntimeAssets() {
+            CopyIfChanged(entry.Value, Path.Combine(outputDirectory, Path.GetFileName(entry.Value)))
+        }
+
+        for runtimeTarget in SelectRuntimeTargetFiles() {
+            CopyIfChanged(runtimeTarget.SourcePath, Path.Combine(outputDirectory, runtimeTarget.RelativePath))
+        }
+
+        manifestPath := Path.Combine(outputDirectory, "MvcTestingAppManifest.json")
+        if ContentRootMap.Count == 0 {
+            // A project that no longer hosts applications must not keep the last build's manifest:
+            // the runner treats its presence as the signal to run from the output directory.
+            if File.Exists(manifestPath) {
+                File.Delete(manifestPath)
+            }
+        } else {
+            manifest := JsonSerializer.Serialize(ContentRootMap, new JsonSerializerOptions { WriteIndented: true }) + Environment.NewLine
+            if !File.Exists(manifestPath) || File.ReadAllText(manifestPath) != manifest {
+                File.WriteAllText(manifestPath, manifest)
+            }
+        }
+    }
+
+    static func CopyIfChanged(source: string, destination: string) {
+        if string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase) {
+            return
+        }
+
+        parent := Path.GetDirectoryName(destination)
+        if parent != null && parent.Length > 0 {
+            Directory.CreateDirectory(parent)
+        }
+
+        AtomicFile.Copy(source, destination)
     }
 
     static func PrefersReplacementRuntimeAsset(existingAsset: string, candidateAsset: string): bool {
@@ -279,6 +403,56 @@ class ReferenceResolutionResult {
             }
 
             return runtimeAssets
+        }
+    }
+
+    ContentRootMap: SortedDictionary<string, string> {
+        get {
+            if contentRoots == null {
+                contentRoots = new SortedDictionary<string, string>(StringComparer.Ordinal)
+            }
+
+            return contentRoots
+        }
+    }
+
+    PackageFileList: List<PackageRuntimeFile> {
+        get {
+            if packageFiles == null {
+                packageFiles = new List<PackageRuntimeFile>()
+            }
+
+            return packageFiles
+        }
+    }
+
+    PackageFileKeySet: HashSet<string> {
+        get {
+            if packageFileKeys == null {
+                packageFileKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            }
+
+            return packageFileKeys
+        }
+    }
+
+    CompileReferenceList: List<string> {
+        get {
+            if compileReferences == null {
+                compileReferences = new List<string>()
+            }
+
+            return compileReferences
+        }
+    }
+
+    CompileReferenceKeySet: HashSet<string> {
+        get {
+            if compileReferenceKeys == null {
+                compileReferenceKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            }
+
+            return compileReferenceKeys
         }
     }
 
@@ -445,6 +619,41 @@ class ReferenceTypeFilterScratch {
 class NuGetPackageAssets {
     compileAssembliesValue: HashSet<string>?
     runtimeAssembliesValue: HashSet<string>?
+    runtimeFilesValue: List<PackageRuntimeFile>?
+    runtimeFileKeysValue: HashSet<string>?
+
+    // Every run-time file of this package and of the packages it reaches, with its owner.
+    RuntimeFiles: IReadOnlyList<PackageRuntimeFile> {
+        get {
+            return RuntimeFileList
+        }
+    }
+
+    RuntimeFileList: List<PackageRuntimeFile> {
+        get {
+            if runtimeFilesValue == null {
+                runtimeFilesValue = new List<PackageRuntimeFile>()
+            }
+
+            return runtimeFilesValue
+        }
+    }
+
+    RuntimeFileKeys: HashSet<string> {
+        get {
+            if runtimeFileKeysValue == null {
+                runtimeFileKeysValue = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            }
+
+            return runtimeFileKeysValue
+        }
+    }
+
+    func AddRuntimeFile(file: PackageRuntimeFile) {
+        if RuntimeFileKeys.Add(file.SourcePath) {
+            RuntimeFileList.Add(file)
+        }
+    }
 
     CompileAssemblies: HashSet<string> {
         get {
@@ -474,6 +683,34 @@ class NuGetPackageAssets {
         for assembly in other.RuntimeAssemblies {
             RuntimeAssemblies.Add(assembly)
         }
+
+        for file in other.RuntimeFiles {
+            AddRuntimeFile(file)
+        }
+    }
+}
+
+// ONE FILE A RESTORED PACKAGE CONTRIBUTES AT RUN TIME. `Rid` is null for a portable `lib/<tfm>`
+// assembly and names the runtime identifier for a `runtimes/<rid>/native` file (`AssetType`
+// `native`) or a `runtimes/<rid>/lib/<tfm>` assembly (`AssetType` `runtime`).
+// `RelativePath` is the path under the package's version directory with `/` separators.
+class PackageRuntimeFile {
+    PackageId: string
+    PackageVersion: string
+    PackageDirectory: string
+    SourcePath: string
+    RelativePath: string
+    Rid: string?
+    AssetType: string
+
+    constructor(PackageId: string, PackageVersion: string, PackageDirectory: string, SourcePath: string, RelativePath: string, Rid: string?, AssetType: string) {
+        this.PackageId = PackageId
+        this.PackageVersion = PackageVersion
+        this.PackageDirectory = PackageDirectory
+        this.SourcePath = SourcePath
+        this.RelativePath = RelativePath
+        this.Rid = Rid
+        this.AssetType = AssetType
     }
 }
 

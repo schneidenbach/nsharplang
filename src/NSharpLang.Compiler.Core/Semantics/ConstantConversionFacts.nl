@@ -45,19 +45,13 @@ class ConstantConversionFacts {
         return magnitude == 0UL
     }
 
-    // §10.2.11, as the PIPELINE allows it. THE THREE CAPS BELOW ARE NOT THE SPEC'S AND THEY ARE
-    // DELIBERATE. The C# host capped three cases below what C# itself permits, each because the LEGACY
-    // pipeline mis-evaluates the wider value and the columnar backend declines rather than diverge:
-    //   `uint` caps at int.MaxValue, not uint.MaxValue          (defect bundle #12 — `u: uint = 4000000000`
-    //                                                            then `u / 2` returned the signed bit pattern)
-    //   positive `long`/`ulong` magnitudes ALSO cap at int.MaxValue  (#13 — the pipeline overflows on
-    //                                                            any unsuffixed literal beyond int range)
-    //   negative magnitudes cap at the target's MAXVALUE magnitude   (#14 — its negation range check is
+    // §10.2.11, as the PIPELINE allows it. THE ONE CAP BELOW IS NOT THE SPEC'S AND IT IS DELIBERATE:
+    //   negative magnitudes cap at the target's MAXVALUE magnitude   (#14 — the negation range check is
     //                                                            off by one, so `v: sbyte = -128` is refused)
-    // Moving the decision must not move the ANSWER, so the caps move verbatim. They are stated HERE
-    // rather than in the emitter because a decline the two owners disagree about is a claim the N# door
-    // makes and the host then refuses — the failure `ColumnarMethodBodyPlanner` exists to prevent.
-    // FILED, not fixed here: with the decision in one place they are now correctable in one place.
+    // A positive constant takes the target's full range: `u: uint = 4000000000`, `m: long = 4294967295`
+    // and `m: ulong = 18446744073709551615` are all accepted, as C# accepts them. (The old `uint` and
+    // `long`/`ulong` caps at int.MaxValue belonged to a pipeline that mis-evaluated the wider value
+    // and is gone; the planner's unsigned arithmetic is pinned by `census-emit-shapes`.)
     static func TryGetInRangeIntegralConstant(target: Type?, literalText: string?, negative: bool, out value: long): bool {
         value = 0L
         if target == null || literalText == null {
@@ -116,14 +110,25 @@ class ConstantConversionFacts {
             limit = 32767UL
         } else if IsPrimitive(target, "System.UInt16") {
             limit = 65535UL
-        } else if IsPrimitive(target, "System.UInt32") || IsPrimitive(target, "System.Int64") || IsPrimitive(target, "System.UInt64") {
-            limit = 2147483647UL
+        } else if IsPrimitive(target, "System.UInt32") {
+            limit = 4294967295UL
+        } else if IsPrimitive(target, "System.Int64") {
+            limit = 9223372036854775807UL
+        } else if IsPrimitive(target, "System.UInt64") {
+            limit = 18446744073709551615UL
         } else {
             return false
         }
 
         if magnitude > limit {
             return false
+        }
+
+        // A `ulong` constant above `long.MaxValue` travels as its two's-complement bit pattern, which is
+        // what `ldc.i8` carries; `uint` values fit a `long` outright and `ldc.i4` takes the low word.
+        if magnitude > 9223372036854775807UL {
+            value = -1L - (long)(18446744073709551615UL - magnitude)
+            return true
         }
 
         value = (long)magnitude

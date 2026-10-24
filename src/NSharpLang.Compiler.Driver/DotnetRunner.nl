@@ -26,13 +26,13 @@ class DotnetRunner {
 
     // A program that inherits the console runs where the console IS: when a workspace server is
     // executing this command, the client process owns the user's terminal, so the client starts it.
-    static func RunPassthrough(arguments: string, workingDirectory: string? = null): int {
+    static func RunPassthrough(arguments: string[], workingDirectory: string? = null): int {
         remoteExitCode := 0
         if CliInvocationContext.TryLaunchPassthrough(arguments, workingDirectory, out remoteExitCode) {
             return remoteExitCode
         }
 
-        psi := BuildPsi("dotnet", arguments, workingDirectory)
+        psi := BuildPsiWithArguments("dotnet", arguments, workingDirectory)
         psi.RedirectStandardOutput = false
         psi.RedirectStandardError = false
         psi.UseShellExecute = false
@@ -104,6 +104,17 @@ class DotnetRunner {
         result := new DotnetRunResult(process.ExitCode, stdoutTask.Result, stderrTask.Result)
         process.Dispose()
         return result
+    }
+
+    // The argument vector goes to the OS as given (`ArgumentList`), so a program argument with a
+    // quote, a trailing backslash, spaces or nothing at all arrives exactly as the user typed it.
+    static func BuildPsiWithArguments(fileName: string, arguments: string[], workingDirectory: string?): ProcessStartInfo {
+        psi := BuildPsi(fileName, "", workingDirectory)
+        for argument in arguments {
+            psi.ArgumentList.Add(argument)
+        }
+
+        return psi
     }
 
     static func BuildPsi(fileName: string, arguments: string, workingDirectory: string?): ProcessStartInfo {

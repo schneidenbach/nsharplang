@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
-
-// THE COLUMNAR TOKEN-KIND ORDINALS, AND THE FOUR SHAPE DECISIONS THAT READ THEM.
+// THE COLUMNAR TOKEN-KIND ORDINALS AND THE SHAPE DECISIONS THAT READ THEM.
 //
 // The columnar pipeline does not carry `TokenType` values; it carries their ORDINALS as bare `int`
 // columns. The columnar lexer writes them (`KeywordKind` and `TokenizeMetadataCore` in
@@ -38,6 +37,19 @@ class ColumnarTokenKindFacts {
 
     // `TokenType.Ref` — the `ref` of `ref struct S { … }`.
     static RefKind: int => 78
+
+    // The three hard keywords developers most often reach for as ordinary variable names. The
+    // columnar input parser preserves these name shapes so the diagnostic parser can report NL109
+    // at the word instead of declining the enclosing function.
+    static func IsNameLikeReservedKeywordKind(kind: int): bool {
+        return ParserTokenFacts.IsNameLikeReservedWord((TokenType)kind)
+    }
+
+    // `TokenType.Dot` — the separator in a qualified exception type.
+    static DotKind: int => 124
+
+    // `TokenType.Newline` — retained by the columnar tokenizer so expression continuation can be decided by grammar.
+    static NewlineKind: int => 136
 
     // `TokenType.Arrow` — the `=>` that opens an expression body.
     static ArrowKind: int => 120

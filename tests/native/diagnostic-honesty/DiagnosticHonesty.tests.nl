@@ -185,6 +185,32 @@ func DhCodeCount(output: string, code: string): int {
     return count
 }
 
+// The `line:column` the FIRST diagnostic with this code is printed at, or "" when none is.
+func DhPositionOf(output: string, code: string): string {
+    marker := "[" + code + "]"
+    lines := output.Split('\n')
+    index := 0
+    while index < lines.Length {
+        line := lines[index].Replace("\r", "")
+        if line.IndexOf(marker, StringComparison.Ordinal) >= 0 {
+            at := line.IndexOf("Program.nl:", StringComparison.Ordinal)
+            if at >= 0 {
+                rest := line.Substring(at + 11)
+                stop := rest.IndexOf(" ", StringComparison.Ordinal)
+                if stop < 0 {
+                    return rest
+                }
+
+                return rest.Substring(0, stop)
+            }
+        }
+
+        index = index + 1
+    }
+
+    return ""
+}
+
 func DhCarriesPlaceholder(output: string): bool {
     return output.IndexOf("<error>", StringComparison.Ordinal) >= 0
 }
@@ -342,10 +368,12 @@ test "NL321 suggests the array literal, and the array literal COMPILES where `ne
     sized := DhProbe.Check("nl321-suggested-sized", "func Zeros(n: int): int[] {\n    return new int[n]\n}\n")
     assert DhDiagnosticCount(sized) == 0, sized
 
-    // THE SPELLING THAT WAS SUGGESTED AND DOES NOT BUILD, pinned as not building.
+    // THE SPELLING THAT WAS SUGGESTED AND DOES NOT BUILD is refused AT ITS BRACE with the NL321 that
+    // says what to write, rather than declining the whole function at NL103 `parse.function`.
     refused := DhProbe.Check("nl321-old-suggestion", "func Values(): int[] {\n    return new int[] { 1, 2, 3 }\n}\n")
-    assert DhCodeCount(refused, "NL103") == 1, refused
-    assert refused.IndexOf("parse.function", StringComparison.Ordinal) >= 0, refused
+    assert DhCodeCount(refused, "NL321") == 1, refused
+    assert DhCodeCount(refused, "NL103") == 0, refused
+    assert refused.IndexOf("parse.function", StringComparison.Ordinal) < 0, refused
 }
 
 func DhCollisionProbe(name: string, declarationA: string, declarationB: string, program: string): string {
@@ -700,4 +728,80 @@ test "a bare generic name reports NL201 WITH the import as well as without, so t
     // `with` is a RESERVED WORD (§2.1), so the local is named around it.
     imported := DhProbe.Check("nl201-bare-with", "import System.Collections.Generic\n\n" + DhTakes("List"))
     assert DhCodeCount(imported, "NL201") == 1, imported
+}
+
+// ═══ C# HABITS (issue 248) ════════════════════════════════════════════════════════════════════
+//
+// Three things a C# programmer writes by reflex and N# does not have. Each used to be answered with
+// a sentence about something else: an unexpected token, a variable that was never meant to exist, or
+// an NL103 decline positioned at the start of the enclosing function. Each is now one diagnostic, on
+// the construct, saying what to write instead.
+
+test "`new byte[] { 1, 2 }` is NL321 on its brace, not an NL103 decline at the start of the function" {
+    unsized := DhProbe.Check("array-initializer-unsized", "func Make(): byte[] {\n    b := new byte[] { 1, 2 }\n    return b\n}\n")
+    assert DhCodeCount(unsized, "NL321") == 1, unsized
+    assert DhCodeCount(unsized, "NL103") == 0, unsized
+    assert DhDiagnosticCount(unsized) == 1, unsized
+    assert DhPositionOf(unsized, "NL321") == "2:21", unsized
+    assert unsized.IndexOf("N# has no array initializer syntax; write the elements as a list, '[1, 2]'", StringComparison.Ordinal) >= 0, unsized
+    assert unsized.IndexOf("parse.function", StringComparison.Ordinal) < 0, unsized
+
+    sized := DhProbe.Check("array-initializer-sized", "func Make(): byte[] {\n    b := new byte[2] { 1, 2 }\n    return b\n}\n")
+    assert DhCodeCount(sized, "NL321") == 1, sized
+    assert DhPositionOf(sized, "NL321") == "2:22", sized
+    assert DhDiagnosticCount(sized) == 1, sized
+}
+
+test "the array spellings N# does have, and an object initializer, stay clean" {
+    clean := DhProbe.Check("array-initializer-controls", "class Box {\n    X: int\n}\n\nfunc Make(): int {\n    list := [1, 2]\n    bytes: byte[] = [1, 2]\n    zeroed := new byte[2]\n    box := new Box { X: 1 }\n    return list.Length + bytes.Length + zeroed.Length + box.X\n}\n")
+    assert DhDiagnosticCount(clean) == 0, clean
+}
+
+test "`out _` says N# has no discard, once, on the underscore, and a variable named `_` still works" {
+    discarded := DhProbe.Check("out-discard", "func Parse(): bool {\n    ok := int.TryParse(\"5\", out _)\n    return ok\n}\n")
+    assert DhCodeCount(discarded, "NL301") == 1, discarded
+    assert DhDiagnosticCount(discarded) == 1, discarded
+    assert DhPositionOf(discarded, "NL301") == "2:33", discarded
+    assert discarded.IndexOf("N# has no discard for 'out' arguments", StringComparison.Ordinal) >= 0, discarded
+    assert discarded.IndexOf("Variable '_' not found", StringComparison.Ordinal) < 0, discarded
+
+    declared := DhProbe.Check("out-named-variable", "func Parse(): bool {\n    _ := 0\n    ok := int.TryParse(\"5\", out _)\n    return ok && _ == 5\n}\n")
+    assert DhDiagnosticCount(declared) == 0, declared
+}
+
+test "a reserved word used as a variable is one NL109 on the word, and the reserved-word list is the one to read" {
+    reported := DhProbe.Check("reserved-out", "func Main(): string {\n    out := 5\n    return out.ToString()\n}\n")
+    assert DhCodeCount(reported, "NL109") == 1, reported
+    assert DhCodeCount(reported, "NL101") == 0, reported
+    assert DhDiagnosticCount(reported) == 1, reported
+    assert DhPositionOf(reported, "NL109") == "2:5", reported
+    assert reported.IndexOf("'out' is a reserved word; choose another name", StringComparison.Ordinal) >= 0, reported
+    assert reported.IndexOf("parse.function", StringComparison.Ordinal) < 0, reported
+
+    explicitResult := DhProbe.Check("reserved-explicit", "func Main(): string {\n    explicit := 1\n    return explicit.ToString()\n}\n")
+    assert DhCodeCount(explicitResult, "NL109") == 1, explicitResult
+    assert DhDiagnosticCount(explicitResult) == 1, explicitResult
+    assert DhPositionOf(explicitResult, "NL109") == "2:5", explicitResult
+    assert explicitResult.IndexOf("Unexpected token", StringComparison.Ordinal) < 0, explicitResult
+    assert explicitResult.IndexOf("parse.function", StringComparison.Ordinal) < 0, explicitResult
+
+    partialResult := DhProbe.Check("reserved-partial", "func Main(): string {\n    partial := 1\n    return partial.ToString()\n}\n")
+    assert DhCodeCount(partialResult, "NL109") == 1, partialResult
+    assert DhDiagnosticCount(partialResult) == 1, partialResult
+    assert DhPositionOf(partialResult, "NL109") == "2:5", partialResult
+    assert partialResult.IndexOf("Unexpected token", StringComparison.Ordinal) < 0, partialResult
+    assert partialResult.IndexOf("parse.function", StringComparison.Ordinal) < 0, partialResult
+}
+
+test "expression bodies continue on the product path, while an empty arrow body remains a positioned error" {
+    valid := DhProbe.Check("wrapped-expression-bodies", "func Top(): string =>\n    \"top\"\nfunc Join(): string => \"left\" +\n    \"right\"\nclass Owner {\n    func Method(): string =>\n        \"method\"\n    Name: string =>\n        \"property\"\n}\n")
+    assert DhDiagnosticCount(valid) == 0, valid
+
+    invalid := DhProbe.Check("empty-expression-body", "func Broken(): string =>\nfunc Next(): string => \"ok\"\n")
+    assert DhCodeCount(invalid, "NL101") == 1, invalid
+    assert DhCodeCount(invalid, "NL103") == 0, invalid
+    assert DhDiagnosticCount(invalid) == 1, invalid
+    assert DhPositionOf(invalid, "NL101") == "2:1", invalid
+    assert invalid.IndexOf("Unexpected token 'func' in expression", StringComparison.Ordinal) >= 0, invalid
+    assert invalid.IndexOf("parse.function", StringComparison.Ordinal) < 0, invalid
 }

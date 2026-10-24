@@ -165,7 +165,7 @@ class ColumnarExternalTypeCatalog {
 
     // THE SELECTION FOR A SITE THAT WROTE ITS TYPE ARGUMENTS. Same index, same discovery rule; the
     // type arguments come from the site instead of from inference, which is the only difference.
-    func TryResolveExplicitExtension(receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[]?, argumentFacts: ColumnarDirectCallArgumentFacts?, argumentCount: int, out selection: ColumnarExtensionMethodSelection): bool {
+    func TryResolveExplicitExtension(receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[]?, argumentFacts: ColumnarDirectCallArgumentFacts?, argumentCount: int, out selection: ColumnarExtensionMethodSelection, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): bool {
         selection = ColumnarExtensionMethodSelection.None()
         if !IsPrepared {
             return false
@@ -181,8 +181,11 @@ class ColumnarExternalTypeCatalog {
             return false
         }
         if argumentTypes == null || argumentFacts == null {
-            selection = ColumnarExtensionMethodResolver.ResolveExplicitUnique(extensionIndex, receiverType, memberName, typeArguments, argumentCount)
+            selection = ColumnarExtensionMethodResolver.ResolveExplicitUnique(extensionIndex, receiverType, memberName, typeArguments, argumentCount, sourceTypeDefinitions)
         } else {
+            if argumentFacts.SourceTypeDefinitions == null && sourceTypeDefinitions != null {
+                argumentFacts.SourceTypeDefinitions = sourceTypeDefinitions
+            }
             selection = ColumnarExtensionMethodResolver.ResolveExplicit(extensionIndex, receiverType, memberName, typeArguments, argumentTypes, argumentFacts)
         }
         return selection.IsSelected
@@ -208,11 +211,35 @@ class ColumnarExternalTypeCatalog {
         // implementation is admitted up front, and KEEP it: owner lookup stays lazy and cached,
         // but it now reads this scan instead of rebuilding an identical one per cache miss.
         previousScan := preparedScan
-        preparedScan = ExternalAssemblyScan.OpenWithReferences(this.referenceAssemblyPaths, referenceMetadata)
+        preparedScan = ExternalAssemblyScan.OpenWithReferences(this.referenceAssemblyPaths, referenceMetadata, FrameworkAssemblyNames(sourceFactsById, referenceMetadata))
         if previousScan != null {
             previousScan.Dispose()
         }
         IsPrepared = true
+    }
+
+    // The base-framework assemblies this program names beyond the common table: the namespaces its
+    // files import, in file and import order, and whatever the analysis loaded on demand.
+    func FrameworkAssemblyNames(sourceFactsById: Dictionary<int, ColumnarSourceBindingFacts>, referenceMetadata: SharedReferenceMetadata?): List<string> {
+        namespaces := new List<string>()
+        fileIds := new List<int>(sourceFactsById.Keys)
+        fileIds.Sort()
+        for fileId in fileIds {
+            facts := sourceFactsById[fileId]
+            for importedNamespace in facts.UnaliasedNamespaceImports {
+                namespaces.Add(importedNamespace)
+            }
+            for aliasTarget in facts.NamespaceAliasTargets.Values {
+                namespaces.Add(aliasTarget)
+            }
+        }
+
+        recorded: string[]? = null
+        if referenceMetadata != null {
+            recorded = referenceMetadata.FrameworkAssemblyNames()
+        }
+
+        return ExternalAssemblyScan.FrameworkAssemblyNamesFor(namespaces, recorded, this.referenceAssemblyPaths, FrameworkNamespaceIndex.ForHostRuntime())
     }
 
     func TryGet(sourceFileId: int, ownerName: string, out resolution: ExternalAssemblyTypeResolution): bool {
@@ -864,12 +891,12 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
     }
 
     // The extension selected by a site that WROTE its type arguments, through the same shared index.
-    func TryResolveExplicitExtensionMethod(receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[]?, argumentFacts: ColumnarDirectCallArgumentFacts?, argumentCount: int, out selection: ColumnarExtensionMethodSelection): bool {
+    func TryResolveExplicitExtensionMethod(receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[]?, argumentFacts: ColumnarDirectCallArgumentFacts?, argumentCount: int, out selection: ColumnarExtensionMethodSelection, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): bool {
         selection = ColumnarExtensionMethodSelection.None()
         if !assemblyCatalog.IsPrepared {
             return false
         }
-        return assemblyCatalog.TryResolveExplicitExtension(receiverType, memberName, typeArguments, argumentTypes, argumentFacts, argumentCount, out selection)
+        return assemblyCatalog.TryResolveExplicitExtension(receiverType, memberName, typeArguments, argumentTypes, argumentFacts, argumentCount, out selection, sourceTypeDefinitions)
     }
 
     // Declared-type positions have their own exact binding rules. This resolver deliberately
@@ -3382,7 +3409,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
 
     static func HasVisibleExternalMember(externalType: Type, name: string): bool {
         try {
-            if externalType.GetField(name) != null || externalType.GetProperty(name) != null {
+            if externalType.GetField(name) != null || ReflectedMemberLookup.FindProperty(externalType, name) != null {
                 return true
             }
             return externalType.GetMethod(name) != null

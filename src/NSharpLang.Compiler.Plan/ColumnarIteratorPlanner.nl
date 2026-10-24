@@ -4313,6 +4313,7 @@ class ColumnarIteratorBodyPlanner {
         parameterTypes := new Type[](invokeParameters.Length)
         parameterOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
         parameterTypeMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+        parameterNames := new string[](invokeParameters.Length)
         ownerBuilder := builder
         if display != null {
             ownerBuilder = display.Definition
@@ -4333,6 +4334,7 @@ class ColumnarIteratorBodyPlanner {
             parameterName := nodes.Text(source, nodes.Child(node, p))
             parameterOrdinals[parameterName] = p + 1
             parameterTypeMap[parameterName] = parameterTypes[p]
+            parameterNames[p] = parameterName
             p = p + 1
         }
         returnType: Type = invoke.ReturnType
@@ -4354,6 +4356,7 @@ class ColumnarIteratorBodyPlanner {
         emit.NextLambda = emit.NextLambda + 1
         lambdaVisibility := display == null ? MethodAttributes.Private : MethodAttributes.Assembly
         lambdaMethod := ownerBuilder.DefineMethod(lambdaName, lambdaVisibility | MethodAttributes.HideBySig, returnType, parameterTypes)
+        ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(lambdaMethod, parameterNames)
         lambdaScope := CreateLambdaBodyScope(emit, display, parameterOrdinals, parameterTypeMap)
         if lambdaScope == null || !AppendLambdaBody(emit, nodes.Child(node, childCount - 1), lambdaMethod, lambdaScope, bodyReturnType, returnType, isAsync) {
             return false

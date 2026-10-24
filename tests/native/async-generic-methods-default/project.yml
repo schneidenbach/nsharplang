@@ -1,0 +1,8 @@
+name: NSharpLang.AsyncGenericMethodsDefault.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# No `language.asyncDefaultType`: an unannotated async body returns the ValueTask family, the project
+# default, so a generic `ValueTask<T>` over a method type parameter is what these tests exercise.

@@ -77,14 +77,18 @@ class ColumnarLambdaSignature {
     ParameterTypesByName: Dictionary<string, Type>
     // The lambda body node — the child after the last parameter.
     BodyNode: int
+    // The source parameter names, in declaration order: what the synthesized method's `Param` rows
+    // carry (see `ColumnarLambdaPlacementPlanner.DefineSourceParameterNames`).
+    ParameterNames: string[]
 
-    constructor(ordinals: Dictionary<string, int>, parameterTypesByName: Dictionary<string, Type>, bodyNode: int) {
-        if ordinals == null || parameterTypesByName == null {
-            throw new InvalidOperationException("A contextual-lambda signature requires its ordinal and parameter-type maps.")
+    constructor(ordinals: Dictionary<string, int>, parameterTypesByName: Dictionary<string, Type>, bodyNode: int, parameterNames: string[]) {
+        if ordinals == null || parameterTypesByName == null || parameterNames == null {
+            throw new InvalidOperationException("A contextual-lambda signature requires its ordinal, parameter-type and parameter-name maps.")
         }
         Ordinals = ordinals
         ParameterTypesByName = parameterTypesByName
         BodyNode = bodyNode
+        ParameterNames = parameterNames
     }
 }
 
@@ -179,6 +183,7 @@ class ColumnarLambdaPlacementPlanner {
 
         ordinals := new Dictionary<string, int>(StringComparer.Ordinal)
         parameterTypesByName := new Dictionary<string, Type>(StringComparer.Ordinal)
+        parameterNames := new string[](parameterCount)
         p := 0
         while p < parameterCount {
             parameterNode := nodes.Child(lambdaNode, p)
@@ -196,10 +201,61 @@ class ColumnarLambdaPlacementPlanner {
 
             ordinals[parameterName] = p
             parameterTypesByName[parameterName] = parameterTypes[p]
+            parameterNames[p] = parameterName
             p = p + 1
         }
 
-        return new ColumnarLambdaSignature(ordinals, parameterTypesByName, nodes.Child(lambdaNode, parameterCount))
+        return new ColumnarLambdaSignature(ordinals, parameterTypesByName, nodes.Child(lambdaNode, parameterCount), parameterNames)
+    }
+
+    // WHETHER A LAMBDA WRITTEN WITH PARAMETER TYPE `written` CAN BE THE BODY OF A DELEGATE WHOSE
+    // `Invoke` TAKES `delegateParameter` AT THAT POSITION. The synthesized method takes the written
+    // type, and `newobj` over a method whose signature the delegate cannot bind is unverifiable
+    // ("Unrecognized arguments for delegate .ctor") and wrong the moment `Invoke` is called. The
+    // written type may be the delegate's own, or — the contravariance N# accepts — a reference type the
+    // delegate's reference parameter converts to (`(value: object) => …` as a `Func<string, int>`),
+    // which the CLR binds without a stub. Anything else (`(id: int) => …` as a
+    // `Func<HttpContext, …>`) is a target that picked the wrong delegate. A generic parameter or a
+    // type this compilation is still writing answers no assignability question, so it is accepted
+    // here and left to the checks that already own it.
+    static func IsBindableLambdaParameterType(written: Type, delegateParameter: Type): bool {
+        if written == null || delegateParameter == null {
+            throw new InvalidOperationException("Lambda parameter binding requires both the written and the delegate parameter type.")
+        }
+        if ColumnarTypeEquivalenceFacts.TypesEquivalent(written, delegateParameter) {
+            return true
+        }
+        if written.IsGenericParameter || delegateParameter.IsGenericParameter || RuntimeTypeShapeFacts.ContainsBuilderBoundType(written) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateParameter) {
+            return true
+        }
+
+        return !written.IsValueType && !delegateParameter.IsValueType && !written.IsByRef && !delegateParameter.IsByRef && written.IsAssignableFrom(delegateParameter)
+    }
+
+    // EVERY METHOD A LAMBDA LOWERS TO CARRIES ITS SOURCE PARAMETER NAMES, AS C# DOES. The synthesized
+    // method is the delegate's `Method`, and reflection over it is a public contract: ASP.NET Core's
+    // `RequestDelegateFactory` binds a Minimal-API handler's route values, query string and services
+    // BY PARAMETER NAME, and a method with no `Param` rows reports `ParameterInfo.Name == null`, so
+    // `app.MapGet("/x/{id}", (id: int) => ...)` failed every request with "Encountered a parameter of
+    // type 'System.Int32' without a name". Roslyn's `SynthesizedClosureMethod` copies each lambda
+    // parameter's name onto the emitted method for every closure shape (static, `this`-bound and
+    // display-class instance), and so does this: one row per user parameter, sequence = ordinal + 1,
+    // with no flags, because a delegate parameter a lambda can bind is never by-reference here (the
+    // emitter declines a by-ref `Invoke` parameter) and a lambda parameter has no default. A display
+    // class's receiver is the method's `this`, not a parameter, so the sequence never shifts.
+    //
+    // `DefineParameter` validates the position against the method's CURRENT signature, so a method
+    // defined signature-less is named only after its `SetParameters`.
+    static func DefineSourceParameterNames(method: MethodBuilder, parameterNames: string[]) {
+        if method == null || parameterNames == null {
+            throw new InvalidOperationException("Naming a lambda's synthesized parameters requires the method and its source names.")
+        }
+
+        p := 0
+        while p < parameterNames.Length {
+            method.DefineParameter(p + 1, ParameterAttributes.None, parameterNames[p])
+            p = p + 1
+        }
     }
 
     // Collect the CAPTURE SET of a contextual lambda body: the enclosing-scope names the body reads and
@@ -280,6 +336,10 @@ class ColumnarLambdaPlacementPlanner {
         childCount := nodes.ChildCount(node)
         c := first
         while c < childCount {
+            if ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(nodes, node, c) {
+                c = c + 1
+                continue
+            }
             CollectContextualLambdaCaptures(nodes, source, nodes.Child(node, c), bound, enclosingCapturableNames, captures)
             c = c + 1
         }

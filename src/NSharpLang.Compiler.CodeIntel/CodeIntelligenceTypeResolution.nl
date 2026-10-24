@@ -536,7 +536,7 @@ class CodeIntelligenceTypeResolution {
     }
 
     static func ReflectedMemberWithFlags(clrType: Type, memberName: string, argumentTypes: TypeInfo?[]?, typeOverride: AnalyzerReflectionTypeOverride?, flags: BindingFlags, protectedOnly: bool): ReflectedMemberHandle? {
-        property := clrType.GetProperty(memberName, flags)
+        property := ReflectedMemberLookup.FindProperty(clrType, memberName, flags)
         if property != null && CompletionReflectionFacts.IsReachableInheritedMember(CompletionReflectionFacts.PropertyAccessibilityLevel(property), protectedOnly) {
             return new ReflectedMemberHandle(property, null, null, property.Name, DeclaringTypeText(property.DeclaringType), typeOverride, 1)
         }

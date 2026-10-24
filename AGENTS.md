@@ -39,6 +39,9 @@ host bridge), and `src/NSharpLang.Cli/Program.cs` (the irreducible CLI entry poi
 shrink but must never grow, and these boundaries must not take on compiler or tooling logic. The
 `editors/visualstudio` C# host remains a separate, low-priority IDE host outside this decision. Any
 other production C# owner remains deletion debt; the ownership audit must reject its appearance.
+The deletion-debt / never-grow rule covers non-N# (chiefly C#) code in the compiler, compiler
+services and tooling. The docs website (`website/` pages, sidebars, site config, scripts and styles)
+is not deletion debt: it grows normally with new pages, and the ownership audit does not ratchet it.
 
 Treat `*DogfoodAdapter` types as temporary transition boundaries, not product architecture. Do not
 expand them into permanent service layers; shrink or remove them as accepted N# slices are routed

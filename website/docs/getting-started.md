@@ -109,7 +109,8 @@ Hello, World!
 
 ## Project Configuration
 
-All configuration lives in `project.yml` — never add build settings to a `.csproj`.
+All configuration lives in `project.yml` — never add build settings to a `.csproj`. The
+[project.yml reference](./project-yml.md) lists every key and every dependency kind.
 
 ```yaml
 name: MyApp
@@ -138,6 +139,12 @@ dependencies:
   - nuget: Newtonsoft.Json
     version: 13.0.3
 ```
+
+Dependencies can also be shared frameworks (`framework:`), other N# projects (`project:`) and
+prebuilt assemblies (`dll:`); see [Dependencies](./project-yml.md#dependencies). Without any
+dependencies, a project compiles against all of `Microsoft.NETCore.App`, the same base library
+`dotnet build` uses, so types such as `IServiceProvider` or `ClaimsIdentity` need only their `import`;
+see [What a project can see](./project-yml.md#what-a-project-can-see).
 
 Then use it in your code:
 

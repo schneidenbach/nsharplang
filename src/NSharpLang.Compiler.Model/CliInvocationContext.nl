@@ -27,13 +27,13 @@ class CliInvocationContext {
     private static active: bool
     private static commandLineArgs: string[]?
     private static standardErrorRedirected: bool
-    private static passthroughLauncher: Func<string, string?, int>?
+    private static passthroughLauncher: Func<string[], string?, int>?
     private static cancelled: bool
     private static cancellationCallbacks: List<Action>?
     private static terminated: bool
     private static terminatedExitCode: int
 
-    static func Begin(args: string[], isStandardErrorRedirected: bool, launcher: Func<string, string?, int>?) {
+    static func Begin(args: string[], isStandardErrorRedirected: bool, launcher: Func<string[], string?, int>?) {
         CliInvocationContext.commandLineArgs = args
         CliInvocationContext.standardErrorRedirected = isStandardErrorRedirected
         CliInvocationContext.passthroughLauncher = launcher
@@ -77,9 +77,9 @@ class CliInvocationContext {
         return Console.IsErrorRedirected
     }
 
-    // Launch `dotnet <arguments>` with the CLIENT's terminal. Answers false when no remote invocation
+    // Launch `dotnet` with `arguments` (one array element per argument, never re-split) with the CLIENT's terminal. Answers false when no remote invocation
     // is open, in which case the caller starts the child itself, exactly as before.
-    static func TryLaunchPassthrough(arguments: string, workingDirectory: string?, out exitCode: int): bool {
+    static func TryLaunchPassthrough(arguments: string[], workingDirectory: string?, out exitCode: int): bool {
         exitCode = 0
         launcher := CliInvocationContext.passthroughLauncher
         if !CliInvocationContext.active || launcher == null {

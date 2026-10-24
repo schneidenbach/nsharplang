@@ -128,6 +128,28 @@ test "unary literal planner owns the exact Int32 minimum through unchecked negat
     assert binaryMinimum.Int32Values[binaryMinimum.OperandIndices[0]] == -2147483648
 }
 
+test "unary literal planner owns the exact Int64 minimum with optional long suffix" {
+    unsuffixedMinimum := ColumnarUnaryPlannerPlan(
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression,
+        "9223372036854775808"
+    )
+    assert unsuffixedMinimum.ResultType == typeof(long)
+    assert unsuffixedMinimum.FragmentCount == 2
+    assert unsuffixedMinimum.OperationCount == 2
+    assert unsuffixedMinimum.Int64Values[unsuffixedMinimum.OperandIndices[0]] == long.MinValue
+    assert unsuffixedMinimum.OpCodeValues[0] == ColumnarCodePlanContract.LdcI8()
+    assert unsuffixedMinimum.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
+
+    suffixedMinimum := ColumnarUnaryPlannerPlan(
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression,
+        "9223372036854775808L"
+    )
+    assert suffixedMinimum.ResultType == typeof(long)
+    assert suffixedMinimum.Int64Values[suffixedMinimum.OperandIndices[0]] == long.MinValue
+}
+
 test "unary literal planner owns negate complement and logical-not families" {
     negativeInt := ColumnarUnaryPlannerPlan(
         "-",
@@ -282,6 +304,14 @@ test "unary literal planner executes every admitted opcode through DynamicMethod
     assert ExecutorRunV3ScalarPlan(
         ColumnarUnaryPlannerPlan(
             "-",
+            ColumnarExpressionNodeKind.IntLiteralExpression,
+            "9223372036854775808"
+        ),
+        typeof(long)
+    ) == "-9223372036854775808"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "-",
             ColumnarExpressionNodeKind.FloatLiteralExpression,
             "1.25m"
         ),
@@ -321,7 +351,7 @@ test "unary literal planner declines unsupported operators types and spellings a
     ColumnarUnaryPlannerDeclines(
         "-",
         ColumnarExpressionNodeKind.IntLiteralExpression,
-        "9223372036854775808L"
+        "9223372036854775808UL"
     )
     ColumnarUnaryPlannerDeclines(
         "-",

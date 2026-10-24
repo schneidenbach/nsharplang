@@ -1240,8 +1240,8 @@ func pick(scale: bool): int {
 }
 ```
 
-**A binding declared inside a loop is a new binding each time round**, so a delegate collected in the
-loop closes over its own copy — the same rule C# has:
+**A local declared in the body is new each time round**, so a delegate collected in the loop closes
+over that iteration's copy — the same rule C# has:
 
 ```n#
 adders := new List<Func<int>>()
@@ -1250,6 +1250,20 @@ for i := 0; i < 3; i++ {
     adders.Add(() => step)
 }
 print adders[0]()   // 0, not 20
+```
+
+The loop forms have different counters. A `for-in` loop creates a fresh loop variable for each item,
+so closures collected in its body keep their own item. A classic `for` loop has one initializer
+variable shared by its condition, body and update; closures collected there all see its final value
+after the loop. Writes through a closure, including `++`, `--`, compound assignment and `ref`/`out`,
+change that same counter.
+
+```n#
+readers := new List<Func<int>>()
+for i := 0; i < 3; i++ {
+    readers.Add(() => i)
+}
+print readers[0]()   // 3
 ```
 
 **An argument list after anything that produces a delegate invokes it.** A curried chain reads left to
@@ -1434,6 +1448,26 @@ func FirstMatch<T>(items: List<T>, accept: Func<T, bool>, fallback: T): T {
     return fallback
 }
 ```
+
+### Method groups as delegates
+
+A method name can stand for a delegate when its signature gives N# one clear target shape:
+
+```n#
+import System
+
+func Double(value: int): int => value * 2
+
+transform: Func<int, int> = Double
+handler: Delegate = Double
+```
+
+`Delegate` and `MulticastDelegate` do not declare an `Invoke` signature. For either type, N# can use a
+method group only when exactly one supported method supplies its natural `Func<...>` or `Action<...>`
+shape. An overloaded group, a generic method, a method with `ref`/`out`/`in`, or one with more than
+16 parameters has no such shape; give it a concrete delegate type instead. At a call whose parameter
+is `Delegate`, write every lambda parameter type because the broad target provides no signature to
+infer from.
 
 ### Calling a delegate
 
@@ -2970,6 +3004,14 @@ test "should throw on divide by zero" {
     }
 }
 ```
+
+The type is written as a plain name that resolves to an exception: a framework type, a type from a
+referenced assembly (add the `import` it needs), or one declared in your project or test file. Qualified
+names (`Outer.Nested`) and nested types are not accepted yet. Like a `catch` clause, `assert throws T`
+passes when the body throws `T` or a type derived from `T`. If the body completes without throwing, the
+assertion fails with `Expected exception of type T was not thrown`; a different exception type
+propagates unchanged, with its original stack trace. A type that does not derive from `Exception` is
+refused at the type.
 
 ### Table-Driven Tests
 

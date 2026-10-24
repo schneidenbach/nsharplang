@@ -415,7 +415,7 @@ class DaemonClientSession {
             directory = workingDirectory
         }
 
-        psi := DotnetRunner.BuildPsi("dotnet", arguments, directory)
+        psi := DotnetRunner.BuildPsiWithArguments("dotnet", arguments, directory)
         psi.RedirectStandardOutput = false
         psi.RedirectStandardError = false
         psi.UseShellExecute = false

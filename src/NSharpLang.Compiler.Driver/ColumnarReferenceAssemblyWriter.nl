@@ -93,7 +93,7 @@ class ColumnarReferenceAssemblyWriter {
         }
 
         ColumnarDeterministicPeIdentity.Apply(image)
-        File.WriteAllBytes(referenceAssemblyPath, image)
+        AtomicFile.WriteAllBytes(referenceAssemblyPath, image)
         return true
     }
 
