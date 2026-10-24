@@ -10,11 +10,13 @@ import NSharpLang.Compiler.Columnar
 // value and nothing else: a `:=` local (with or without `let`, and as a `for` initializer) and an
 // anonymous-object property.
 //
-// Two shapes used to pass analysis as `unknown` in silence and then be refused by the backend as an
-// unsupported shape (NL103): an empty `[]` with no target, and a conditional whose branches convert
-// neither way. Both are now the analyzer's — NL203 and NL202 — and the hint names the local or the
-// property the value was going to. These parse real N# source and drive the same `Analyzer` entry
-// point `nlc check` uses, so what is pinned is what the reader sees.
+// Three shapes used to pass analysis in silence and then be refused by the backend as an unsupported
+// shape (NL103): an empty `[]` with no target, a bare `null`, and a conditional whose branches convert
+// neither way. All three are now the analyzer's — NL203, NL203 and NL202 — and the hint names the local
+// or the property the value was going to. A conditional whose branches DO have a type to share — one
+// converting to the other, or both fitting a target — is typed rather than reported, and the backend
+// writes it (`tests/native/census-mixed-conditionals`). These parse real N# source and drive the same
+// `Analyzer` entry point `nlc check` uses, so what is pinned is what the reader sees.
 class InferenceSiteAnalysis {
     Errors: List<CompilerError>
 
@@ -163,4 +165,59 @@ test "targeted values, convertible branches and null beside a reference are not 
     ))
 
     assert InferenceSiteCodes(analysis.Errors) == "", InferenceSiteCodes(analysis.Errors)
+}
+
+// ---- a bare `null` --------------------------------------------------------------------------------
+
+test "a bare `null` on the right of `:=` is NL203, and the hint names the local and a nullable type" {
+    analysis := AnalyzeInferenceSites(InferenceSiteProgram("    missing := null\n    print missing\n"))
+
+    assert InferenceSiteCodes(analysis.Errors) == "203", InferenceSiteCodes(analysis.Errors)
+    assert analysis.Errors[0].Message == "I can't figure out the type of 'missing' from 'null' — a local without a type annotation takes its type from its value, and 'null' could be any nullable type"
+    assert analysis.Errors[0].Suggestion == "Say what type 'missing' is, for example 'missing: string? = null'."
+    assert analysis.Errors[0].Line == 9
+    assert analysis.Errors[0].Column == 16
+    assert analysis.Errors[0].Length == 4
+}
+
+// ---- branches with a type to share ----------------------------------------------------------------
+
+// THE NATURAL TYPE IS A TYPE, not a pass. `flag ? dog : animal` is an `Animal`, so storing it in a
+// `Dog` is the ordinary mismatch — which `unknown` used to swallow.
+test "a conditional of a class and its base is the base, and is held to it" {
+    analysis := AnalyzeInferenceSites(InferenceSiteProgram("    pet := flag ? new Dog() : new Animal()\n    dog: Dog = pet\n    print dog\n"))
+
+    assert InferenceSiteCodes(analysis.Errors) == "202", InferenceSiteCodes(analysis.Errors)
+    assert analysis.Errors[0].Message == "Variable 'dog' is typed as 'Dog', but the value is 'Animal'"
+}
+
+// BOTH BRANCHES FITTING THE TARGET IS THE TARGET'S TYPE — a declared local, the local being assigned,
+// and a parameter all count — and only branches that do NOT fit are reported, naming the one to fix.
+test "a target both branches fit is the conditional's type, and a branch that does not fit is named" {
+    clean := AnalyzeInferenceSites(InferenceSiteProgram("    boxed: object = flag ? 1 : \"x\"\n    either: Animal = flag ? new Dog() : new Cat()\n    boxed = flag ? 2 : \"y\"\n    print boxed\n    print either\n"))
+    assert InferenceSiteCodes(clean.Errors) == "", InferenceSiteCodes(clean.Errors)
+
+    analysis := AnalyzeInferenceSites(InferenceSiteProgram("    count: int = flag ? 1 : \"x\"\n    print count\n"))
+    assert InferenceSiteCodes(analysis.Errors) == "202", InferenceSiteCodes(analysis.Errors)
+    assert analysis.Errors[0].Message.Contains("'int' when true and 'string' when false")
+    assert analysis.Errors[0].Suggestion == "This value goes into a 'int', so both branches have to fit it — convert the false branch ('string') to 'int'."
+}
+
+test "a null branch beside a value type, under a target that cannot hold null, names the nullable type" {
+    analysis := AnalyzeInferenceSites(InferenceSiteProgram("    count: int = flag ? 1 : null\n    print count\n"))
+
+    assert InferenceSiteCodes(analysis.Errors) == "202", InferenceSiteCodes(analysis.Errors)
+    assert analysis.Errors[0].Suggestion == "Declare the value as 'int?' so it can hold null, or give the null branch a value of type 'int'."
+}
+
+// AN OVERLOAD GROUP IS ASKED WHICH PARAMETER BOTH BRANCHES FIT. While the parameter is being chosen
+// the conditional is the union of its branches, so `object` is chosen over `int`, and a group with no
+// parameter both fit says so with the union in the message instead of picking one in silence.
+test "an overload group takes the parameter both branches fit, and a group with none reports it" {
+    chosen := AnalyzeInferenceSites("import System\nclass Show {\n    static func it(_value: int): string => \"int\"\n    static func it(_value: object): string => \"object\"\n}\nfunc Run(flag: bool) {\n    print Show.it(flag ? 1 : \"x\")\n    Console.WriteLine(flag ? 1 : \"x\")\n}\n")
+    assert InferenceSiteCodes(chosen.Errors) == "", InferenceSiteCodes(chosen.Errors)
+
+    refused := AnalyzeInferenceSites("class Show {\n    static func it(_value: int): string => \"int\"\n    static func it(_value: string): string => \"string\"\n}\nfunc Run(flag: bool) {\n    print Show.it(flag ? 1 : \"x\")\n}\n")
+    assert InferenceSiteCodes(refused.Errors) == "402", InferenceSiteCodes(refused.Errors)
+    assert (refused.Errors[0].ContextualHint ?? "").Contains("`int | string`"), refused.Errors[0].ContextualHint ?? "<no hint>"
 }

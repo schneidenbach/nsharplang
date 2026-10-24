@@ -633,14 +633,34 @@ class AnalyzerTargetTypedOperands {
 
         state.ResultType = NullabilityMetadataCore.MergeReferencedNullabilityOrigins(state.ThenType, state.ElseType, state.ResultType)
 
-        // NO COMMON TYPE AND NOTHING TO BE TOLD ONE. A target in force — an annotation, a parameter
-        // already chosen, a parameter still being chosen — decides what the conditional is, so it is
-        // only an untargeted conditional whose branches disagree that has no answer at all. Whether
-        // they really disagree is a conversion question, and the conversion oracle answers it, as it
-        // answers the cast's.
+        // NO COMMON TYPE: THREE MORE ANSWERS, IN ORDER. These are conversion questions, and the
+        // conversion oracle answers them, as it answers the cast's.
+        //   1. ONE BRANCH CONVERTS TO THE OTHER and not back — `flag ? dog : animal` is an `Animal`.
+        //      That is C#'s natural type, and the backend writes the same one.
+        //   2. BOTH BRANCHES FIT THE TARGET IN FORCE — `y: object = flag ? 1 : "x"` is an `object`.
+        //      Nothing else is asked of the target: the slot is also inherited by an operator's
+        //      operands, so it is a type the conditional may BE, never one it is held to.
+        //   3. Otherwise there is no type to give it. A parameter still being chosen will say, and
+        //      until it does the conditional is the anonymous union of its branches, `int | string`:
+        //      a union fits exactly the parameters EVERY one of its arms fits, so the overloads left
+        //      applicable are the ones the branches can both be written as (`Console.WriteLine(object)`),
+        //      and a group with none reports. Everywhere else the branches are judged and reported.
         reachability := state.Reachability
-        if reachability != null && !state.TargetPending && state.ExpectedResultType == null && BuiltInTypes.IsUnknown(state.ResultType) && !ambientValue.IsRefusedGeneratorExpressionBody(ternaryNode) {
-            reachability.CheckConditionalBranches(ternaryNode, state.ThenType, state.ElseType, ambientValue.InferenceSiteFor(ternaryNode))
+        if reachability != null && BuiltInTypes.IsUnknown(state.ResultType) {
+            naturalType := reachability.ConditionalNaturalType(state.ThenType, state.ElseType)
+            expectedType := state.ExpectedResultType
+            if naturalType != null {
+                state.ResultType = naturalType
+            } else if expectedType != null && reachability.ConditionalFitsTarget(state.ThenType, state.ElseType, expectedType) {
+                state.ResultType = expectedType
+            } else if state.TargetPending {
+                pendingType := reachability.ConditionalPendingType(state.ThenType, state.ElseType)
+                if pendingType != null {
+                    state.ResultType = pendingType
+                }
+            } else if !ambientValue.IsRefusedGeneratorExpressionBody(ternaryNode) {
+                reachability.CheckConditionalBranches(ternaryNode, state.ThenType, state.ElseType, ambientValue.InferenceSiteFor(ternaryNode), expectedType)
+            }
         }
 
         state.Phase = 99

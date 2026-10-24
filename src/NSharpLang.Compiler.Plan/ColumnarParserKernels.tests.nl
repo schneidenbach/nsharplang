@@ -1235,6 +1235,132 @@ class ColumnarFunctionBodyUsingProbe {
     }
 }
 
+// The FIRST local declaration in a function body, as the columnar statement kernel lands it: the
+// inferred form is kind 24 (name in the value slot, one child: the initializer) and the annotated form is
+// kind 40 (type span in the value slot, children: the name and the initializer).
+class ColumnarFunctionBodyDeclarationProbe {
+    Status: int
+    DeclarationKind: int
+    ValueText: string
+    ChildCount: int
+    InitializerKind: int
+    SpanText: string
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts
+        )
+
+        funcIndex := 0
+        while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
+            funcIndex = funcIndex + 1
+        }
+
+        functionNameTexts := new string[](1)
+        returnTypeTexts := new string[](1)
+        paramNameTexts := new string[](capacity)
+        paramTypeTexts := new string[](capacity)
+        paramModifierKinds := new int[](capacity)
+        paramDefaultKinds := new int[](capacity)
+        paramDefaultTexts := new string[](capacity)
+        paramTupleNameCounts := new int[](capacity)
+        paramTupleNameTexts := new string[](capacity)
+        returnTupleNameTexts := new string[](capacity)
+        returnLabeledTypeTexts := new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
+        typeParamTexts := new string[](capacity)
+        typeParamSpecials := new int[](capacity)
+        typeParamConstraintCounts := new int[](capacity)
+        typeParamConstraintTypeTexts := new string[](capacity)
+        nodeKinds := new int[](capacity)
+        valueStarts := new int[](capacity)
+        valueLengths := new int[](capacity)
+        childStart := new int[](capacity)
+        childCount := new int[](capacity)
+        childIndices := new int[](capacity)
+        spanStarts := new int[](capacity)
+        spanLengths := new int[](capacity)
+        localFunctionNodeIndices := new int[](capacity)
+        localFunctionTokenIndices := new int[](capacity)
+        result := new int[](9)
+
+        Status = ParseColumnarProductFunctionInfoInto(
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            funcIndex,
+            0,
+            functionNameTexts,
+            returnTypeTexts,
+            paramNameTexts,
+            paramTypeTexts,
+            paramModifierKinds,
+            paramDefaultKinds,
+            paramDefaultTexts,
+            paramTupleNameCounts,
+            paramTupleNameTexts,
+            returnTupleNameTexts,
+            returnLabeledTypeTexts,
+            paramLabeledTypeTexts,
+            typeParamTexts,
+            typeParamSpecials,
+            typeParamConstraintCounts,
+            typeParamConstraintTypeTexts,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStart,
+            childCount,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            localFunctionNodeIndices,
+            localFunctionTokenIndices,
+            result
+        )
+
+        DeclarationKind = -1
+        ValueText = ""
+        ChildCount = -1
+        InitializerKind = -1
+        SpanText = ""
+        if Status >= 0 {
+            bodyNodeCount := result[7]
+            n := 0
+            while n < bodyNodeCount && DeclarationKind < 0 {
+                if nodeKinds[n] == 24 || nodeKinds[n] == 40 {
+                    DeclarationKind = nodeKinds[n]
+                    ValueText = source.Substring(valueStarts[n], valueLengths[n])
+                    ChildCount = childCount[n]
+                    SpanText = source.Substring(spanStarts[n], spanLengths[n])
+                    if childCount[n] > 0 {
+                        InitializerKind = nodeKinds[childIndices[childStart[n] + childCount[n] - 1]]
+                    }
+                }
+
+                n = n + 1
+            }
+        }
+    }
+}
+
 func AssertColumnarSeparatedIntegerLiteral(source: string, expectedValue: ulong): void {
     probe := new ColumnarNumericLiteralParseProbe(source)
     probe.AssertSingleLiteral(1, ColumnarExpressionNodeKind.IntLiteralExpression)
@@ -2072,6 +2198,41 @@ test "a redundant `let` is the same statement" {
     assert probe.Status >= 0
     assert probe.UsingKind == 77
     assert probe.ResourceKind == 24
+}
+
+// ---- local declarations (kinds 24 / 40) ----
+
+// `let name = init` and `let name := init` are the documented inferred spelling with the optional
+// `let`; they used to match no statement production, so the whole function declined at
+// `parse.function`. They land as the SAME kind-24 node `name := init` does.
+test "an unannotated `let`, with `=` or `:=`, lands as the kind-24 inferred declaration `:=` does" {
+    shorthand := new ColumnarFunctionBodyDeclarationProbe("func Make() { count := 5 }")
+    letEquals := new ColumnarFunctionBodyDeclarationProbe("func Make() { let count = 5 }")
+    letColonEquals := new ColumnarFunctionBodyDeclarationProbe("func Make() { let count := 5 }")
+
+    assert shorthand.Status >= 0
+    assert shorthand.DeclarationKind == 24
+    assert letEquals.Status >= 0
+    assert letEquals.DeclarationKind == 24
+    assert letEquals.ValueText == "count"
+    assert letEquals.ChildCount == 1
+    assert letEquals.InitializerKind == shorthand.InitializerKind
+    assert letEquals.SpanText == "count = 5"
+    assert letColonEquals.Status >= 0
+    assert letColonEquals.DeclarationKind == 24
+    assert letColonEquals.SpanText == "count := 5"
+}
+
+test "an annotated `let` is still the kind-40 typed declaration, and a lambda initializer still parses" {
+    typed := new ColumnarFunctionBodyDeclarationProbe("func Make() { let count: int = 5 }")
+    lambda := new ColumnarFunctionBodyDeclarationProbe("func Make() { let twice = (n: int) => n * 2 }")
+
+    assert typed.Status >= 0
+    assert typed.DeclarationKind == 40
+    assert typed.ValueText == "int"
+    assert lambda.Status >= 0
+    assert lambda.DeclarationKind == 24
+    assert lambda.InitializerKind == 39
 }
 
 test "an UNBOUND using resource is an ordinary expression child, and its block is required" {

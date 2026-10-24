@@ -1141,7 +1141,7 @@ func ReachabilityConditional(): TernaryExpression {
 
 test "a conditional whose branches convert neither way is NL202, over the whole conditional" {
     harness := ReachabilityDefault()
-    reported := harness.Reachability.CheckConditionalBranches(ReachabilityConditional(), BuiltInTypes.Int, BuiltInTypes.String, null)
+    reported := harness.Reachability.CheckConditionalBranches(ReachabilityConditional(), BuiltInTypes.Int, BuiltInTypes.String, null, null)
 
     assert reported
     assert harness.Errors.Count == 1
@@ -1158,8 +1158,8 @@ test "a conditional whose branches convert neither way is NL202, over the whole 
 test "the conditional's hint names the local or the anonymous property it was going to" {
     harness := ReachabilityDefault()
     ternary := ReachabilityConditional()
-    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, BuiltInTypes.String, new AmbientInferenceSite(ternary, "label", false, false))
-    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, BuiltInTypes.String, new AmbientInferenceSite(ternary, "Label", true, false))
+    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, BuiltInTypes.String, new AmbientInferenceSite(ternary, "label", false, false), null)
+    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, BuiltInTypes.String, new AmbientInferenceSite(ternary, "Label", true, false), null)
 
     assert harness.Errors.Count == 2
     assert harness.Errors[0].Suggestion == "Make both branches the same type, or name a type both fit. Say what type 'label' is, for example 'label: object = ...'."
@@ -1170,8 +1170,8 @@ test "the conditional's hint names the local or the anonymous property it was go
 test "a null branch beside a value type is told to make the value nullable, from either side" {
     harness := ReachabilityDefault()
     ternary := ReachabilityConditional()
-    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, BuiltInTypes.Null, new AmbientInferenceSite(ternary, "count", false, true))
-    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Null, BuiltInTypes.Int, null)
+    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, BuiltInTypes.Null, new AmbientInferenceSite(ternary, "count", false, true), null)
+    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Null, BuiltInTypes.Int, null, null)
 
     assert harness.Errors.Count == 2
     assert harness.Errors[0].Message == "This conditional is 'int' when true and 'null' when false, and 'int' can't hold null"
@@ -1188,13 +1188,70 @@ test "branches that convert, share a reflected type, or have no value type of th
     harness := ReachabilityDefault()
     ternary := ReachabilityConditional()
 
-    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.String, BuiltInTypes.Null, null)
-    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Null, BuiltInTypes.String, null)
-    assert !harness.Reachability.CheckConditionalBranches(ternary, ReachabilityReflected(typeof(List<int>)), ReachabilityReflected(typeof(IEnumerable<int>)), null)
-    assert !harness.Reachability.CheckConditionalBranches(ternary, ReachabilityReflected(typeof(List<int>)), ReachabilityReflected(typeof(HashSet<int>)), null)
-    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, ReachabilityUnknown(), null)
-    assert !harness.Reachability.CheckConditionalBranches(ternary, new ArrayTypeInfo(ReachabilityUnknown()), new ArrayTypeInfo(BuiltInTypes.Int), null)
-    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Void, BuiltInTypes.Int, null)
-    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Never, BuiltInTypes.Int, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.String, BuiltInTypes.Null, null, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Null, BuiltInTypes.String, null, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, ReachabilityReflected(typeof(List<int>)), ReachabilityReflected(typeof(IEnumerable<int>)), null, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, ReachabilityReflected(typeof(List<int>)), ReachabilityReflected(typeof(HashSet<int>)), null, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, ReachabilityUnknown(), null, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, new ArrayTypeInfo(ReachabilityUnknown()), new ArrayTypeInfo(BuiltInTypes.Int), null, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Void, BuiltInTypes.Int, null, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Never, BuiltInTypes.Int, null, null)
     assert harness.Errors.Count == 0
+}
+
+// ---- what a conditional with no common type is worth -------------------------------------------------
+
+func ReachabilityTypeText(candidate: TypeInfo?): string {
+    if candidate == null {
+        return "<null>"
+    }
+
+    boxed := candidate as object
+    return boxed.ToString() ?? "<blank>"
+}
+
+// THE NATURAL TYPE IS ONE-WAY CONVERSION. A reflected `List<int>` converts to `IEnumerable<int>` and not
+// back, so the conditional is the interface, from either side; two types that convert neither way, and a
+// `null` branch (whose nullable answer is the target's), have none.
+test "a conditional's natural type is the type exactly one branch converts to" {
+    harness := ReachabilityDefault()
+    list := ReachabilityReflected(typeof(List<int>))
+    sequence := ReachabilityReflected(typeof(IEnumerable<int>))
+
+    assert ReachabilityTypeText(harness.Reachability.ConditionalNaturalType(list, sequence)) == ReachabilityTypeText(sequence)
+    assert ReachabilityTypeText(harness.Reachability.ConditionalNaturalType(sequence, list)) == ReachabilityTypeText(sequence)
+    assert harness.Reachability.ConditionalNaturalType(BuiltInTypes.Int, BuiltInTypes.String) == null
+    assert harness.Reachability.ConditionalNaturalType(BuiltInTypes.String, BuiltInTypes.Null) == null
+    assert harness.Reachability.ConditionalNaturalType(BuiltInTypes.Int, ReachabilityUnknown()) == null
+}
+
+// A TARGET BOTH BRANCHES FIT, `null` included when the target can hold it.
+test "a conditional fits a target only when both branches convert to it" {
+    harness := ReachabilityDefault()
+
+    assert harness.Reachability.ConditionalFitsTarget(BuiltInTypes.Int, BuiltInTypes.String, BuiltInTypes.Object)
+    assert harness.Reachability.ConditionalFitsTarget(BuiltInTypes.Int, BuiltInTypes.Null, new NullableTypeInfo(BuiltInTypes.Int))
+    assert !harness.Reachability.ConditionalFitsTarget(BuiltInTypes.Int, BuiltInTypes.String, BuiltInTypes.Int)
+    assert !harness.Reachability.ConditionalFitsTarget(BuiltInTypes.Int, BuiltInTypes.Null, BuiltInTypes.Int)
+    assert !harness.Reachability.ConditionalFitsTarget(BuiltInTypes.Int, BuiltInTypes.String, ReachabilityUnknown())
+}
+
+// WHILE A PARAMETER IS BEING CHOSEN the conditional is the union of its branches, and a union is
+// assignable exactly where every arm is — the overload rule, in one type.
+test "a pending conditional is the union of its branches, which fits only where both do" {
+    harness := ReachabilityDefault()
+    pending := harness.Reachability.ConditionalPendingType(BuiltInTypes.Int, BuiltInTypes.String)
+
+    assert pending != null
+    assert ReachabilityTypeText(pending) == "int | string"
+    assert harness.Reachability.ConditionalPendingType(BuiltInTypes.Int, ReachabilityUnknown()) == null
+}
+
+// THE TARGETED HINT NAMES THE BRANCH TO FIX, or says neither fits.
+test "the targeted hint names the branch that does not fit the target" {
+    harness := ReachabilityDefault()
+
+    assert harness.Reachability.TargetMismatchHint(BuiltInTypes.Int, BuiltInTypes.String, "int", "string", BuiltInTypes.Int) == "This value goes into a 'int', so both branches have to fit it — convert the false branch ('string') to 'int'."
+    assert harness.Reachability.TargetMismatchHint(BuiltInTypes.String, BuiltInTypes.Int, "string", "int", BuiltInTypes.Int) == "This value goes into a 'int', so both branches have to fit it — convert the true branch ('string') to 'int'."
+    assert harness.Reachability.TargetMismatchHint(BuiltInTypes.String, BuiltInTypes.Bool, "string", "bool", BuiltInTypes.Int) == "This value goes into a 'int', and neither branch fits it — convert both, or change the type it goes into."
 }

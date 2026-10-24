@@ -1014,6 +1014,32 @@ literal / condition-to-else on one line), kept separate from `GetExpressionDiagn
 report's span moved. Pinned by `AnalyzerInferenceSites.tests.nl` (real analyzer) plus unit rows in
 `AnalyzerArrayLiteral.tests.nl` and `AnalyzerPatternReachability.tests.nl`.
 
+CONDITIONALS WITH BRANCHES OF TWO TYPES, TYPED AND EMITTED (2026-10-23). The follow-up made every
+conditional whose arms have types but not the same one either compile or report:
+- ANALYZER (`FinishTernary`, when `CommonType` is `unknown`): (1) `ConditionalNaturalType` — the type
+  exactly one arm is assignable to (`flag ? dog : animal` is `Animal`; `null` arms excluded, they stay
+  the target-typed route's); (2) `ConditionalFitsTarget` — both arms assignable to `ExpectedResultType`
+  makes the conditional that type (`y: object = flag ? 1 : "x"`). The slot is NEVER treated as a hard
+  requirement because operator operands inherit it; (3) a pending overload argument answers
+  `ConditionalPendingType` = `AnonymousUnionTypeInfo(then, else)`, and `EveryArmAssignableTo` makes
+  exactly the overloads both arms fit applicable (`Show(object)` over `Show(int)`; none → NL402 whose
+  hint names `int | string`); (4) otherwise `CheckConditionalBranches`, now ALSO with a target in force,
+  whose hint (`TargetMismatchHint`) names the arm that does not fit it.
+- EMITTER: `IsMixedConditional` (both arms preflight-typed, neither typeless, not equivalent) opens the
+  existing target-typed route — `CanEmitConditionalAsType`/`TryEmitConditionalAsType`, which every
+  targeted site (typed local, assignment, return, argument, `EmitArg`) already asks first — and nested
+  mixed arms recurse through it. With no target, `TryGetMixedConditionalNaturalType` picks the type
+  (numeric: one-way `CanUseImplicitNumericWidening`, else both int-promotable → `int`, else
+  `TrySelectMixedNumericCommonType` — `CommonType`'s promotion over CLR types; other pairs: one-way
+  `CanConvertConditionalArmType`), answered by preflight and used by the residual kind-13 arm. The
+  `Console.Write[Line]` string fallback skips a mixed conditional so ordinary selection finds `object`.
+- `x := null` is NL203 (`AnalyzerVariableDeclaration.ReportNullInitializer`); `let name = init` /
+  `let name := init` parse to the kind-24 inferred node in `ColumnarParserStatementKernels` (they
+  declined at `parse.function`). Note: `let` immutability is not enforced by the analyzer at all.
+Pinned by `tests/native/census-mixed-conditionals` (both paths of every shape, static type observed by
+overload choice or `GetType()`), `AnalyzerInferenceSites.tests.nl`, `AnalyzerPatternReachability.tests.nl`
+and `ColumnarParserKernels.tests.nl` (`ColumnarFunctionBodyDeclarationProbe`).
+
 THE EMITTER'S HAND-WRITTEN FRAMEWORK ARMS (`string.IsNullOrEmpty`, `Math.Max`, `Path.*`, ...) bind
 their arguments through `EmitArg`, which had no conditional-as-target door: a `null` arm survived only
 through the untargeted unification arm (which knows `null`, not `default`), so
