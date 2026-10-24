@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Globalization
 import System.Reflection
 import System.Reflection.Emit
@@ -212,6 +213,9 @@ class ColumnarParameterDefaultEmitter {
         if ColumnarParameterDefaultValue.IsSourceLiteralKind(defaultKind) {
             return ColumnarParameterDefaultValue.FromSource(defaultKind, defaultText, parameterType)
         }
+        if defaultKind == ColumnarParameterDefaultValue.ConstantExpressionKind {
+            return ExpressionDefaultFor(parameterType, defaultText, enumRegistry)
+        }
         if defaultKind != ColumnarParameterDefaultEmitter.MemberAccessKind {
             return null
         }
@@ -220,11 +224,34 @@ class ColumnarParameterDefaultEmitter {
         if TryResolveStringEnumParameterDefault(parameterType, defaultText, enumRegistry, out stringEnumDefault) {
             return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, parameterType, stringEnumDefault)
         }
+        // A member of the enum a `Nullable<T>` parameter wraps is that parameter's default too.
         enumDefault := 0
-        if TryResolveEnumParameterDefault(parameterType, defaultText, enumRegistry, out enumDefault) {
+        enumType := ColumnarParameterDefaultValue.EnumTargetOf(parameterType) ?? parameterType
+        if TryResolveEnumParameterDefault(enumType, defaultText, enumRegistry, out enumDefault) {
             return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, parameterType, enumDefault)
         }
         return null
+    }
+
+    // A CONSTANT EXPRESSION, its enum members resolved against the parameter's own enum through
+    // this compilation's registry — the same lookup a single member default takes.
+    static func ExpressionDefaultFor(parameterType: Type, defaultText: string?, enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>): ColumnarParameterDefaultValue? {
+        names := ColumnarParameterDefaultValue.ExpressionMemberNames(defaultText)
+        if names == null {
+            return null
+        }
+
+        memberValues := new Dictionary<string, int>(StringComparer.Ordinal)
+        enumType := ColumnarParameterDefaultValue.EnumTargetOf(parameterType)
+        for name in names {
+            value := 0
+            if enumType == null || !TryResolveEnumParameterDefault(enumType, name, enumRegistry, out value) {
+                return null
+            }
+            memberValues[name] = value
+        }
+
+        return ColumnarParameterDefaultValue.FromExpression(defaultText, parameterType, memberValues)
     }
 
     static func TryResolveStringEnumParameterDefault(

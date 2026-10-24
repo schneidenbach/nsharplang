@@ -256,14 +256,20 @@ class ColumnarPropertyInput {
     // setter's return type, which is how every CLR language spells an init-only accessor.
     IsRequired: bool
     IsInitOnly: bool
+    // The inheritance words (`virtual`, `abstract`, `override`, `sealed`) and accessibility words the
+    // declaration wrote, in the `Modifiers` bit space a method's `ModifierFlags` uses. A property's
+    // accessors are methods, so the words mean on them what they mean on a `func`: the declaration
+    // planner composes both accessor words from these bits.
+    ModifierFlags: int
     Name: string
     TypeCanonical: string
     Getter: ColumnarFunctionInput
     Setter: ColumnarFunctionInput?
     SourceFileId: int
 
-    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false, isRequired: bool = false, isInitOnly: bool = false) {
+    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false, isRequired: bool = false, isInitOnly: bool = false, modifierFlags: int = 0) {
         IsStatic = isStatic
+        ModifierFlags = modifierFlags
         HasMsBuildRequiredAttribute = hasMsBuildRequiredAttribute
         HasMsBuildOutputAttribute = hasMsBuildOutputAttribute
         IsRequired = isRequired

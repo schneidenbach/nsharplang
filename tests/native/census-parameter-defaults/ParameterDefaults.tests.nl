@@ -108,6 +108,39 @@ test "a default omitted in the test file itself is filled the same way" {
     assert decimalDefault() == 1.25m
 }
 
+// A CONSTANT EXPRESSION, FOLDED. The value is C#'s: integer arithmetic in the operands' type
+// (`1 / 2` is `0` even for a `double`), an enum combined bitwise with its own members.
+test "an omitted constant-expression default is the folded value" {
+    assert omittedProduct() == 6
+    assert omittedMask() == 1099511627775L
+    assert omittedWidened() == 6L
+    assert omittedRatio() == 0.25
+    assert omittedTruncated() == 0.0
+    assert omittedMoney() == 15m
+    assert omittedJoined() == "abcd"
+    assert omittedNegated() == -7
+    assert omittedXor() == 240u
+}
+
+test "an omitted enum-combination default is the combined members" {
+    assert omittedFlags() == (Access.Read | Access.Write)
+    assert omittedMaskedFlags() == (Access.Write | Access.Execute)
+    assert omittedNullableFlags() == (Access.Write | Access.Execute)
+    assert omittedZeroFlags() == Access.None
+    grant := omittedGrant()
+    assert grant.Mode == (Access.Read | Access.Execute)
+    assert grant.Size == 4096
+}
+
+test "a folded default is written into metadata as its value" {
+    constructors := typeof(Grant).GetConstructors()
+    assert constructors.Length == 1
+    parameters := constructors[0].GetParameters()
+    assert parameters[0].HasDefaultValue
+    assert Convert.ToInt32(parameters[0].RawDefaultValue) == 5
+    assert Convert.ToInt32(parameters[1].RawDefaultValue) == 4096
+}
+
 // THE METADATA A C# CALLER READS. A default is a `Constant` row of the parameter's own type —
 // `.param = int64(5000000000)` — except a `decimal`, which the format cannot store and C# writes as
 // `[DecimalConstant]` beside the `[Optional]` flag, and a struct's or a `Nullable<T>`'s `default`,
@@ -180,6 +213,9 @@ test "an omitted default declared in a referenced N# assembly is read from its m
     assert ReflectedDefaults.NullableLong() == 7L
     assert ReflectedDefaults.Date() == 0L
     assert ReflectedDefaults.ToneDefault() == Tone.Quiet
+    assert ReflectedDefaults.Mask() == 1099511627775L
+    assert ReflectedDefaults.Both() == (Rights.Read | Rights.Write)
+    assert ReflectedDefaults.Scaled() == 15m
 }
 
 test "a referenced constructor and instance method fill their omitted defaults from metadata" {
@@ -194,4 +230,22 @@ test "a referenced constructor and instance method fill their omitted defaults f
     named := new ReflectedDefaults(mark: 'n')
     assert named.Mark == 'n'
     assert named.Ratio == 1.25m
+}
+
+test "a referenced generic method infers its type argument and fills its omitted defaults" {
+    assert ReflectedDefaults.Tag(5) == "tag:5"
+    assert ReflectedDefaults.Tag("x", "named") == "named:x"
+    reflected := new ReflectedDefaults()
+    assert reflected.Join(1, 2) == "1|2"
+    assert reflected.Join("a", "b", '-') == "a-b"
+}
+
+// INSIDE A LAMBDA, with an argument built from the lambda's own parameter, the same defaults are
+// filled.
+test "a referenced generic method fills its omitted defaults inside a lambda" {
+    tag: Func<int, string> = n => ReflectedDefaults.Tag(new { N: n })
+    assert tag(3) == "tag:{ N = 3 }"
+    reflected := new ReflectedDefaults()
+    join: Func<int, string> = n => reflected.Join(new { N: n }, new { N: n + 1 })
+    assert join(1) == "{ N = 1 }|{ N = 2 }"
 }

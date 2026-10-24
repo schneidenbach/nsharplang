@@ -2444,6 +2444,103 @@ test "construction planner recursively owns nested object initializer values" {
     assert ConstructionHasOpcode(plan, ColumnarCodePlanContract.Stfld())
 }
 
+test "construction planner plans an empty array literal member at the member's declared type" {
+    owner := ConstructionSourceDefinition(
+        "ConstructionCollectionObject",
+        true
+    )
+    linesField := ConstructionDefinePublicField(
+        owner.Builder,
+        "Lines",
+        typeof(string[])
+    )
+    owner.Fields["Lines"] = linesField
+    owner.SetFieldOrder(ConstructionOneText("Lines"))
+    owner.DefaultCtor = owner.Builder.DefineConstructor(
+        (MethodAttributes)6,
+        CallingConventions.Standard,
+        new Type[](0)
+    )
+
+    tree := ConstructionObjectInitializerTree(
+        "ConstructionCollectionObject",
+        ConstructionOneText("Lines"),
+        ConstructionOneText("[]"),
+        ConstructionOneKind(ColumnarExpressionNodeKind.ArrayLiteralExpression)
+    )
+    ConstructionStampScope(
+        tree,
+        "class ConstructionCollectionObject { Lines: string[] }"
+    )
+    plan := ConstructionPlan(
+        tree,
+        ConstructionBindings(SourceCallDefinitions(owner))
+    )
+
+    assert ColumnarConstructionPlanner.SameObject(
+        plan.ResultType,
+        owner.Builder
+    )
+    assert ConstructionHasOpcode(plan, ColumnarCodePlanContract.Newarr())
+    assert plan.FieldCount == 1
+    assert plan.FieldValueTypes[0] == typeof(string[])
+}
+
+test "construction planner hands a list literal member to the whole-subtree path" {
+    owner := ConstructionSourceDefinition(
+        "ConstructionListObject",
+        true
+    )
+    itemsField := ConstructionDefinePublicField(
+        owner.Builder,
+        "Items",
+        typeof(List<string>)
+    )
+    owner.Fields["Items"] = itemsField
+    owner.SetFieldOrder(ConstructionOneText("Items"))
+    owner.DefaultCtor = owner.Builder.DefineConstructor(
+        (MethodAttributes)6,
+        CallingConventions.Standard,
+        new Type[](0)
+    )
+    bindings := ConstructionBindings(SourceCallDefinitions(owner))
+
+    // Neither the empty literal nor a written one is an array the member can hold, and inferring
+    // `string[]` from `["a"]` and then refusing the conversion must not reject what the emitter's
+    // collection-literal owner writes.
+    for valueText in ["[]", "[\"a\"]"] {
+        builder := new ColumnarRangePlannerNodeBuilder()
+        typeNode := builder.AddLeaf(0, "ConstructionListObject")
+        member := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "Items")
+        literal := valueText == "[]" ? builder.AddLeaf(ColumnarExpressionNodeKind.ArrayLiteralExpression, valueText) : builder.AddNode(
+            ColumnarExpressionNodeKind.ArrayLiteralExpression,
+            -1,
+            0,
+            0,
+            builder.Source.Length,
+            ColumnarRangePlannerChildren1(builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, "\"a\""))
+        )
+        root := builder.AddNode(
+            ColumnarExpressionNodeKind.ObjectInitializerExpression,
+            -1,
+            0,
+            0,
+            builder.Source.Length,
+            ColumnarRangePlannerChildren3(typeNode, member, literal)
+        )
+        tree := builder.Build(root)
+        ConstructionStampScope(
+            tree,
+            "class ConstructionListObject { Items: List<string> }"
+        )
+        ownership := ColumnarDirectCallOwnership.Planned
+        legacy := false
+        _plan := ConstructionRejected(tree, bindings, out ownership, out legacy)
+        assert ownership == ColumnarDirectCallOwnership.NotOwned
+        assert legacy
+    }
+}
+
 test "construction planner rejects init-only object initializer fields" {
     owner := ConstructionSourceDefinition(
         "ConstructionReadonlyObject",

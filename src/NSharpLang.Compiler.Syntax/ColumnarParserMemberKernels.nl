@@ -1844,16 +1844,44 @@ func ParseDeclarationMemberFieldModifierWord(memberModifiers: ParserDeclarationR
     return fieldModifierFlags
 }
 
-// The `required` / `init` words as the PROPERTY column's own two bits (8 and 16). A property row
-// packs its prefix differently from a field row — its word is small and its meanings are its own —
-// so the translation from the shared modifier word lives beside the packing that uses it.
+// The modifier words a PROPERTY row carries, as the property column's own bits. A property row packs
+// its prefix differently from a field row — its word is small and its meanings are its own — so the
+// translation from the shared modifier word lives beside the packing that uses it: bits 3 and 4
+// `required` and `init`; bits 5–8 the inheritance words `virtual`, `abstract`, `override` and
+// `sealed`, which a written property's accessors act on because accessors are methods and methods
+// have slots; bits 9–12 the accessibility words `public`, `private`, `internal` and `protected`.
 func ParseDeclarationMemberPropertyModifierBits(memberModifiers: ParserDeclarationResultTable): int {
+    modifiers := memberModifiers.Values[2]
     bits := 0
-    if (memberModifiers.Values[2] & 8192) != 0 {
+    if (modifiers & 8192) != 0 {
         bits = bits | 8
     }
-    if (memberModifiers.Values[2] & 16384) != 0 {
+    if (modifiers & 16384) != 0 {
         bits = bits | 16
+    }
+    if (modifiers & 32) != 0 {
+        bits = bits | 32
+    }
+    if (modifiers & 64) != 0 {
+        bits = bits | 64
+    }
+    if (modifiers & 65536) != 0 {
+        bits = bits | 128
+    }
+    if (modifiers & 128) != 0 {
+        bits = bits | 256
+    }
+    if (modifiers & 1) != 0 {
+        bits = bits | 512
+    }
+    if (modifiers & 2) != 0 {
+        bits = bits | 1024
+    }
+    if (modifiers & 4) != 0 {
+        bits = bits | 2048
+    }
+    if (modifiers & 8) != 0 {
+        bits = bits | 4096
     }
 
     return bits

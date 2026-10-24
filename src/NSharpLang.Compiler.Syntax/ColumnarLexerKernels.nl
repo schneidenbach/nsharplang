@@ -647,7 +647,9 @@ func TokenizeColumnarSourceInto(source: string, rawKinds: int[], rawStarts: int[
 func ScanString(source: string, position: int, length: int, isInterpolated: bool): int {
     position = position + 1
     interpolationDepth := 0
-    nestedStringDepth := 0
+    // The quote that opened the string or character literal the scan is inside, within a hole;
+    // '\0' outside one. Lexer.ReadString keeps the same rule.
+    nestedQuote := '\0'
 
     while position < length {
         ch := source[position]
@@ -656,7 +658,7 @@ func ScanString(source: string, position: int, length: int, isInterpolated: bool
         }
 
         if isInterpolated {
-            if nestedStringDepth > 0 {
+            if nestedQuote != '\0' {
                 if ch == '\\' {
                     position = position + 1
                     if position < length {
@@ -666,11 +668,16 @@ func ScanString(source: string, position: int, length: int, isInterpolated: bool
                     continue
                 }
 
-                if ch == '"' {
-                    nestedStringDepth = nestedStringDepth - 1
+                if ch == nestedQuote {
+                    nestedQuote = '\0'
                 }
 
                 position = position + 1
+                continue
+            }
+
+            if interpolationDepth == 0 && (ch == '{' || ch == '}') && position + 1 < length && source[position + 1] == ch {
+                position = position + 2
                 continue
             }
 
@@ -686,8 +693,8 @@ func ScanString(source: string, position: int, length: int, isInterpolated: bool
                 continue
             }
 
-            if ch == '"' && interpolationDepth > 0 {
-                nestedStringDepth = nestedStringDepth + 1
+            if interpolationDepth > 0 && ParserLiteralFacts.OpensInterpolationHoleLiteral(source, position, length) {
+                nestedQuote = ch
                 position = position + 1
                 continue
             }

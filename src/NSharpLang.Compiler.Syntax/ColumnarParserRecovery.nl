@@ -8864,39 +8864,16 @@ class ColumnarParserRecovery {
                 exprStartLine := currentLine
                 exprStartCol := currentCol
 
+                // The hole runs to its MATCHING `}` (ParserLiteralFacts.FindInterpolationHoleClose): nested
+                // braces balance and string/character literals are opaque, so `{new { A: 1 }}` and
+                // `{c == '}'}` are each one hole. An unclosed hole runs to the end of the literal.
                 exprContentStart := i
-                braceDepth := 1
-                inNestedString := false
-                while i < end && braceDepth > 0 {
-                    ch = value[i]
-                    if inNestedString {
-                        if ch == '\\' && i + 1 < end {
-                            currentCol = currentCol + 1
-                            // AdvancePosition('\\'); a backslash is never '\n'
-                            i = i + 1
-                            ch = value[i]
-                        } else {
-                            if ch == '"' {
-                                inNestedString = false
-                            }
-                        }
-                    } else {
-                        if ch == '"' {
-                            inNestedString = true
-                        } else {
-                            if ch == '{' {
-                                braceDepth = braceDepth + 1
-                            } else {
-                                if ch == '}' {
-                                    braceDepth = braceDepth - 1
-                                    if braceDepth == 0 {
-                                        break
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if ch == '\n' {
+                holeClose := ParserLiteralFacts.FindInterpolationHoleClose(value, i, end)
+                if holeClose < 0 {
+                    holeClose = end
+                }
+                while i < holeClose {
+                    if value[i] == '\n' {
                         currentLine = currentLine + 1
                         currentCol = 1
                     } else {

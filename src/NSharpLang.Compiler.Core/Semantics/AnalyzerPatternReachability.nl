@@ -108,6 +108,148 @@ class AnalyzerPatternReachability {
         diagnosticsValue.Report(ErrorCode.InvalidCast, message, span.Line, span.Column, suggestion, span.Length)
     }
 
+    // A CONDITIONAL WHOSE TWO BRANCHES CONVERT NEITHER WAY, with nothing around it to say what it is.
+    // `y := flag ? 1 : "x"` answered `unknown` in silence and the backend refused it as an
+    // unsupported shape. A conditional is worth what both branches can be at once, and with no
+    // target that is one branch's type when the other converts to it (C#'s rule, and the one a
+    // `match` follows) — so when NEITHER converts, and the two share no reflected base or interface
+    // either, there is no type to give it and the reader is told so, in the `match` report's code.
+    //
+    // A `null` branch beside a value type is the case readers hit most, and it gets its own words:
+    // the fix there is not "pick a common type" but "make it nullable", and the hint writes the `?`.
+    //
+    // ONLY BRANCHES WITH TYPES OF THEIR OWN ARE JUDGED. An unknown branch was reported upstream or is
+    // not modelled; a lambda, a method name, `void` and a `throw` have no value type to disagree
+    // with. Answers whether it reported.
+    //
+    // `expectedType` is the target the conditional was walked under, when there was one, and the
+    // branches did not both fit it. It changes only the HINT: the value is already declared with a
+    // type, so the fix is in the branches, not in an annotation the reader has already written.
+    func CheckConditionalBranches(ternary: TernaryExpression, thenType: TypeInfo, elseType: TypeInfo, site: AmbientInferenceSite?, expectedType: TypeInfo?): bool {
+        if !HasJudgeableValueType(thenType) || !HasJudgeableValueType(elseType) {
+            return false
+        }
+
+        if assignabilityValue.IsAssignable(thenType, elseType) || assignabilityValue.IsAssignable(elseType, thenType) || AnalyzerMatchExpression.FindCommonBaseType(thenType, elseType) != null {
+            return false
+        }
+
+        thenObject := thenType as object
+        elseObject := elseType as object
+        thenText := thenObject.ToString() ?? ""
+        elseText := elseObject.ToString() ?? ""
+        span := spansValue.GetConditionalDiagnosticSpan(ternary)
+
+        valueText := thenText
+        if BuiltInTypes.Is(thenType, BuiltInTypes.Null) {
+            valueText = elseText
+        }
+
+        if BuiltInTypes.Is(thenType, BuiltInTypes.Null) || BuiltInTypes.Is(elseType, BuiltInTypes.Null) {
+            nullableText := valueText + "?"
+            nullHint := AmbientInferenceSite.GeneralAnnotationHint(nullableText, "value", "...")
+            if expectedType != null {
+                nullHint = "Declare the value as '" + nullableText + "' so it can hold null, or give the null branch a value of type '" + valueText + "'."
+            } else if site != null {
+                nullHint = site.AnnotationHint(nullableText, "...")
+            }
+
+            diagnosticsValue.Report(ErrorCode.TypeMismatch, "This conditional is '" + thenText + "' when true and '" + elseText + "' when false, and '" + valueText + "' can't hold null", span.Line, span.Column, nullHint, span.Length)
+            return true
+        }
+
+        hint := "Make both branches the same type, or name a type both fit. " + AmbientInferenceSite.GeneralAnnotationHint("object", "value", "...")
+        if expectedType != null {
+            hint = TargetMismatchHint(thenType, elseType, thenText, elseText, expectedType)
+        } else if site != null {
+            hint = "Make both branches the same type, or name a type both fit. " + site.AnnotationHint("object", "...")
+        }
+
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "The two branches of this conditional have different types — '" + thenText + "' when true and '" + elseText + "' when false — and neither converts to the other, so I can't tell what type it produces", span.Line, span.Column, hint, span.Length)
+        return true
+    }
+
+    // THE HINT WHEN A TARGET WAS IN FORCE, naming the branch that does not fit it — the fix is in that
+    // branch, because the value already has the type the reader wrote for it.
+    func TargetMismatchHint(thenType: TypeInfo, elseType: TypeInfo, thenText: string, elseText: string, expectedType: TypeInfo): string {
+        expectedObject := expectedType as object
+        expectedText := expectedObject.ToString() ?? ""
+        thenFits := assignabilityValue.IsAssignable(expectedType, thenType)
+        elseFits := assignabilityValue.IsAssignable(expectedType, elseType)
+        if thenFits && !elseFits {
+            return "This value goes into a '" + expectedText + "', so both branches have to fit it — convert the false branch ('" + elseText + "') to '" + expectedText + "'."
+        }
+
+        if elseFits && !thenFits {
+            return "This value goes into a '" + expectedText + "', so both branches have to fit it — convert the true branch ('" + thenText + "') to '" + expectedText + "'."
+        }
+
+        return "This value goes into a '" + expectedText + "', and neither branch fits it — convert both, or change the type it goes into."
+    }
+
+    // WHAT A CONDITIONAL WITH NO COMMON TYPE IS WORTH BY ITSELF: the type one branch converts to when
+    // the other does not convert back — C#'s natural type, and the one the backend writes
+    // (`ColumnarIlEmitter.TryGetMixedConditionalNaturalType`). A `null` branch is not judged here: the
+    // nullable answer it implies is the target-typed route's, and a bare `string` would forget the
+    // null. Null when there is no such type.
+    func ConditionalNaturalType(thenType: TypeInfo, elseType: TypeInfo): TypeInfo? {
+        if !HasJudgeableValueType(thenType) || !HasJudgeableValueType(elseType) || BuiltInTypes.Is(thenType, BuiltInTypes.Null) || BuiltInTypes.Is(elseType, BuiltInTypes.Null) {
+            return null
+        }
+
+        thenConverts := assignabilityValue.IsAssignable(elseType, thenType)
+        elseConverts := assignabilityValue.IsAssignable(thenType, elseType)
+        if thenConverts && !elseConverts {
+            return elseType
+        }
+
+        if elseConverts && !thenConverts {
+            return thenType
+        }
+
+        return null
+    }
+
+    // WHETHER BOTH BRANCHES CONVERT TO A TARGET — the target-typed conditional C# 9 added, and the
+    // route the backend takes for a conditional with a target in force. A `null` branch counts: it
+    // fits any target that can hold it.
+    func ConditionalFitsTarget(thenType: TypeInfo, elseType: TypeInfo, targetType: TypeInfo): bool {
+        if BuiltInTypes.IsUnknown(targetType) || !IsJudgeableBranch(thenType) || !IsJudgeableBranch(elseType) {
+            return false
+        }
+
+        return assignabilityValue.IsAssignable(targetType, thenType) && assignabilityValue.IsAssignable(targetType, elseType)
+    }
+
+    // WHAT A CONDITIONAL WITH NO COMMON TYPE IS WHILE ITS PARAMETER IS STILL BEING CHOSEN: the anonymous
+    // union of its two branches. Assignability holds a union to EVERY arm (`EveryArmAssignableTo`), so
+    // the candidates it leaves applicable are exactly the parameters both branches convert to — the
+    // target-typed conditional's own rule, asked of each overload. Null when a branch cannot be judged.
+    func ConditionalPendingType(thenType: TypeInfo, elseType: TypeInfo): TypeInfo? {
+        if !HasJudgeableValueType(thenType) || !HasJudgeableValueType(elseType) {
+            return null
+        }
+
+        arms := new List<TypeInfo>()
+        arms.Add(thenType)
+        arms.Add(elseType)
+        pending: TypeInfo = new AnonymousUnionTypeInfo(arms)
+        return pending
+    }
+
+    // A branch the target-typed route can judge: one with a value type of its own, or a bare `null`.
+    static func IsJudgeableBranch(candidate: TypeInfo): bool {
+        return HasJudgeableValueType(candidate) || BuiltInTypes.Is(candidate, BuiltInTypes.Null)
+    }
+
+    static func HasJudgeableValueType(candidate: TypeInfo): bool {
+        if AnalyzerDeclarationContext.ContainsUnknown(candidate) || BuiltInTypes.Is(candidate, BuiltInTypes.Void) || BuiltInTypes.Is(candidate, BuiltInTypes.Never) {
+            return false
+        }
+
+        return candidate as FunctionTypeInfo == null && candidate as NSharpMethodGroupInfo == null && !AnalyzerCallableReferenceFacts.IsMethodGroupReferenceType(candidate)
+    }
+
     // WHAT `e as T` IS WORTH: `T?`, because `as` answers null when the value is not a `T` — the one
     // thing that separates it from a hard cast. Typed as the bare `T`, `(a as Dog).Bark()` and
     // `Take(a as Dog)` into a `Dog` parameter were accepted in silence, and the flow analysis had

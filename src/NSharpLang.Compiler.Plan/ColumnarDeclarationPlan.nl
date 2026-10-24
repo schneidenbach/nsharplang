@@ -1228,6 +1228,45 @@ class ColumnarDeclarationPlanner {
         return PublicFieldAttribute() | HideBySigMethodAttribute() | SpecialNameMethodAttribute()
     }
 
+    // A static property's accessors take the member's accessibility the same way.
+    static func StaticAccessorAttributes(name: string, modifierFlags: int): int {
+        return MethodVisibilityAttributes(name, modifierFlags) | StaticMethodAttribute() | HideBySigMethodAttribute() | SpecialNameMethodAttribute()
+    }
+
+    // A WRITTEN PROPERTY'S ACCESSORS ARE METHODS, so the accessibility it writes — or, with no word,
+    // the casing convention — means on them what it means on a `func` (`MethodVisibilityAttributes`):
+    // `protected Hidden: int => 1` is family, `lower: int => 2` is assembly, `private` is private. The
+    // analyzer already applies that relation to every read (NL308); emitting every accessor public
+    // published members the source kept to itself, to every other assembly and every reflection-driven
+    // framework.
+    //
+    // Its inheritance words mean on them what they mean on a `func`, and on both accessors at once: `virtual` OPENS a slot for each (Virtual|NewSlot),
+    // `override` REUSES the base's (Virtual, NewSlot clear — the CLR binds each accessor to its slot by
+    // name and signature, which is what C# emits), and `sealed override` closes it again with Final.
+    // Unlike a method's, an override accessor is Virtual from the plan on: the emitter proves the base
+    // slot (`ColumnarPropertyOverrideMatch`) before it defines the accessors, and declines rather than
+    // emit one that would silently open a new slot. `abstract` is accepted only on a bare member — a
+    // written property has bodies — so the analyzer refuses it (NL311) and the emitter declines it.
+    static func InstanceAccessorAttributes(name: string, modifierFlags: int): int {
+        bits := MethodVisibilityAttributes(name, modifierFlags) | HideBySigMethodAttribute() | SpecialNameMethodAttribute()
+        if ColumnarFunctionInput.HasAbstractModifier(modifierFlags) {
+            return bits | VirtualMethodAttribute() | NewSlotMethodAttribute() | AbstractMethodAttribute()
+        }
+
+        if ColumnarFunctionInput.HasOverrideModifier(modifierFlags) {
+            if ColumnarFunctionInput.HasSealedModifier(modifierFlags) {
+                return bits | VirtualMethodAttribute() | FinalMethodAttribute()
+            }
+            return bits | VirtualMethodAttribute()
+        }
+
+        if ColumnarFunctionInput.HasVirtualModifier(modifierFlags) {
+            return bits | VirtualMethodAttribute() | NewSlotMethodAttribute()
+        }
+
+        return bits
+    }
+
     // The CLR spells a property's accessors `get_<Name>` and `set_<Name>`. Four call sites built
     // these by concatenation; the names are metadata, so they are planned.
     //
@@ -1291,11 +1330,11 @@ class ColumnarDeclarationPlanner {
             while member < propertyCount {
                 property := properties[member]
                 if property.IsStatic {
-                    propertyWords[member] = StaticAccessorAttributes()
+                    propertyWords[member] = StaticAccessorAttributes(property.Name, property.ModifierFlags)
                 } else if ExplicitInterfaceMemberFacts.IsExplicitMemberName(property.Name) {
                     propertyWords[member] = ExplicitInterfaceAccessorAttributes()
                 } else {
-                    propertyWords[member] = InstanceAccessorAttributes()
+                    propertyWords[member] = InstanceAccessorAttributes(property.Name, property.ModifierFlags)
                 }
                 propertyGetters[member] = PropertyGetterName(property.Name)
                 propertySetters[member] = PropertySetterName(property.Name)

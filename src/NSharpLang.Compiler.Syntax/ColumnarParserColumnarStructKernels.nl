@@ -507,8 +507,8 @@ func ColumnarStructFieldFlagIsSealed(flags: int): bool {
 
 // Property prefix flags share the existing integer output column: bit 0 is static, bit 1 is the
 // exact MSBuild RequiredAttribute marker, bit 2 is the exact MSBuild OutputAttribute marker, bit 3
-// is the `required` word and bit 4 the `init` word. Naming the reads here keeps the host from
-// duplicating the packed representation.
+// is the `required` word and bit 4 the `init` word; bits 5–12 are the inheritance and accessibility
+// words. Naming the reads here keeps the host from duplicating the packed representation.
 func ColumnarStructPropertyFlagIsStatic(flags: int): bool {
     return (flags & 1) != 0
 }
@@ -528,6 +528,44 @@ func ColumnarStructPropertyFlagIsRequired(flags: int): bool {
 
 func ColumnarStructPropertyFlagIsInitOnly(flags: int): bool {
     return (flags & 16) != 0
+}
+
+// Bits 5–8: `virtual`, `abstract`, `override` and `sealed`, and bits 9–12: `public`, `private`,
+// `internal` and `protected` (`ParseDeclarationMemberPropertyModifierBits` packs them). The reads hand
+// them back in the ONE modifier bit space `Modifiers` uses, so the declaration planner composes a
+// property's accessor word from the same bits it composes a method's from.
+func ColumnarStructPropertyFlagModifiers(flags: int): int {
+    modifiers := 0
+    if (flags & 32) != 0 {
+        modifiers = modifiers | 32
+    }
+    if (flags & 64) != 0 {
+        modifiers = modifiers | 64
+    }
+    if (flags & 128) != 0 {
+        modifiers = modifiers | 65536
+    }
+    if (flags & 256) != 0 {
+        modifiers = modifiers | 128
+    }
+    if (flags & 512) != 0 {
+        modifiers = modifiers | 1
+    }
+    if (flags & 1024) != 0 {
+        modifiers = modifiers | 2
+    }
+    if (flags & 2048) != 0 {
+        modifiers = modifiers | 4
+    }
+    if (flags & 4096) != 0 {
+        modifiers = modifiers | 8
+    }
+    return modifiers
+}
+
+// The property word's thirteen bits; anything outside them is not a word the packing writes.
+func ColumnarStructPropertyFlagIsWellFormed(flags: int): bool {
+    return flags >= 0 && flags < 8192
 }
 
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
@@ -996,7 +1034,7 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
 
     i := 0
     while i < propCount {
-        if outputs.PropStaticFlags[i] < 0 || outputs.PropStaticFlags[i] > 31 {
+        if !ColumnarStructPropertyFlagIsWellFormed(outputs.PropStaticFlags[i]) {
             return 0
         }
 
@@ -1061,7 +1099,7 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
 
         j := i + 1
         while j < propCount {
-            if outputs.PropStaticFlags[j] < 0 || outputs.PropStaticFlags[j] > 31 {
+            if !ColumnarStructPropertyFlagIsWellFormed(outputs.PropStaticFlags[j]) {
                 return 0
             }
 

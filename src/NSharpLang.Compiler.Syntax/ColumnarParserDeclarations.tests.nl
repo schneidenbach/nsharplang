@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
+import System
 import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
@@ -1050,4 +1051,28 @@ test "readonly struct: NL311 covers every other declaration keyword, including t
     // type-declaration keyword — the scan has to know both or they fall back to the NL101 cascade.
     assert PdCensus("readonly duck interface Quacks {\n    func Quack()\n}\n") == "NL311@1:1+8;"
     assert PdCensus("readonly soa record Particles {\n    X: double\n}\n") == "NL311@1:1+8;"
+}
+
+// A PROPERTY ROW'S PREFIX WORD carries the inheritance and accessibility words beside `required` and
+// `init`, and the reader hands them back in the `Modifiers` bit space the planner composes accessor
+// words from. Every bit survives the round trip, and none lands on `static` or the MSBuild markers.
+test "a property row's word round-trips its inheritance and accessibility modifiers" {
+    written := Convert.ToInt32(Modifiers.Virtual) | Convert.ToInt32(Modifiers.Abstract) | Convert.ToInt32(Modifiers.Override) | Convert.ToInt32(Modifiers.Sealed) | Convert.ToInt32(Modifiers.Public) | Convert.ToInt32(Modifiers.Private) | Convert.ToInt32(Modifiers.Internal) | Convert.ToInt32(Modifiers.Protected)
+    values := new int[](6)
+    values[2] = written
+    word := ParseDeclarationMemberPropertyModifierBits(new ParserDeclarationResultTable(values))
+    assert ColumnarStructPropertyFlagModifiers(word) == written
+    assert ColumnarStructPropertyFlagIsWellFormed(word)
+    assert !ColumnarStructPropertyFlagIsStatic(word)
+    assert !ColumnarStructPropertyFlagHasMsBuildRequired(word)
+    assert !ColumnarStructPropertyFlagHasMsBuildOutput(word)
+    assert !ColumnarStructPropertyFlagIsRequired(word)
+    assert !ColumnarStructPropertyFlagIsInitOnly(word)
+
+    overrideOnly := new int[](6)
+    overrideOnly[2] = Convert.ToInt32(Modifiers.Override)
+    assert ColumnarStructPropertyFlagModifiers(ParseDeclarationMemberPropertyModifierBits(new ParserDeclarationResultTable(overrideOnly))) == Convert.ToInt32(Modifiers.Override)
+
+    assert !ColumnarStructPropertyFlagIsWellFormed(-1)
+    assert !ColumnarStructPropertyFlagIsWellFormed(8192)
 }

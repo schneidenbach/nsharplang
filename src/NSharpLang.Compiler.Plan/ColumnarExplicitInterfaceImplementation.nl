@@ -224,6 +224,56 @@ class ColumnarExplicitInterfaceImplementation {
         return true
     }
 
+    // A NON-PUBLIC GETTER THAT FILLS AN INTERFACE'S VALUE SLOT. The CLR binds an implicit
+    // implementation by name and signature only when it is public, so `internal Name: string` over an
+    // interface's `Name` is a type the loader refuses ("does not have an implementation") unless the
+    // getter names its slot in a MethodImpl row — the row a non-public `func` filling an interface
+    // method already gets. Every interface the type declares, and each one's own bases, is asked for
+    // the slot; a public getter needs no row and gets none.
+    static func DefineNonPublicValueSlotFills(owner: ColumnarStructDef, getter: MethodBuilder, simpleName: string) {
+        if ((int)getter.Attributes & 7) == 6 {
+            return
+        }
+
+        candidates := new List<Type>()
+        for implemented in owner.ImplementedInterfaces {
+            AddInterfaceClosure(candidates, implemented.Builder)
+        }
+        for implementedType in owner.ImplementedInterfaceTypes {
+            AddInterfaceClosure(candidates, implementedType)
+        }
+        for external in owner.ExternalInterfaces {
+            AddInterfaceClosure(candidates, external)
+        }
+
+        bound := new HashSet<MethodInfo>()
+        for candidate in candidates {
+            slot: MethodInfo? = null
+            if TryResolveValueSlotAccessor(owner, candidate, simpleName, false, out slot) && slot != null && bound.Add(slot) {
+                owner.Builder.DefineMethodOverride(getter, slot)
+            }
+        }
+    }
+
+    static func AddInterfaceClosure(candidates: List<Type>, interfaceType: Type) {
+        for known in candidates {
+            if ColumnarTypeEquivalenceFacts.TypesEquivalent(known, interfaceType) {
+                return
+            }
+        }
+
+        candidates.Add(interfaceType)
+        bases: Type[] = new Type[](0)
+        try {
+            bases = interfaceType.GetInterfaces()
+        } catch {
+            return
+        }
+        for baseInterface in bases {
+            AddInterfaceClosure(candidates, baseInterface)
+        }
+    }
+
     // The SOURCE definition behind a named interface, when the compilation is writing it. A closed
     // construction over a source interface resolves through the same resolver the emitter uses for the
     // implements list, so an open definition and a closed instantiation both find their definition.

@@ -988,6 +988,58 @@ and a ternary with exactly one typeless arm answers its OTHER arm's type — mad
 two walks the argument again under the chosen parameter, and the emitter reads the parameter itself.
 A `default` with no target at all (`x := flag ? default : n`) still reports NL203.
 
+UNTARGETED `[]` AND DISAGREEING CONDITIONALS (2026-10-18). Two shapes passed analysis as `unknown` in
+silence and were refused by the backend as NL103: an empty `[]` with no target (`xs := []`, answered
+`unknown[]`) and a conditional whose arms convert neither way (`y := flag ? 1 : "x"`, `CommonType`
+answers `unknown`). Both now report at the analyzer, on `default`'s rule — only when the target slot is
+empty AND the node is not a `PendingTargetArgument` arm:
+- `AnalyzerArrayLiteral.ReportUntargetedEmptyLiteralIfNeeded` — NL203 on the whole `[]`. A target that
+  names no element type (`x: object = []`) is not this report's. An inferred literal whose FIRST element
+  answered untyped (`IsUntypedAnswer`: `unknown` or arrays of it) no longer measures later elements
+  against it, so `[[], [1]]` reports once.
+- `AnalyzerTargetTypedOperands.FinishTernary` asks the conversion oracle
+  (`AnalyzerPatternReachability.CheckConditionalBranches`, beside the cast report) when the result is
+  `unknown`, `!TargetPending` and `ExpectedResultType == null`. NL202 fires only when NEITHER arm is
+  assignable to the other and `AnalyzerMatchExpression.FindCommonBaseType` finds nothing — so
+  `flag ? "a" : null`, `flag ? dog : null` and `flag ? dog : animal` stay silent (the first two compile;
+  the third is a separate typing/backend gap). Unknown, `void`, `never`, function and method-group arms
+  are never judged. A `null` arm beside a value type gets its own sentence and a `T?` hint.
+- THE HINT NAMES THE SITE. `AmbientInferenceSite` (value, name, anonymous-property?, `let`?) is opened by
+  `DriveLocalDeclaration` for an unannotated `:=`/`let`/`for` initializer (carried on
+  `VariableDeclarationRequest.InferenceSite`) and by `AnalyzerConstruction` around each anonymous
+  property value; readers ask `AnalyzerAmbientContext.InferenceSiteFor(node)`, which applies the same
+  `IsTypelessArmOf` structural test, so a node inside a lambda or a call gets the general hint.
+Spans: `AnalyzerDiagnosticSpans.GetArrayLiteralDiagnosticSpan` / `GetConditionalDiagnosticSpan` (whole
+literal / condition-to-else on one line), kept separate from `GetExpressionDiagnosticSpan` so no other
+report's span moved. Pinned by `AnalyzerInferenceSites.tests.nl` (real analyzer) plus unit rows in
+`AnalyzerArrayLiteral.tests.nl` and `AnalyzerPatternReachability.tests.nl`.
+
+CONDITIONALS WITH BRANCHES OF TWO TYPES, TYPED AND EMITTED (2026-10-23). The follow-up made every
+conditional whose arms have types but not the same one either compile or report:
+- ANALYZER (`FinishTernary`, when `CommonType` is `unknown`): (1) `ConditionalNaturalType` — the type
+  exactly one arm is assignable to (`flag ? dog : animal` is `Animal`; `null` arms excluded, they stay
+  the target-typed route's); (2) `ConditionalFitsTarget` — both arms assignable to `ExpectedResultType`
+  makes the conditional that type (`y: object = flag ? 1 : "x"`). The slot is NEVER treated as a hard
+  requirement because operator operands inherit it; (3) a pending overload argument answers
+  `ConditionalPendingType` = `AnonymousUnionTypeInfo(then, else)`, and `EveryArmAssignableTo` makes
+  exactly the overloads both arms fit applicable (`Show(object)` over `Show(int)`; none → NL402 whose
+  hint names `int | string`); (4) otherwise `CheckConditionalBranches`, now ALSO with a target in force,
+  whose hint (`TargetMismatchHint`) names the arm that does not fit it.
+- EMITTER: `IsMixedConditional` (both arms preflight-typed, neither typeless, not equivalent) opens the
+  existing target-typed route — `CanEmitConditionalAsType`/`TryEmitConditionalAsType`, which every
+  targeted site (typed local, assignment, return, argument, `EmitArg`) already asks first — and nested
+  mixed arms recurse through it. With no target, `TryGetMixedConditionalNaturalType` picks the type
+  (numeric: one-way `CanUseImplicitNumericWidening`, else both int-promotable → `int`, else
+  `TrySelectMixedNumericCommonType` — `CommonType`'s promotion over CLR types; other pairs: one-way
+  `CanConvertConditionalArmType`), answered by preflight and used by the residual kind-13 arm. The
+  `Console.Write[Line]` string fallback skips a mixed conditional so ordinary selection finds `object`.
+- `x := null` is NL203 (`AnalyzerVariableDeclaration.ReportNullInitializer`); `let name = init` /
+  `let name := init` parse to the kind-24 inferred node in `ColumnarParserStatementKernels` (they
+  declined at `parse.function`). Note: `let` immutability is not enforced by the analyzer at all.
+Pinned by `tests/native/census-mixed-conditionals` (both paths of every shape, static type observed by
+overload choice or `GetType()`), `AnalyzerInferenceSites.tests.nl`, `AnalyzerPatternReachability.tests.nl`
+and `ColumnarParserKernels.tests.nl` (`ColumnarFunctionBodyDeclarationProbe`).
+
 THE EMITTER'S HAND-WRITTEN FRAMEWORK ARMS (`string.IsNullOrEmpty`, `Math.Max`, `Path.*`, ...) bind
 their arguments through `EmitArg`, which had no conditional-as-target door: a `null` arm survived only
 through the untargeted unification arm (which knows `null`, not `default`), so

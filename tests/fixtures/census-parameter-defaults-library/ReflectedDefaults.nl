@@ -7,6 +7,12 @@ enum Tone {
     Loud
 }
 
+enum Rights {
+    None = 0,
+    Read = 1,
+    Write = 2
+}
+
 // Every constant kind a parameter default can hold, compiled into a SEPARATE assembly, so a call that
 // omits the argument reads the default back out of metadata rather than out of source.
 class ReflectedDefaults {
@@ -68,6 +74,28 @@ class ReflectedDefaults {
 
     static func ToneDefault(value: Tone = default): Tone {
         return value
+    }
+
+    static func Mask(value: long = (1L << 40) - 1): long {
+        return value
+    }
+
+    static func Both(value: Rights = Rights.Read | Rights.Write): Rights {
+        return value
+    }
+
+    static func Scaled(value: decimal = 10m * 1.5m): decimal {
+        return value
+    }
+
+    // GENERIC declarations with a defaulted tail. A call that writes only the value infers `T` from
+    // it and fills the rest from metadata, the shape of `JsonSerializer.Serialize(value)`.
+    static func Tag<T>(value: T, label: string = "tag"): string {
+        return $"{label}:{value}"
+    }
+
+    func Join<T>(first: T, second: T, separator: char = '|'): string {
+        return $"{first}{separator}{second}"
     }
 
     func Factor(factor: double = 0.5): double {

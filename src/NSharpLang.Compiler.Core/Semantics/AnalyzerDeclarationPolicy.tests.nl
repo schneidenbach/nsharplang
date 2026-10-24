@@ -866,3 +866,59 @@ test "two files of a folder with no project.yml are two programs, so the same ty
 
     assert DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile).Count == 0
 }
+
+// THE FOLD RULE. A constant expression has to have a value before it can be stored, and the value is
+// `ConstantFolder`'s: one that overflows, divides by zero or applies an operator its operands lack is
+// refused with the reason, and the walk never suspends to type-check it.
+test "a default whose arithmetic overflows is refused with the reason and the fix" {
+    harness := DeclarationPolicyHarnessNew()
+    parameters := new List<Parameter>()
+    overflow := new BinaryExpression(new IntLiteralExpression("2147483647", 1, 1), BinaryOperator.Add, new IntLiteralExpression("1", 1, 1), 1, 1)
+    parameters.Add(DeclarationPolicyParam("limit", "long", overflow))
+    steps := DeclarationPolicyValidate(harness, parameters)
+
+    assert steps.Count == 0
+    reports := DeclarationPolicyErrors(harness, ErrorCode.InvalidDefaultParameterValue)
+    assert reports.Count == 1
+    assert reports[0].Message == "The default value for 'limit' cannot be computed: adding them overflows 'int'"
+    assert reports[0].Suggestion == "The arithmetic is done in 'int' because that is its operands' type, whatever the parameter's type is. Write an operand with an 'L' suffix (for example '2147483647L') to do it in 'long'."
+}
+
+test "a default that divides by zero, or joins a string to a number, is refused" {
+    harness := DeclarationPolicyHarnessNew()
+    parameters := new List<Parameter>()
+    parameters.Add(DeclarationPolicyParam("a", "int", new BinaryExpression(new IntLiteralExpression("7", 1, 1), BinaryOperator.Divide, new IntLiteralExpression("0", 1, 1), 1, 1)))
+    parameters.Add(DeclarationPolicyParam("b", "string", new BinaryExpression(new StringLiteralExpression("\"a\"", 1, 1), BinaryOperator.Add, new IntLiteralExpression("1", 1, 1), 1, 1)))
+    DeclarationPolicyValidate(harness, parameters)
+
+    reports := DeclarationPolicyErrors(harness, ErrorCode.InvalidDefaultParameterValue)
+    assert reports.Count == 2
+    assert reports[0].Message == "The default value for 'a' cannot be computed: it divides by zero"
+    assert reports[1].Message == "The default value for 'b' cannot be computed: '+' cannot be applied to constants of type 'string' and 'int'"
+}
+
+test "a parenthesized constant expression folds and is type-checked like any default" {
+    harness := DeclarationPolicyHarnessNew()
+    parameters := new List<Parameter>()
+    inner := new BinaryExpression(new IntLiteralExpression("1", 1, 1), BinaryOperator.LeftShift, new IntLiteralExpression("4", 1, 1), 1, 1)
+    mask := new BinaryExpression(new ParenthesizedExpression(inner, 1, 1), BinaryOperator.Subtract, new IntLiteralExpression("1", 1, 1), 1, 1)
+    parameters.Add(DeclarationPolicyParam("mask", "int", mask))
+    steps := DeclarationPolicyValidate(harness, parameters)
+
+    assert steps.Count == 1
+    assert steps[0].Kind == 2
+    assert harness.Errors.Count == 0
+}
+
+test "an array is not a default, and the help says what to do instead" {
+    harness := DeclarationPolicyHarnessNew()
+    elements := new List<Expression>()
+    elements.Add(new IntLiteralExpression("1", 1, 1))
+    parameters := new List<Parameter>()
+    parameters.Add(DeclarationPolicyParam("items", "int[]", new ArrayLiteralExpression(elements, false, 1, 1)))
+    DeclarationPolicyValidate(harness, parameters)
+
+    reports := DeclarationPolicyErrors(harness, ErrorCode.InvalidDefaultParameterValue)
+    assert reports.Count == 1
+    assert reports[0].Suggestion == "An array is created when the program runs, so it cannot be stored as a default. Default 'items' to null and create the array in the body when it is null."
+}

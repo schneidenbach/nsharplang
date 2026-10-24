@@ -3799,6 +3799,80 @@ test "016 interpolation: a format-clause hole {a +:D3} strips the format then re
     assert e.Length == 3
 }
 
+// A hole ends at its MATCHING brace (ParserLiteralFacts.FindInterpolationHoleClose), the rule the
+// emitter's splitter shares: an anonymous object's braces nest, a brace in a character literal is
+// content, and the format colon is the one after the group, not the property colon inside it.
+func InterpolationHoleParts(source: string): List<InterpolatedStringPart> {
+    parsed := ColumnarParserRecovery.ParseFileAst(source, "a.nl")
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    declaration := unit.Declarations[0] as FunctionDeclaration
+    assert declaration != null
+    body := declaration.Body
+    assert body != null
+    statement := body.Statements[0] as PrintStatement
+    assert statement != null
+    interpolated := statement.Value as InterpolatedStringExpression
+    assert interpolated != null
+    return interpolated.Parts
+}
+
+func InterpolationText(part: InterpolatedStringPart): string {
+    text := part as InterpolatedStringText
+    assert text != null
+    return text.Text
+}
+
+func InterpolationHole(part: InterpolatedStringPart): InterpolatedStringHole {
+    hole := part as InterpolatedStringHole
+    assert hole != null
+    return hole
+}
+
+// The character literal on the right of a `c == '…'` hole, as written (quotes included).
+func InterpolationComparedCharLiteral(part: InterpolatedStringPart): string {
+    comparison := InterpolationHole(part).Expression as BinaryExpression
+    assert comparison != null
+    literal := comparison.Right as CharLiteralExpression
+    assert literal != null
+    return literal.Value
+}
+
+test "016 interpolation: an anonymous object hole nests its braces and keeps its property colon" {
+    parts := InterpolationHoleParts("func f() {\n    print $\"x={new { A: 1 }} y\"\n}\n")
+    assert parts.Count == 3
+    assert InterpolationText(parts[0]) == "x="
+    hole := InterpolationHole(parts[1])
+    assert hole.FormatClause == null
+    created := hole.Expression as NewExpression
+    assert created != null
+    initializer := created.Initializer
+    assert initializer != null
+    assert initializer.Properties.Count == 1
+    assert InterpolationText(parts[2]) == " y"
+    assert parts[2].Column == 29
+}
+
+test "016 interpolation: the format clause after a brace group is the colon past the group" {
+    parts := InterpolationHoleParts("func f() {\n    print $\"{new { V: n }.V:F2}\"\n}\n")
+    assert parts.Count == 1
+    hole := InterpolationHole(parts[0])
+    assert hole.FormatClause == "F2"
+    access := hole.Expression as MemberAccessExpression
+    assert access != null
+    assert access.MemberName == "V"
+}
+
+test "016 interpolation: a brace or a quote written as a character literal stays inside its hole" {
+    parts := InterpolationHoleParts("func f() {\n    print $\"{c == '}'}|{c == '\"'}|{c == ':'}\"\n}\n")
+    assert parts.Count == 5
+    assert InterpolationComparedCharLiteral(parts[0]) == "'}'"
+    assert InterpolationComparedCharLiteral(parts[2]) == "'\"'"
+    assert InterpolationHole(parts[4]).FormatClause == null
+    assert InterpolationComparedCharLiteral(parts[4]) == "':'"
+}
+
 test "016 interpolation: a bad NESTED hole reports through the recursive sub-parse with composed positions" {
     // The outer hole's expression `g($"{y +}")` is itself sub-parsed; its interpolated-string argument recurses
     // into ParseInterpolatedString, and the inner hole's dangling `+` anchors at the composed file position.

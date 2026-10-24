@@ -7,6 +7,13 @@ enum Level {
     High
 }
 
+enum Access {
+    None = 0,
+    Read = 1,
+    Write = 2,
+    Execute = 4
+}
+
 struct Span {
     Start: int
     Length: int
@@ -130,6 +137,59 @@ func nullableDateDefault(value: DateTime? = default): string {
     return value == null ? "none" : "some"
 }
 
+// CONSTANT EXPRESSIONS, folded at compile time exactly as C# folds them.
+func productDefault(value: int = 2 * 3): int {
+    return value
+}
+
+func maskDefault(value: long = (1L << 40) - 1): long {
+    return value
+}
+
+func widenedDefault(value: long = 2 * 3): long {
+    return value
+}
+
+func ratioDefault(value: double = 1.0 / 4): double {
+    return value
+}
+
+func truncatedDefault(value: double = 1 / 2): double {
+    return value
+}
+
+func moneyDefault(value: decimal = 10m * 1.5m): decimal {
+    return value
+}
+
+func joinedDefault(value: string = "ab" + "cd"): string {
+    return value
+}
+
+func negatedDefault(value: int = -(3 + 4)): int {
+    return value
+}
+
+func xorDefault(value: uint = 0xFFu ^ 0x0Fu): uint {
+    return value
+}
+
+func flagsDefault(value: Access = Access.Read | Access.Write): Access {
+    return value
+}
+
+func maskedFlagsDefault(value: Access = ~Access.Read & (Access.Write | Access.Execute)): Access {
+    return value
+}
+
+func nullableFlagsDefault(value: Access? = Access.Write | Access.Execute): Access {
+    return value ?? Access.None
+}
+
+func zeroFlagsDefault(value: Access = 0): Access {
+    return value
+}
+
 class Meter {
     Width: long
     Ratio: decimal
@@ -179,5 +239,15 @@ class Window(width: long = 640L, ratio: decimal = 1.5m, title: char = 'w') {
 
     func Title(): char {
         return title
+    }
+}
+
+class Grant {
+    Mode: Access
+    Size: int
+
+    constructor(mode: Access = Access.Read | Access.Execute, size: int = 4 * 1024) {
+        Mode = mode
+        Size = size
     }
 }

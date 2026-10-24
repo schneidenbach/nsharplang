@@ -7,6 +7,7 @@ import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.InteropServices
 import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 
 func DeclarationPlanEmptyProgramInput(source: string, enums: IReadOnlyList<ColumnarEnumInput>): ColumnarProgramInput {
     // Every argument is spelled: omitting a defaulted parameter of a STATIC method declines emission
@@ -761,6 +762,47 @@ test "the property rows carry a word, both accessor names and the value ordinal 
     assert rows.HasSetter[0][1]
     assert rows.ValueOrdinals[0][0] == 0
     assert rows.ValueOrdinals[0][1] == 1
+}
+
+// A WRITTEN PROPERTY'S INHERITANCE WORDS ARE ITS ACCESSORS': `virtual` opens a slot (Virtual|NewSlot
+// = 2182 + 64 + 256), `override` reuses one (Virtual, NewSlot clear), `sealed override` closes it
+// (Virtual|Final), and a property with none of them keeps the plain word. `abstract` has its word for
+// completeness; the analyzer refuses it on a written property and the emitter declines it.
+test "a written property's accessor word carries its virtual, override and sealed override words" {
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", 0) == 2182
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", ColumnarFunctionInput.VirtualModifierFlag()) == 2182 + 64 + 256
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", ColumnarFunctionInput.OverrideModifierFlag()) == 2182 + 64
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", ColumnarFunctionInput.OverrideModifierFlag() | ColumnarFunctionInput.SealedModifierFlag()) == 2182 + 64 + 32
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", ColumnarFunctionInput.AbstractModifierFlag()) == 2182 + 64 + 256 + 1024
+    // `sealed` alone closes nothing; the analyzer refuses it before the plan is asked.
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", ColumnarFunctionInput.SealedModifierFlag()) == 2182
+}
+
+// A WRITTEN PROPERTY'S ACCESSIBILITY IS ITS ACCESSORS', by the method rule: the written word, else the
+// casing convention. Public 6, Family 4, Assembly 3, Private 1, FamORAssem 5 — on top of
+// HideBySig|SpecialName (2176), and Static (16) on a static property.
+test "a written property's accessor word carries its accessibility word or its casing" {
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", 0) == 2176 + 6
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("text", 0) == 2176 + 3
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", Convert.ToInt32(Modifiers.Protected)) == 2176 + 4
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", Convert.ToInt32(Modifiers.Private)) == 2176 + 1
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", Convert.ToInt32(Modifiers.Internal)) == 2176 + 3
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("text", Convert.ToInt32(Modifiers.Public)) == 2176 + 6
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", Convert.ToInt32(Modifiers.Protected) | Convert.ToInt32(Modifiers.Internal)) == 2176 + 5
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes("Text", Convert.ToInt32(Modifiers.Protected) | ColumnarFunctionInput.VirtualModifierFlag()) == 2176 + 4 + 64 + 256
+    assert ColumnarDeclarationPlanner.StaticAccessorAttributes("Shared", 0) == 2198
+    assert ColumnarDeclarationPlanner.StaticAccessorAttributes("shared", 0) == 2176 + 16 + 3
+    assert ColumnarDeclarationPlanner.StaticAccessorAttributes("Shared", Convert.ToInt32(Modifiers.Protected)) == 2176 + 16 + 4
+
+    properties := new List<ColumnarPropertyInput>()
+    properties.Add(new ColumnarPropertyInput("Text", "int", DeclarationPlanMethodInput("get_Text", "int", false), null, false, 0, false, false, false, false, ColumnarFunctionInput.VirtualModifierFlag()))
+    // A static property has no slot, whatever was written; the analyzer refuses the word.
+    properties.Add(new ColumnarPropertyInput("Shared", "int", DeclarationPlanMethodInput("get_Shared", "int", true), null, true, 0, false, false, false, false, ColumnarFunctionInput.VirtualModifierFlag()))
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanPropertyStruct("Label", properties))
+    rows := ColumnarDeclarationPlanner.BuildProperties(DeclarationPlanTypeDefProgram("namespace Demo\n", structs, new List<ColumnarInterfaceInput>()))
+    assert rows.AccessorWords[0][0] == 2182 + 64 + 256
+    assert rows.AccessorWords[0][1] == 2198
 }
 
 func DeclarationPlanAttributeProgram(structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, tests: IReadOnlyList<ColumnarTestInput>?): ColumnarProgramInput {

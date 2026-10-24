@@ -11,7 +11,7 @@ import NSharpLang.Compiler.Ast
 // The walk owns what N#'s TWO local-declaration statements MEAN — `let x: T = e` and
 // `(a, b) := e` — what an annotation resolves to, whether the initializer is assignable to it,
 // which of the four type outcomes a declaration has, whether a deconstruction source is a tuple at
-// all and whether its element count matches the target list, which of the walk's SEVEN diagnostics
+// all and whether its element count matches the target list, which of the walk's EIGHT diagnostics
 // fires and with which span and wording, which SoA escape report the resulting type selects, and
 // what each declared name's null state is the instant it comes into existence. What it cannot do is
 // run the analyzer's own EXPRESSION walk, declare a symbol into the analyzer's scope stack, or write
@@ -28,7 +28,9 @@ import NSharpLang.Compiler.Ast
 // The kinds:
 //   1  analyse the INITIALIZER expression under an expected type, SETTING the analyzer's ambient
 //      target-typing slot to `ExpectedType` for the duration. ANSWERS a type, and that type is the
-//      operand of three of the four steps that follow it.
+//      operand of three of the four steps that follow it. An unannotated declaration also carries
+//      its `InferenceSite`, opened for the same duration, so an initializer with no type of its own
+//      (`xs := []`) is told the fix with this local's name in it.
 //   4  declare the name into the analyzer's scope stack, under the declaration kind carried here
 //      (null for a deconstruction target, which is not tagged).
 //   5  record the name in the semantic model the IDE's hover and completion read.
@@ -47,6 +49,7 @@ class VariableDeclarationRequest {
     Name: string?
     CarriedType: TypeInfo
     ExpectedType: TypeInfo?
+    InferenceSite: AmbientInferenceSite?
     Text: string?
     Line: int
     Column: int
@@ -57,6 +60,7 @@ class VariableDeclarationRequest {
         Name = null
         CarriedType = carriedType
         ExpectedType = null
+        InferenceSite = null
         Text = null
         Line = 0
         Column = 0
@@ -166,12 +170,13 @@ class VariableDeclarationState {
 // the expression walker still reads it, but WHAT it is set to is this walk's answer, so the kind-1
 // request carries it and the driver performs the same save / set / restore around the same one call.
 //
-// THE FOUR TYPE OUTCOMES AND ALL SEVEN DIAGNOSTICS ARE `Analyzer.cs`'s VERBATIM. An annotation with
+// THE FOUR TYPE OUTCOMES AND SEVEN OF THE EIGHT DIAGNOSTICS ARE `Analyzer.cs`'s VERBATIM. An annotation with
 // a non-assignable initializer reports NL202 in the rich `ErrorMessageBuilder` shape when the file
 // and a snippet are both available and in the detail-only shape when either is missing — the SAME
 // report in the SAME position, differing only in how much explanation it carries. A `const` with an
 // annotation and no initializer reports NL103. A void initializer with no annotation reports NL202
-// and the declaration falls back to unknown. A declaration with neither reports NL103. And an
+// and the declaration falls back to unknown, and so does a bare `null` with no annotation, which
+// reports NL203 — the eighth, N#'s own. A declaration with neither reports NL103. And an
 // annotation ALWAYS wins the type, even when the initializer disagreed. A deconstruction adds two
 // more, both NL103 and both underlining the INITIALIZER: a source that is not a tuple, and a tuple
 // whose element count disagrees with the target count. Both then give every target `unknown` rather
@@ -317,6 +322,10 @@ class AnalyzerVariableDeclaration {
         request := new VariableDeclarationRequest(1, BuiltInTypes.Unknown)
         request.Node = initializer
         request.ExpectedType = state.DeclaredType
+        if state.DeclaredType == null {
+            request.InferenceSite = new AmbientInferenceSite(initializer, declaration.Name, false, declaration.HasLetKeyword)
+        }
+
         return request
     }
 
@@ -348,6 +357,12 @@ class AnalyzerVariableDeclaration {
         if inferredType != null {
             if BuiltInTypes.Is(inferredType, BuiltInTypes.Void) {
                 ReportVoidInitializer(declaration, initializer)
+                state.FinalType = BuiltInTypes.Unknown
+                return null
+            }
+
+            if BuiltInTypes.Is(inferredType, BuiltInTypes.Null) && initializer != null {
+                ReportNullInitializer(declaration, initializer)
                 state.FinalType = BuiltInTypes.Unknown
                 return null
             }
@@ -1073,6 +1088,16 @@ class AnalyzerVariableDeclaration {
         }
 
         diagnosticsValue.Report(ErrorCode.TypeMismatch, "This expression doesn't return a value (it's void) — you can't assign it to a variable", span.Line, span.Column, null, span.Length)
+    }
+
+    // NL203 — `x := null`. A bare `null` is a value of every nullable type and of none in particular,
+    // so a local that takes its type from it has none: it reached the backend typed `null` and was
+    // refused there. The local is `unknown` after the report, as a void initializer's is, so its uses
+    // are not reported again; the anonymous-object property's identical report is its sibling.
+    func ReportNullInitializer(declaration: VariableDeclarationStatement, initializer: Expression) {
+        span := spansValue.GetExpressionDiagnosticSpan(initializer)
+        site := new AmbientInferenceSite(initializer, declaration.Name, false, declaration.HasLetKeyword)
+        diagnosticsValue.Report(ErrorCode.CannotInferType, "I can't figure out the type of '" + declaration.Name + "' from 'null' — a local without a type annotation takes its type from its value, and 'null' could be any nullable type", span.Line, span.Column, site.AnnotationHint("string?", "null"), span.Length)
     }
 
     // NL103 — no annotation and no initializer leaves nothing to infer from.

@@ -257,6 +257,20 @@ class LoudGauge: Gauge {
 
 See [`virtual`, `abstract` and `override` auto-properties](./types.md#virtual-abstract-and-override-auto-properties).
 
+A property written with accessors takes `virtual`, `override` and `sealed override` the way a `func`
+does — on each accessor it declares — so a get-only base property such as `Exception.Message` is
+overridden with a getter:
+
+```n#
+import System
+
+class ParseError: Exception {
+    override Message: string => "parse error"   // what every `catch e: Exception` reads
+}
+```
+
+See [`virtual` and `override` on a written property](./types.md#virtual-and-override-on-a-written-property).
+
 Generic classes take part in all of this. A generic class may derive from a non-generic base, a generic
 class may close a generic base over a concrete type, and a generic class may pass its own type parameter
 through to a generic base:
@@ -2717,6 +2731,43 @@ func isBlank(flag: bool, text: string): bool => string.IsNullOrEmpty(flag ? null
 The one shape with nothing to take is **both** arms throwing (`ok ? throw a : throw b`): there is no
 value either way, so write the `throw` as a statement instead. C# refuses that shape too.
 
+**Branches of two different types.** When both arms have types and they are not the same type, the
+conditional is decided the way C# decides it:
+
+- With a target — a declared local, a return type, a parameter — each arm converts to the target on
+  its own, so `y: object = flag ? 1 : "x"` is an `object` and `y: Animal = flag ? dog : cat` is an
+  `Animal`.
+- With no target, the conditional takes the type one arm converts to when the other does not convert
+  back: `flag ? dog : animal` is an `Animal`, and two numbers take the wider (`flag ? 1 : 2.5` is a
+  `double`; two small integer types are an `int`).
+- With neither, there is no type to give it, and that is an error (NL202), not a guess. `flag ? 1 :
+  "x"` on the right of a `:=` is reported with a suggestion that names your variable
+  (`y: object = ...`); a `null` arm beside a value type (`flag ? 1 : null`) is told to use the nullable
+  type (`int?`).
+
+```n#
+import System
+
+class Animal {
+    func Speak(): string => "..."
+}
+
+class Dog: Animal {}
+class Cat: Animal {}
+
+func main() {
+    flag := DateTime.Now.Year > 2000
+    pet := flag ? new Dog() : new Animal()      // Animal: Dog converts to Animal
+    either: Animal = flag ? new Dog() : new Cat()  // the declared type is the target
+    boxed: object = flag ? 1 : "x"              // and here
+    ratio := flag ? 1 : 2.5                     // double
+    Console.WriteLine(flag ? 1 : "x")           // the `object` overload: both arms fit it
+    print pet.Speak() + either.Speak()
+    print boxed
+    print ratio
+}
+```
+
 ## Resource Management and Locking
 
 ### `using`
@@ -3179,6 +3230,19 @@ age := 30
 print $"Name: {name}, Age: {age}"
 print $"Next year: {age + 1}"
 print $"Pi: {3.14159:F2}"             // Pi: 3.14
+```
+
+A hole holds any expression, and it ends at its own matching `}`, as in C#. Braces inside it nest, so
+an [anonymous object](./types.md#anonymous-objects) or an initializer can sit directly in a hole, and
+its property colons are not mistaken for a format specifier. Braces, quotes and colons inside a string
+or character literal in the hole are just text.
+
+```n#
+c := '}'
+print $"point={new { X: 1, Y: 2 }}"                           // point={ X = 1, Y = 2 }
+print $"payload={JsonSerializer.Serialize(new { Ok: true })}" // payload={"Ok":true}
+print $"ratio={new { V: 0.256 }.V:F2}"                        // ratio=0.26
+print $"closing brace? {c == '}'}"                            // closing brace? True
 ```
 
 ### Escape Sequences

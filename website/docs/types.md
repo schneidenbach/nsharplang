@@ -238,9 +238,26 @@ mixed: object[] = ["a", 1, ["b", "c"], null]
 ```
 
 Targets include an annotated local or field, a return value, an argument (a `params` array
-included), a `yield` value, and an element of an enclosing literal that is itself a literal. A target
-that may itself be null is still a target, so `object?[]?` names `object?` as its element type the
-same way `object[]` names `object`.
+included), a `yield` value, a member written in an object initializer, and an element of an enclosing
+literal that is itself a literal. A target that may itself be null is still a target, so `object?[]?`
+names `object?` as its element type the same way `object[]` names `object`.
+
+An object-initializer member is the target even when nothing else is, so an empty literal there is the
+member's own type — an array or a `List<T>` alike — and the initializer can sit inside a literal that
+infers its type:
+
+```n#
+import System.Collections.Generic
+
+class Order {
+    Id: int
+    Lines: string[]
+    Tags: List<string>
+}
+
+order := new Order { Id: 1, Lines: [], Tags: [] }          // an empty string[] and List<string>
+orders := [new Order { Id: 2, Lines: [], Tags: ["new"] }]  // Order[]
+```
 
 A literal written as an argument is measured against every candidate of an **overload set** before
 one is chosen, element by element, and the candidate that takes it is the one whose element type fits
@@ -275,6 +292,29 @@ func Block(sha: SHA256, output: byte[]): int {
 ```
 
 Every element has to convert: `[0, 300]` is not a `byte[]`, because 300 is not a `byte`.
+
+A literal can build a **collection** as well as an array. A `List<T>` or `HashSet<T>` target gets a
+new collection holding the elements, and a target that is one of the sequence interfaces every array
+implements — `IEnumerable<T>`, `ICollection<T>`, `IList<T>`, `IReadOnlyCollection<T>` or
+`IReadOnlyList<T>` — gets a `T[]`. Either way each element converts to `T`, and the empty literal is
+an empty collection of the target's element type:
+
+```n#
+import System.Collections.Generic
+
+names: List<string> = ["ada", "grace"]
+ids: System.Collections.Generic.HashSet<int> = []   // the qualified spelling is the same target
+pending: IReadOnlyList<string> = []                 // an empty string[]
+values: IEnumerable<object> = ["a", 1]              // an object[]
+queue := new Queue<int>([1, 2])                     // other collections take the literal as a sequence
+```
+
+The target is the **type**, not how it is written: `List<string>` under an import and
+`System.Collections.Generic.List<string>` written out are one target. A type of your own that happens
+to be named `List<T>` is not a collection target. An `IQueryable<T>` target is refused with
+[NL323](errors/NL323.md), because a literal has no query provider behind it. `Queue<T>`, `Stack<T>`,
+`SortedSet<T>` and `ISet<T>` are not yet built from a literal directly; pass the literal to their
+constructor as above.
 
 Where no target exists, the FIRST element decides the element type and every later one must fit it:
 
@@ -354,6 +394,66 @@ class Product {
     }
 }
 ```
+
+A written property's accessors take its accessibility the way a method does: the word it writes, or
+with none, its casing ([Visibility](./language-tour.md#visibility)). `protected Margin: decimal => …`
+emits `protected` accessors, a camelCase `discount: decimal => …` emits `internal` ones, and only the
+exported properties are what another assembly — or a serializer — sees.
+
+#### `virtual` and `override` on a written property
+
+A property written with accessors is a getter, and a setter when it declares one — methods — so it
+takes part in inheritance the way a `func` does, with C#'s shapes:
+
+| N# | C# |
+|----|----|
+| `virtual Text: string => "plain"` | `public virtual string Text => "plain";` |
+| `override Text: string => "LOUD"` | `public override string Text => "LOUD";` |
+| `sealed override Text: string => "final"` | `public sealed override string Text => "final";` |
+| `virtual Count: int { get { … } set { … } }` | `public virtual int Count { get { … } set { … } }` |
+
+```n#
+import System
+
+class Label {
+    virtual Text: string => "plain"
+
+    func Render(): string => "[" + Text + "]"      // dispatches: an override's text is read
+}
+
+class LoudLabel: Label {
+    override Text: string => "LOUD"
+}
+
+class ParseError: Exception {
+    readonly line: int
+
+    constructor(line: int) {
+        this.line = line
+    }
+
+    override Message: string => "parse error at line " + line.ToString()
+}
+```
+
+`new LoudLabel().Render()` is `"[LOUD]"`, a `Label` variable holding a `LoudLabel` reads `"LOUD"`, and
+a `catch e: Exception` around `throw new ParseError(7)` reads `ParseError`'s message.
+
+- **An override replaces the accessors it declares.** A get-only override replaces the getter and
+  inherits the base's setter, as C#'s does: `gauge.Reading = 3` on the overriding type stores through
+  the base's setter, and the next read is the override's. One that declares a `set` needs a setter slot in the
+  base ([NL311](./errors/NL311.md), C#'s CS0546) — `Exception.Message` is get-only, so it is
+  overridden with a getter alone.
+- **Written and bare members override each other.** A written override can replace a bare
+  `virtual Reading: int` (below), and a bare `override Title: string` can replace a written
+  `virtual` property, in whichever order the types are declared. A bare `abstract Name: string` is a
+  get/set slot, so a concrete class overrides both accessors; a get-only override leaves `Name.set`
+  unimplemented ([NL324](./errors/NL324.md)).
+- **An `override` with no accessibility word takes the slot's**, as a method override does.
+- **`abstract` is written bare.** An abstract slot has no body, and a property with accessors is
+  its bodies, so `abstract` on one is [NL311](./errors/NL311.md); write `abstract Name: string`.
+- `sealed` needs `override`, and a `static` property or a property of a struct or record struct has
+  no slot to take ([NL311](./errors/NL311.md)).
 
 ### Fields and properties
 
@@ -522,7 +622,9 @@ What changes when a member is a slot:
 - **An abstract member has no storage**, so it takes no initializer, and only an abstract class may
   declare one. A concrete class that inherits it must override it ([NL324](./errors/NL324.md)).
 - **`override` needs a base property with a setter.** A bare member overrides both accessors, so a
-  get-only base (`Exception.Message`) cannot be overridden this way.
+  get-only base (`Exception.Message`) cannot be overridden this way — override its getter with a
+  written property, `override Message: string => …`
+  ([above](#virtual-and-override-on-a-written-property)).
 - **An `override` with no accessibility word takes the slot's**, as a method override does: a
   `protected virtual` member's override is `protected`.
 - **A `record` may declare `virtual` members.** No N# type derives from a record, but its CLR type is
@@ -1328,7 +1430,7 @@ An anonymous object can go anywhere an `object` or a type parameter can, and a g
 the anonymous type, so nothing is lost:
 
 ```n#
-import Newtonsoft.Json
+import System.Text.Json
 
 func Echo<T>(value: T): T {
     return value
@@ -1338,7 +1440,32 @@ func main() {
     person := new { Name: "Alice", Age: 30 }
     same := Echo(person)
     print same.Name                                 // Alice
-    print JsonConvert.SerializeObject(person)       // {"Name":"Alice","Age":30}
+    print JsonSerializer.Serialize(person)          // {"Name":"Alice","Age":30}
+}
+```
+
+Serializers read the properties, so an anonymous object is a ready-made JSON payload. The example
+uses System.Text.Json, which ships with .NET: `JsonSerializer.Serialize(person)` infers the
+anonymous type as its type argument, and the options argument it leaves out is filled with its
+default (see
+[inferred type arguments with optional parameters](./functions.md#inferred-type-arguments-with-optional-and-params-parameters)).
+Newtonsoft.Json works the same way: add `- nuget: Newtonsoft.Json` under `dependencies:` in
+`project.yml`, `import Newtonsoft.Json`, and call `JsonConvert.SerializeObject(person)`.
+
+To read JSON back into an anonymous type, which has no name to write as a type argument, pass a
+sample of the shape and let inference name it:
+
+```n#
+import System.Text.Json
+
+func ParseLike<T>(json: string, _sample: T): T? {
+    return JsonSerializer.Deserialize<T>(json)
+}
+
+func main() {
+    json := JsonSerializer.Serialize(new { Name: "Alice", Age: 30 })
+    back := must ParseLike(json, new { Name: "", Age: 0 })
+    print back.Age + 1                              // 31
 }
 ```
 
@@ -2699,14 +2826,15 @@ Two rules the compiler enforces about the type-argument list itself:
   on a BASE class with an omitted default is not filled yet; write `this.` or the owner's name.
   Every constant default is filled, in your own project and from a
   referenced assembly alike: the null reference, `default`, a `Nullable<T>` with no value or with a
-  constant, and every integral, floating, `char`, `bool`, `string`, `decimal` and enum constant (see
-  [Optional Parameters](./functions.md#optional-parameters)). What remains:
+  constant, every integral, floating, `char`, `bool`, `string`, `decimal` and enum constant, and a
+  constant expression over them (see [Optional Parameters](./functions.md#optional-parameters)). What remains:
   - A default must be a constant of the parameter's type. `DateTime.MinValue` and other values read
     at run time are [NL410](./errors/NL410.md) — `= default` is the constant zero of any struct — and
     there is no N# spelling for a non-zero `DateTime` default (C#'s `[DateTimeConstant]`).
-  - A default combining enum members (`flags: Options = Options.A | Options.B`) is accepted by the
-    analyzer but declines at emission with [NL103](./errors/NL103.md); write the single member, or
-    `0`, and combine in the body.
+  - A constant EXPRESSION default (`size: int = 4 * 1024`, `flags: Options = Options.A | Options.B`)
+    is folded as C# folds it, but it is typed like a local's initializer: its type is the operands'
+    type, so `b: byte = 2 + 3` is a type mismatch ([NL202](./errors/NL202.md)) where C# would accept
+    it. Write the folded literal (`b: byte = 5`).
   - From a referenced assembly, a parameter that is merely `[Optional]` with no constant at all (and
     a `[DateTimeConstant]` default) still declines; pass the argument explicitly.
 - **Reading a member off a local initialised from an external static call** declines
