@@ -138,7 +138,7 @@ class ColumnarConstructionPlanner {
             while index < childCount {
                 nameNode := nodes.Child(candidate, index)
                 valueNode := nodes.Child(candidate, index + 1)
-                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression || !ValueSyntaxIsAdmitted(nodes, source, valueNode, bindings, handles, depth + 1) {
+                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression || !MemberValueSyntaxIsAdmitted(nodes, source, valueNode, bindings, handles, depth + 1) {
                     return false
                 }
                 index += 2
@@ -1108,6 +1108,22 @@ class ColumnarConstructionPlanner {
         unionBase: Type? = null
         if TryGetContextualGenericUnionCaseBase(nodes, source, valueNode, bindings, out unionBase) && unionBase != null {
             return TryAppendTargetTypedGenericUnionCase(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, expectedType, unionBase)
+        }
+        // AN ARRAY LITERAL TAKES THE MEMBER'S DECLARED TYPE. `Lines: []` has no element to infer from
+        // and `Tags: ["a", 1]` has no single one, but the member names the array type either way, so
+        // the literal is planned against it exactly as a stored value is. A literal this owner cannot
+        // write at that type -- `Items: ["a"]` into a `List<string>` is the collection-literal owner's
+        // -- is handed to the whole-subtree path rather than rejected: inferring `string[]` and then
+        // refusing the conversion killed an initializer the emitter writes.
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression {
+            checkpoint := plan.CreateCheckpoint()
+            if TryAppendTargetTypedValue(nodes, source, candidate, bindings, handles, plan, fragment, depth + 1, expectedType) {
+                return true
+            }
+            plan.Rollback(checkpoint)
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
         }
         if !ValueSyntaxIsAdmitted(nodes, source, valueNode, bindings, handles, depth) {
             ownership = ColumnarDirectCallOwnership.NotOwned
@@ -3289,6 +3305,19 @@ class ColumnarConstructionPlanner {
 
     static func SameObject(first: object, second: object): bool {
         return Object.ReferenceEquals(first, second)
+    }
+
+    // An object-initializer member value is admitted as `ValueSyntaxIsAdmitted` admits any value,
+    // except an array literal: its type is the member's, which `TryAppendObjectInitializerValue` plans
+    // it against, so a scratch that INFERS it would refuse `Lines: []` (nothing to infer from) and
+    // `Tags: ["a", 1]` (no single element type) that the target-typed plan writes. Its syntax is
+    // admitted here, and planning the initializer proves the value or hands the subtree on.
+    static func MemberValueSyntaxIsAdmitted(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int): bool {
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression {
+            return IsAdmittedConstructionValueSyntax(nodes, source, candidate, bindings, handles, depth)
+        }
+        return ValueSyntaxIsAdmitted(nodes, source, node, bindings, handles, depth)
     }
 
     static func ValueSyntaxIsAdmitted(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int): bool {

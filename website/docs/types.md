@@ -238,9 +238,26 @@ mixed: object[] = ["a", 1, ["b", "c"], null]
 ```
 
 Targets include an annotated local or field, a return value, an argument (a `params` array
-included), a `yield` value, and an element of an enclosing literal that is itself a literal. A target
-that may itself be null is still a target, so `object?[]?` names `object?` as its element type the
-same way `object[]` names `object`.
+included), a `yield` value, a member written in an object initializer, and an element of an enclosing
+literal that is itself a literal. A target that may itself be null is still a target, so `object?[]?`
+names `object?` as its element type the same way `object[]` names `object`.
+
+An object-initializer member is the target even when nothing else is, so an empty literal there is the
+member's own type — an array or a `List<T>` alike — and the initializer can sit inside a literal that
+infers its type:
+
+```n#
+import System.Collections.Generic
+
+class Order {
+    Id: int
+    Lines: string[]
+    Tags: List<string>
+}
+
+order := new Order { Id: 1, Lines: [], Tags: [] }          // an empty string[] and List<string>
+orders := [new Order { Id: 2, Lines: [], Tags: ["new"] }]  // Order[]
+```
 
 A literal written as an argument is measured against every candidate of an **overload set** before
 one is chosen, element by element, and the candidate that takes it is the one whose element type fits
