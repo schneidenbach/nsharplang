@@ -727,3 +727,236 @@ func EmitterCanonicalCliBuild(projectName: string, source: string, variable: str
         Directory.Delete(fixtureRoot, true)
     }
 }
+// GENERIC CALLS THE EMITTER MUST STILL REFUSE, AND THE ONES IT MUST ACCEPT NEXT TO THEM.
+//
+// A lambda written beside explicit type arguments chooses among closed overloads by arity alone.
+// Same-arity delegates (`Action<T>` and `Func<T, R>`) and zero-argument delegates whose bodies need
+// return-type inference are left declined rather than guessed. An inherited generic method is looked
+// up on `this` and on the implicit receiver of an instance body, not from a lambda or local function,
+// whose receiver is a closure.
+
+func GenericDeclineTrace(name: string, source: string): string {
+    captured := EmitterCanonicalCompileWithDeclineLog(name, "library", source)
+    try {
+        return captured.Compilation.Succeeded ? "" : captured.DeclineTrace
+    } finally {
+        EmitterCanonicalCleanup(captured.Compilation)
+    }
+}
+
+test "a zero-argument lambda stays declined when overloads need body-type inference" {
+    trace := GenericDeclineTrace(
+        "AmbiguousLambdaReturn",
+        """
+import System.Threading.Tasks
+
+func Start(): int {
+    task := Task.Run<int>(() => 1)
+    return task.Result
+}
+"""
+    )
+    assert trace.Contains("decline site=emit.", StringComparison.Ordinal), trace
+}
+
+test "Action and Func overloads with the same lambda arity stay declined" {
+    captured := EmitterCanonicalCompileWithDeclineLog(
+        "SameArityActionFuncLambda",
+        "library",
+        """
+import System
+
+class CallbackOverloads {
+    public static func Choose<T>(callback: Action<T>): int {
+        return 1
+    }
+
+    public static func Choose<T>(callback: Func<T, int>): int {
+        return 2
+    }
+}
+
+func Value(): int {
+    return 3
+}
+
+func Run(): int {
+    return CallbackOverloads.Choose<int>(_ => Value())
+}
+"""
+    )
+    try {
+        diagnostics := EmitterCanonicalDiagnostics(captured.Compilation)
+        assert !captured.Compilation.Succeeded, diagnostics
+        assert diagnostics.Contains("is ambiguous", StringComparison.Ordinal), diagnostics
+    } finally {
+        EmitterCanonicalCleanup(captured.Compilation)
+    }
+}
+
+test "a zero-argument lambda stays declined between Action and Func overloads" {
+    captured := EmitterCanonicalCompileWithDeclineLog(
+        "ZeroArityActionFuncLambda",
+        "library",
+        """
+import System
+
+class CallbackOverloads {
+    public static func Choose<T>(callback: Action): int {
+        return 1
+    }
+
+    public static func Choose<T>(callback: Func<T>): int {
+        return 2
+    }
+}
+
+func Value(): int {
+    return 3
+}
+
+func Run(): int {
+    return CallbackOverloads.Choose<int>(() => Value())
+}
+"""
+    )
+    try {
+        diagnostics := EmitterCanonicalDiagnostics(captured.Compilation)
+        assert !captured.Compilation.Succeeded, diagnostics
+        assert diagnostics.Contains("is ambiguous", StringComparison.Ordinal), diagnostics
+    } finally {
+        EmitterCanonicalCleanup(captured.Compilation)
+    }
+}
+
+test "a lambda binds the overload of its own arity and the call compiles" {
+    captured := EmitterCanonicalCompileWithDeclineLog(
+        "LambdaArityBinds",
+        "library",
+        """
+import System.Collections.Generic
+import System.Linq
+
+func Lengths(values: List<string>): int {
+    return values.Select<string, int>(_ => 1).Count()
+}
+
+func Indexed(values: List<string>): int {
+    return values.Select<string, int>((value, index) => index).Count()
+}
+"""
+    )
+    try {
+        assert captured.Compilation.Succeeded, EmitterCanonicalDiagnostics(captured.Compilation)
+    } finally {
+        EmitterCanonicalCleanup(captured.Compilation)
+    }
+}
+
+test "an inherited generic method called from inside a lambda declines" {
+    trace := GenericDeclineTrace(
+        "InheritedGenericInLambda",
+        """
+import System
+
+class Dice: Random {
+    func Run(items: int[]): int {
+        run := () => Shuffle<int>(items)
+        run()
+        return items.Length
+    }
+}
+"""
+    )
+    assert trace.Contains("decline site=emit.", StringComparison.Ordinal), trace
+}
+
+test "an inherited generic method called from a local function in the class declines" {
+    trace := GenericDeclineTrace(
+        "InheritedGenericInLocalFunction",
+        """
+import System
+
+class Dice: Random {
+    func Run(items: int[]): int {
+        func pick(): int {
+            return GetItems<int>(items, 2).Length
+        }
+        return pick()
+    }
+}
+"""
+    )
+    assert trace.Contains("decline site=emit.", StringComparison.Ordinal), trace
+}
+
+test "a derived method with another generic arity leaves inherited generic lookup available" {
+    EmitterCanonicalAssertProgramTrimmed(
+        "InheritedGenericArityLookup",
+        """
+import System
+
+class Person {
+}
+
+class ContextBase {
+    public func Set<T>(): int {
+        return 31
+    }
+}
+
+class DerivedContext: ContextBase {
+    public func Set(count: int): int {
+        return count
+    }
+
+    public func ReadPeople(): int {
+        return Set<Person>()
+    }
+}
+
+func main() {
+    context := new DerivedContext()
+    print context.ReadPeople().ToString()
+    print context.Set(9).ToString()
+}
+""",
+        "31\n9"
+    )
+}
+
+test "a derived overload at another arity leaves inherited List.ConvertAll available" {
+    EmitterCanonicalAssertProgramTrimmed(
+        "ExternalGenericArityLookup",
+        """
+import System
+import System.Collections.Generic
+
+class Names: List<string> {
+    public func ConvertAll(count: int): int {
+        return count
+    }
+
+    public func Lengths(): int {
+        measure: Converter<string, int> = value => value.Length
+        return ConvertAll<int>(measure).Count
+    }
+}
+
+func ReadLengths(names: Names): int {
+    measure: Converter<string, int> = value => value.Length
+    return names.ConvertAll<int>(measure).Count
+}
+
+func main() {
+    names := new Names()
+    names.Add("a")
+    names.Add("long")
+    print names.Lengths().ToString()
+    print ReadLengths(names).ToString()
+    print names.ConvertAll(9).ToString()
+}
+""",
+        "2\n2\n9"
+    )
+}

@@ -200,6 +200,19 @@ class ColumnarSourceDirectCallResolver {
         return HasInstanceDeclarationInChain(root, memberName, argumentCount)
     }
 
+    // Explicit generic lookup asks whether the source hierarchy declares this name at the WRITTEN
+    // generic arity. A non-generic `Set(int)` does not hide an inherited `Set<T>()` from
+    // `Set<Person>()`; the member lookup filters candidates by method arity before overload binding.
+    static func HasInstanceDeclarationAtGenericArity(root: ColumnarStructDef, memberName: string, genericArity: int): bool {
+        ValidateDeclarationQuery(root, memberName, 0)
+        ValidateDefinitionGraph(root)
+        if memberName.Length == 0 || genericArity < 0 {
+            return false
+        }
+
+        return HasInstanceDeclarationAtGenericArityInChain(root, memberName, genericArity)
+    }
+
     // Extension fallback remains available only when the source hierarchy has no declaration
     // with this name. A same-named source declaration at another arity still owns the lookup
     // tier and must not leak into runtime/extension binding.
@@ -894,6 +907,39 @@ class ColumnarSourceDirectCallResolver {
         return false
     }
 
+    static func HasInstanceDeclarationAtGenericArityInChain(current: ColumnarStructDef, memberName: string, genericArity: int): bool {
+        overloads := new List<ColumnarInstanceMethodDef>()
+        if current.MethodOverloads.TryGetValue(memberName, out overloads) {
+            if overloads == null {
+                throw new InvalidOperationException("Source instance-method overload facts cannot be null.")
+            }
+
+            for candidate in overloads {
+                ValidateInstanceMethodFact(current, memberName, candidate)
+                generics := candidate.Generics
+                candidateArity := generics == null ? 0 : generics.TypeParams.Length
+                if candidateArity == genericArity {
+                    return true
+                }
+            }
+        }
+
+        if current.IsInterface {
+            for interfaceBase2 in current.InterfaceBases {
+                if HasInstanceDeclarationAtGenericArityInChain(interfaceBase2, memberName, genericArity) {
+                    return true
+                }
+            }
+        }
+
+        baseDefinition := current.BaseDef
+        if baseDefinition != null {
+            return HasInstanceDeclarationAtGenericArityInChain(baseDefinition, memberName, genericArity)
+        }
+
+        return false
+    }
+
     static func HasStaticDeclarationInChain(current: ColumnarStructDef, memberName: string, argumentCount: int): bool {
         overloads := new List<ColumnarStaticMethodDef>()
         if current.StaticMethods.TryGetValue(memberName, out overloads) {
@@ -1068,15 +1114,58 @@ class ColumnarSourceDirectCallResolver {
             actualType := actual[index]
             index += 1
 
-            verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
-                RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(leftType, actualType),
-                RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(rightType, actualType),
-                ArgumentFlowScore(rightType, leftType, argumentFacts.SourceTypeDefinitions) >= 0,
-                ArgumentFlowScore(leftType, rightType, argumentFacts.SourceTypeDefinitions) >= 0
-            ))
+            leftIdentity := RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(leftType, actualType)
+            rightIdentity := RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(rightType, actualType)
+            comparison := 0
+            if !argumentFacts.IsNullLiteral[index - 1] {
+                leftQuality := ImplicitConversionQuality(actualType, leftType, argumentFacts.SourceTypeDefinitions)
+                rightQuality := ImplicitConversionQuality(actualType, rightType, argumentFacts.SourceTypeDefinitions)
+                if leftQuality >= 0 && rightQuality >= 0 && leftQuality != rightQuality {
+                    comparison = leftQuality < rightQuality ? AnalyzerOverloadSpecificity.LeftIsBetter : AnalyzerOverloadSpecificity.RightIsBetter
+                }
+            }
+            if comparison == 0 {
+                comparison = AnalyzerOverloadSpecificity.CompareConversionTargets(
+                    leftIdentity,
+                    rightIdentity,
+                    ArgumentFlowScore(rightType, leftType, argumentFacts.SourceTypeDefinitions) >= 0,
+                    ArgumentFlowScore(leftType, rightType, argumentFacts.SourceTypeDefinitions) >= 0
+                )
+            }
+            verdicts.Add(comparison)
         }
 
         return AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
+    }
+
+    // Better-conversion-from-expression first prefers an identity conversion, then compares the
+    // conversion kinds before falling back to better-conversion-target. In particular, a standard
+    // reference conversion beats a user-defined conversion even when their target types are
+    // otherwise unrelated (`Task<int>[]` to `IEnumerable<Task<int>>` beats the operator conversion
+    // to `ReadOnlySpan<Task>`). The numeric score used for applicability intentionally merges these
+    // categories, so overload ranking needs this separate semantic classification.
+    static func ImplicitConversionQuality(actualType: Type, expectedType: Type, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): int {
+        if actualType == null || expectedType == null || sourceTypeDefinitions == null {
+            return -1
+        }
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualType, expectedType) {
+            return 0
+        }
+        if actualType.IsByRef || expectedType.IsByRef {
+            return -1
+        }
+        if IsImplicitNumericFlow(actualType, expectedType) || ColumnarNullableArgumentLowering.CanLiftValue(actualType, expectedType) || ColumnarDirectCallConstructedConversions.CanConvert(expectedType, actualType) {
+            return 1
+        }
+        referenceFlow := ColumnarDirectCallArgumentFlow.None
+        if TryClassifyBuiltInReferenceFlow(expectedType, actualType, sourceTypeDefinitions, out referenceFlow) {
+            return 1
+        }
+        sourceConversion := ColumnarSourceImplicitConversionResolver.ResolveExact(actualType, expectedType, sourceTypeDefinitions)
+        if sourceConversion.IsSelected || HasExternalImplicitConversion(actualType, expectedType) {
+            return 2
+        }
+        return -1
     }
 
     static func ArgumentsScore(expected: Type[], actual: Type[]): int {
@@ -1520,6 +1609,15 @@ class ColumnarSourceDirectCallResolver {
     // arm above already asked, so nothing is lost by refusing the metadata question here — the same
     // rule the built-in reference flow states one branch up.
     static func HasExternalImplicitConversion(actualType: Type, expectedType: Type): bool {
+        // A constructed runtime type that contains an unbaked source declaration is not safe to
+        // hand to reflection's assignability walk: TypeBuilderInstantiation.GetInterfaces throws.
+        // Source-declared conversions have already been checked against the compilation registry,
+        // and built-in reference flow has its own structural path, so external operator discovery
+        // cannot add a valid answer for this shape.
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(actualType) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(expectedType) {
+            return false
+        }
+
         if ColumnarReferenceConversionFacts.IsDynamicDeclarationType(actualType) {
             return false
         }

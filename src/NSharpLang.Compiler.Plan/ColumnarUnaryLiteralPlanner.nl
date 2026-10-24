@@ -161,15 +161,21 @@ class ColumnarUnaryLiteralPlanner {
         if nodes.Kind(node) != ColumnarExpressionNodeKind.IntLiteralExpression || nodes.ChildCount(node) != 0 || !ColumnarPlannerSupport.TryGetNodeText(nodes, source, node, out text) {
             return false
         }
-        suffix := NumericLiteralFacts.GetIntegerSuffix(text)
-        magnitude := 0UL
-        if suffix.HasUnsigned || suffix.HasLong || !NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(text, out magnitude) || magnitude != 2147483648UL {
-            return false
+
+        if NumericLiteralFacts.IsNegatedIntMinimumLiteral(text) {
+            valueIndex := plan.AddInt32(int.MinValue)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
+            return true
         }
 
-        valueIndex := plan.AddInt32(-2147483648)
-        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
-        return true
+        if NumericLiteralFacts.IsNegatedLongMinimumLiteral(text) {
+            resultType = typeof(long)
+            valueIndex := plan.AddInt64(long.MinValue)
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
+            return true
+        }
+
+        return false
     }
 
     static func RequiredDecimalNegation(parameterTypes: Type[]): MethodInfo {

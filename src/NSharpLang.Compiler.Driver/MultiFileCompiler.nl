@@ -126,6 +126,9 @@ class MultiFileCompiler {
     private _checkStampAnalysisReuseKey: string
     private _checkInputCapture: IncrementalBuildInputCapture?
     private _checkStampEntries: List<IncrementalInputEntry>?
+    // Whether a caller handed this compiler its incremental state (`IncrementalState`); such a state,
+    // and the analyzer it retains, belongs to that caller's session and outlives this compiler.
+    private _incrementalStateFromCaller: bool
     private _checkStateSeededFromStamp: bool
     private _persistedCheckPartial: bool
     private _incrementalState: IncrementalCompilationState?
@@ -333,8 +336,51 @@ class MultiFileCompiler {
 
     // Persists a complete versioned result after diagnostics and backend validation are final. The
     // diagnostics JSON is always retained even when the selected user-facing mode is text.
+    // A CHECKED PROJECT'S REFERENCE METADATA IS RELEASED ONCE ITS RESULT IS SAVED. A workspace check
+    // holds every project's compiler until the whole workspace is rendered, and each compiler's
+    // analyzer holds a metadata load context with one open file per reference image it read. Across
+    // a repository's ~250 projects that is ~10,000 descriptors held at once, which is the per-process
+    // limit .NET runs under on macOS -- and every assembly a project's imports load on demand
+    // (`FrameworkNamespaceIndex`) moves it closer. After `SaveCheckResult` has captured the
+    // compilation's metadata inputs they are kept as entries, so a later save (the workspace's text
+    // rendering) needs no analyzer. A caller-owned incremental state keeps the analyzer only when
+    // the invocation completed successfully; every other path releases the state's owner slot before
+    // closing the metadata context.
+    func ReleaseReferenceMetadata(preserveRetainedAnalyzer: bool = false): void {
+        capture := _checkInputCapture
+        if capture != null {
+            _checkStampEntries = new List<IncrementalInputEntry>(capture.Entries)
+            _checkInputCapture = null
+        }
+
+        analyzer := _sharedAnalyzerValue
+        if analyzer == null {
+            return
+        }
+
+        state := _incrementalState
+        if preserveRetainedAnalyzer && _incrementalStateFromCaller && state != null && Object.ReferenceEquals(state.RetainedAnalyzer, analyzer) {
+            _sharedAnalyzerValue = null
+            return
+        }
+
+        _sharedAnalyzerValue = null
+        if state != null && Object.ReferenceEquals(state.RetainedAnalyzer, analyzer) {
+            state.ReleaseRetainedAnalyzer()
+        } else {
+            analyzer.Dispose()
+        }
+    }
+
     func SaveCheckResult(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int): bool {
-        return SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
+        saved := false
+        try {
+            result := SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
+            saved = true
+            return result
+        } finally {
+            ReleaseReferenceMetadata(saved && exitCode == 0)
+        }
     }
 
     private func SaveCheckResultCore(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int, hasDiagnostics: bool): bool {
@@ -347,12 +393,22 @@ class MultiFileCompiler {
 
         entries := new List<IncrementalInputEntry>()
         if capture != null {
-            capture.CaptureFileImports(_projectRoot, _compilationUnits)
             analyzer := _sharedAnalyzerValue
             if analyzer != null {
+                capture.CaptureFileImports(_projectRoot, _compilationUnits)
                 capture.CaptureMetadataInputs(analyzer.MetadataInputAssemblyPaths(), analyzer.MetadataSearchDirectories())
+                entries = capture.Entries
+                _checkStampEntries = entries
+            } else if storedEntries != null {
+                // Text-mode workspace checks first persist each member's result, then replace the
+                // owning member's cache output with the aggregate. Its analyzer has already been
+                // released, so preserve the complete inputs captured on the first save.
+                entries = storedEntries
+            } else {
+                capture.CaptureFileImports(_projectRoot, _compilationUnits)
+                entries = capture.Entries
+                _checkStampEntries = entries
             }
-            entries = capture.Entries
         } else {
             entries = storedEntries ?? new List<IncrementalInputEntry>()
         }
@@ -595,6 +651,7 @@ class MultiFileCompiler {
         }
         set {
             _incrementalState = value
+            _incrementalStateFromCaller = value != null
         }
     }
 
@@ -691,6 +748,7 @@ class MultiFileCompiler {
         _checkStampAnalysisReuseKey = ""
         _checkInputCapture = null
         _checkStampEntries = null
+        _incrementalStateFromCaller = false
         _checkStateSeededFromStamp = false
         _persistedCheckPartial = false
         _incrementalState = null
@@ -733,9 +791,6 @@ class MultiFileCompiler {
         analyzer := CreateAnalyzer(null)
         CompilerPhaseTimings.End(loadMark)
         _sharedAnalyzerValue = analyzer
-        if state != null {
-            state.RetainedAnalyzer = analyzer
-        }
         return analyzer
     }
 
@@ -1313,6 +1368,14 @@ class MultiFileCompiler {
             workerCount = Math.Min(_workers, Math.Max(filesToAnalyze, 1))
         }
         sharedAnalyzer := SharedAnalyzer()
+        spelledIndex := 0
+        while spelledIndex < files.Count {
+            spelledText: string? = null
+            if _sourceTexts.TryGetValue(Path.GetFullPath(files[spelledIndex]), out spelledText) && spelledText != null {
+                sharedAnalyzer.PreloadSpelledFrameworkNamespaces(units[spelledIndex], spelledText)
+            }
+            spelledIndex = spelledIndex + 1
+        }
         analyzerTimer := Stopwatch.StartNew()
         if workerCount <= 1 {
             sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
@@ -1321,6 +1384,13 @@ class MultiFileCompiler {
             while index < files.Count {
                 if !reused[index] {
                     outcomes[index] = AnalyzeOneFile(sharedAnalyzer, files[index], units[index])
+                } else {
+                    // A REUSED FILE STILL CONTRIBUTES ITS IMPORTS' LOADS, exactly as a parallel worker
+                    // replays every earlier file it did not analyse: the next analysed file then sees
+                    // the assembly list a full serial run would give it, and the IL back end finds every
+                    // `Microsoft.NETCore.App` assembly the program's imports name already in this
+                    // compilation's shared context instead of reopening the reference set.
+                    sharedAnalyzer.PreloadImportedAssemblies(units[index])
                 }
                 index = index + 1
             }
@@ -1728,7 +1798,7 @@ class MultiFileCompiler {
             ReadAllSourceTexts()
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot)
             let decline: NSharpLang.Compiler.ColumnarDeclineDiagnostic? = null
-            if (!EmitOnWideStackThread(assemblyName, outputPath, out decline)) {
+            if (!ReportNoBuildableSources() && !EmitOnWideStackThread(assemblyName, outputPath, out decline)) {
                 _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionErrorFor(
                     assemblyName,
                     AotMode,
@@ -1808,6 +1878,14 @@ class MultiFileCompiler {
             }
         }
         if hasValidationErrors {
+            return new MultiFileCompilationResult(
+                false,
+                _allErrors,
+                null
+            )
+        }
+
+        if ReportNoBuildableSources() {
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
@@ -1927,7 +2005,7 @@ class MultiFileCompiler {
         if image != null {
             _emittedImage = image
             if outputPath != null {
-                File.WriteAllBytes(outputPath, image)
+                AtomicFile.WriteAllBytes(outputPath, image)
                 CompilerWorkCounters.Shared.CountAssemblyEmitted()
             }
         }
@@ -2084,6 +2162,12 @@ class MultiFileCompiler {
             capture.CaptureMetadataInputs(analyzer.MetadataInputAssemblyPaths(), analyzer.MetadataSearchDirectories())
             state.MetadataEntries.AddRange(capture.Entries)
         }
+        if analyzer != null {
+            // The invocation owns a new analyzer until every file analysis has completed. The state
+            // retains it from this point; command-level cleanup still releases it if emission
+            // validation or result rendering subsequently fails.
+            state.RetainedAnalyzer = analyzer
+        }
     }
 
     private func CanUseIncrementalStamp(outputPath: string): bool {
@@ -2220,7 +2304,12 @@ class MultiFileCompiler {
     // Emit the whole assembly through the standalone columnar backend; with no output path the image
     // is kept in memory only.
     private func TryEmitWithColumnarBackend(assemblyName: string, outputPath: string?): bool {
+        ColumnarDeclineTrace.Reset()
         if (_sourceFiles.Count == 0) {
+            // A project whose only sources are `*.tests.nl` reaches here: `nlc build` compiles the
+            // product, test sources belong to `nlc test`/`nlc check`, and Go's `go build` refuses the
+            // same shape with "no non-test Go files". Say so instead of declining without a reason.
+            DeclineWithReason("emit.no-sources", "the project has no source files to compile; files named *.tests.nl are test sources that `nlc build` does not compile (run `nlc test` or `nlc check` for them)")
             return false
         }
 
@@ -2233,6 +2322,7 @@ class MultiFileCompiler {
         for sourceFile in _sourceFiles {
             let source: string? = null
             if (!_sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out source)) {
+                DeclineWithReason("emit.source-unread", "the source text of '" + Path.GetFileName(sourceFile) + "' was not read before emission")
                 return false
             }
             sourceText := source ?? ""
@@ -2242,6 +2332,7 @@ class MultiFileCompiler {
                 summary := plan.Summaries[fullPath]
                 skeleton := summary.InterfaceSkeleton
                 if skeleton == null {
+                    DeclineWithReason("emit.skeleton-missing", "the cached interface skeleton of '" + Path.GetFileName(sourceFile) + "' is missing")
                     return false
                 }
                 sourceText = skeleton
@@ -2255,6 +2346,8 @@ class MultiFileCompiler {
             outputType = outputConfig.OutputType
         }
         isExecutable := ColumnarEmissionPlanner.IsExecutableOutput(outputType)
+        // The persisted-check subset attempt above may have recorded declines of its own; the
+        // complete walk below starts from a clean trace so they cannot be reported as its reason.
         ColumnarDeclineTrace.Reset()
         let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput = null
         emitParses: ColumnarFileProgramCache? = null
@@ -2313,7 +2406,7 @@ class MultiFileCompiler {
             return true
         }
         writeMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.write")
-        File.WriteAllBytes(outputPath, assembly)
+        AtomicFile.WriteAllBytes(outputPath, assembly)
         CompilerWorkCounters.Shared.CountAssemblyEmitted()
         written := TryEmitReferenceAssembly(outputPath, referenceAssemblyPaths)
         CompilerPhaseTimings.End(writeMark)
@@ -2724,11 +2817,56 @@ class MultiFileCompiler {
         return false
     }
 
+    // NL936 -- THE PROJECT HAS NOTHING TO BUILD. `nlc build` compiles the product, and `*.tests.nl`
+    // files belong to `nlc test` and `nlc check` (the way `go build` ignores `_test.go`), so a project
+    // whose only sources are test files reaches emission with an empty file list. That is a fact about
+    // the PROJECT, found before any code generation runs, and is reported as its own diagnostic rather
+    // than as a code generator that "declined" a shape. A project with no `.nl` file at all (or none
+    // left after its `exclude` patterns) gets its own wording. Returns true when it reported.
+    private func ReportNoBuildableSources(): bool {
+        if _sourceFiles.Count > 0 {
+            return false
+        }
+
+        testFileCount := 0
+        projectConfig := _config
+        if projectConfig != null {
+            for projectFile in projectConfig.GetSourceFiles(_projectRoot, true) {
+                if ProjectSourceFileFilter.ProjectSourceFilterIsTestFile(projectFile) {
+                    testFileCount++
+                }
+            }
+        }
+
+        explanation := "This project has no .nl source files, so there is nothing to compile."
+        suggestion := "Add a .nl file next to project.yml, or check the `exclude` patterns in project.yml if the files you expected are being skipped."
+        if testFileCount > 0 {
+            explanation = "This project contains only test files (*.tests.nl), which `nlc build` does not compile."
+            suggestion = "Run `nlc test` to run them or `nlc check` to type-check them, or add a non-test .nl file."
+        }
+
+        _allErrors.Add(new CompilerError(ErrorCode.NoSourcesToBuild, "No source files to build", 0, 0, ErrorSeverity.Error) {
+            HumanExplanation: explanation,
+            Suggestion: suggestion
+        })
+        return true
+    }
+
+    // A decline the driver itself makes (before or after the code generator ran) records its reason
+    // in the same trace the generator's declines use, so no `columnar backend declined` message is
+    // ever shown without one.
+    private func DeclineWithReason(siteId: string, message: string): void {
+        ColumnarDeclineTrace.Record(siteId, message, -1, 0, "")
+    }
+
     private func BuildColumnarDeclineDiagnostic(): ColumnarDeclineDiagnostic {
         records := ColumnarDeclineTrace.Snapshot()
         WriteColumnarDeclineTrace(records)
         if (records.Count == 0) {
-            return ColumnarDeclineDiagnostic.Empty
+            // The driver's own early exits record a reason, and the parser and code generator record
+            // at their decline sites; an exit that records nothing would otherwise print an
+            // unexplained decline. Say so, so it can be reported and reduced.
+            return new ColumnarDeclineDiagnostic("the code generator declined without recording where; please report this with the project that produced it", null, 0, 0, 1)
         }
 
         primary := records[0]

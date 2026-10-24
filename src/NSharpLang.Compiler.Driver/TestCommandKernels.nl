@@ -205,6 +205,45 @@ class TestCommandKernels {
         return null
     }
 
+    // WHERE A TEST RUN FINDS A NATIVE LIBRARY A TEST ASSEMBLY'S PACKAGES ASK FOR. The build copies a
+    // package's `runtimes/<rid>/native/*` files under the test output directory (the layout a
+    // `deps.json` names), but `nlc test` runs inside the CLI's own process, whose host never read
+    // that manifest. This applies the host's rule instead: a file beside the assemblies first, then
+    // each RID of the running machine's fallback order (`osx-arm64` -> `osx` -> `unix` -> `any`).
+    static func FindNativeLibraryPath(assemblyDirectory: string, libraryName: string, runtimeIdentifier: string): string? {
+        fileNames := CompilationReferenceResolverKernels.GetNativeLibraryFileNames(libraryName, OperatingSystem.IsWindows(), OperatingSystem.IsMacOS())
+        for fileName in fileNames {
+            candidate := Path.Combine(assemblyDirectory, fileName)
+            if File.Exists(candidate) {
+                return candidate
+            }
+        }
+
+        runtimesDirectory := Path.Combine(assemblyDirectory, "runtimes")
+        for rid in CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks(runtimeIdentifier) {
+            nativeDirectory := Path.Combine(Path.Combine(runtimesDirectory, rid), "native")
+            for fileName in fileNames {
+                candidate := Path.Combine(nativeDirectory, fileName)
+                if File.Exists(candidate) {
+                    return candidate
+                }
+            }
+        }
+
+        return null
+    }
+
+    // WHETHER THE TEST OUTPUT HOSTS APPLICATIONS IN-PROCESS. A test project that references
+    // Microsoft.AspNetCore.Mvc.Testing gets a `MvcTestingAppManifest.json` (assembly full name ->
+    // project directory) beside its assembly, the file the package's MSBuild targets write.
+    // `WebApplicationFactory<TEntryPoint>` finds the file, and `<app>.deps.json`, relative to the
+    // current directory and `AppContext.BaseDirectory`: `dotnet test` runs from the output
+    // directory, while `nlc test` runs inside the CLI's own process, so the run is pointed at the
+    // output directory for its length.
+    static func HostsApplications(outputDirectory: string): bool {
+        return File.Exists(Path.Combine(outputDirectory, "MvcTestingAppManifest.json"))
+    }
+
     static func ShouldRunNUnit(testFramework: string?): bool {
         return string.Equals(testFramework ?? "", "nunit", StringComparison.OrdinalIgnoreCase)
     }

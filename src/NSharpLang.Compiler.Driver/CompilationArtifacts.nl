@@ -26,7 +26,7 @@ class CompilationArtifacts {
         payload["runtimeOptions"] = runtimeOptions
 
         json := JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented: true })
-        File.WriteAllText(runtimeConfigPath, json + Environment.NewLine)
+        AtomicFile.WriteAllText(runtimeConfigPath, json + Environment.NewLine)
     }
 
     static func GetRuntimeFrameworkVersion(targetFramework: string): string {

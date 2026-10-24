@@ -294,7 +294,7 @@ class DaemonExecSession {
     }
 
     // `nlc run`: the client starts the program on its own terminal and answers with the exit code.
-    func Launch(arguments: string, workingDirectory: string?): int {
+    func Launch(arguments: string[], workingDirectory: string?): int {
         launchReply.Reset()
         payload := DaemonExecWire.EncodeLaunch(arguments, workingDirectory)
         Send(DaemonExecKernels.FrameLaunch(), payload, payload.Length)
@@ -524,7 +524,7 @@ class DaemonExecHost {
         stdout := new DaemonFrameWriter(session, DaemonExecKernels.FrameStdout())
         stderr := new DaemonFrameWriter(session, DaemonExecKernels.FrameStderr())
         stdin := new DaemonStdinReader(session)
-        launcher: Func<string, string?, int> = (arguments, workingDirectory) => session.Launch(arguments, workingDirectory)
+        launcher: Func<string[], string?, int> = (arguments, workingDirectory) => session.Launch(arguments, workingDirectory)
         try {
             ApplyEnvironment(request.EnvironmentNames, request.EnvironmentValues)
             Environment.SetEnvironmentVariable(DaemonExecKernels.GetDaemonChildEnvironmentVariable(), "1")

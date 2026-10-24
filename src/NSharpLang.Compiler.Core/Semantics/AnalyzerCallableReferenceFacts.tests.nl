@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.Reflection
+import NSharpLang.Compiler.Ast
 
 // Native contracts for the analyzer's callable / delegate-reference classification family.
 // These predicates were `private static` in Analyzer.cs, so no test named them directly; their
@@ -42,6 +43,14 @@ func CallableModifierFunction(modifiers: List<Ast.ParameterModifier>?): Function
     result := new FunctionTypeInfo()
     result.SourceName = "Probe"
     result.ParameterModifiers = modifiers
+    parameters := new List<TypeInfo>()
+    if modifiers != null {
+        for _modifier in modifiers {
+            parameters.Add(BuiltInTypes.Int)
+        }
+    }
+    result.ParameterTypes = parameters
+    result.ReturnType = BuiltInTypes.Int
     return result
 }
 
@@ -450,4 +459,59 @@ test "generic delegate parameter names come from the framework Invoke metadata" 
     assert wideNames.Count == 6
     assert wideNames[0] == "arg1"
     assert wideNames[5] == "arg6"
+}
+
+test "the abstract delegate roots are recognised by name, and only they" {
+    assert AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(CallableRequiredCoreType("System.Delegate"))
+    assert AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(CallableRequiredCoreType("System.MulticastDelegate"))
+    assert !AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(typeof(Action))
+    assert !AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(typeof(Func<int>))
+    assert !AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(typeof(object))
+}
+
+test "a natural function type needs a non-generic signature with plain parameters and at most 16 of them" {
+    plain := CallableSourceFunction("Probe")
+    assert AnalyzerCallableReferenceFacts.HasNaturalFunctionType(plain)
+
+    byRef := CallableModifierFunction(CallableModifierList([Ast.ParameterModifier.None, Ast.ParameterModifier.Ref]))
+    assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(byRef)
+    outParameter := CallableModifierFunction(CallableModifierList([Ast.ParameterModifier.Out]))
+    assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(outParameter)
+    plainModifiers := CallableModifierFunction(CallableModifierList([Ast.ParameterModifier.None, Ast.ParameterModifier.None]))
+    assert AnalyzerCallableReferenceFacts.HasNaturalFunctionType(plainModifiers)
+
+    generic := CallableSourceFunction("Probe")
+    typeParameters := new List<TypeParameter>()
+    typeParameters.Add(new TypeParameter("T"))
+    generic.TypeParameters = typeParameters
+    assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(generic)
+
+    sixteen := CallableSourceFunction("Probe")
+    seventeen := CallableSourceFunction("Probe")
+    sixteenParameters := new List<TypeInfo>()
+    seventeenParameters := new List<TypeInfo>()
+    sixteen.ParameterTypes = sixteenParameters
+    seventeen.ParameterTypes = seventeenParameters
+    for index := 0; index < 17; index++ {
+        if index < 16 {
+            sixteenParameters.Add(BuiltInTypes.Int)
+        }
+        seventeenParameters.Add(BuiltInTypes.Int)
+    }
+    assert AnalyzerCallableReferenceFacts.HasNaturalFunctionType(sixteen)
+    assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(seventeen)
+
+    mismatchedModifiers := CallableSourceFunction("Probe")
+    mismatchedModifiers.ParameterModifiers = CallableModifierList([Ast.ParameterModifier.None])
+    assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(mismatchedModifiers)
+
+    unknownParameter := CallableSourceFunction("Probe")
+    unknownParameters := new List<TypeInfo>()
+    unknownParameter.ParameterTypes = unknownParameters
+    unknownParameters.Add(BuiltInTypes.Unknown)
+    assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(unknownParameter)
+
+    missingReturn := CallableSourceFunction("Probe")
+    missingReturn.ReturnType = null
+    assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(missingReturn)
 }

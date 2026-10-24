@@ -127,28 +127,49 @@ class DaemonExecWire {
         )
     }
 
-    // The launch directive `nlc run` sends back to the client: the arguments for `dotnet` and the
-    // directory to start it in (empty for "the client's own").
-    static func EncodeLaunch(arguments: string, workingDirectory: string?): byte[] {
+    // The launch directive `nlc run` sends back to the client: the arguments for `dotnet`, one string
+    // per argument (the client adds each to `ProcessStartInfo.ArgumentList`, so nothing is quoted or
+    // re-split in between), and the directory to start it in (empty for "the client's own").
+    static func EncodeLaunch(arguments: string[], workingDirectory: string?): byte[] {
         using buffer := new MemoryStream()
         using writer := new BinaryWriter(buffer, new UTF8Encoding(false), true)
-        writer.Write(arguments)
+        writer.Write(arguments.Length)
+        for argument in arguments {
+            writer.Write(argument)
+        }
+
         writer.Write(workingDirectory ?? "")
         writer.Flush()
         return buffer.ToArray()
     }
 
-    static func DecodeLaunchArguments(payload: byte[]): string {
+    static func DecodeLaunchArguments(payload: byte[]): string[] {
         using buffer := new MemoryStream(payload)
         using reader := new BinaryReader(buffer, new UTF8Encoding(false), true)
-        return reader.ReadString()
+        return ReadLaunchArguments(reader)
     }
 
     static func DecodeLaunchWorkingDirectory(payload: byte[]): string {
         using buffer := new MemoryStream(payload)
         using reader := new BinaryReader(buffer, new UTF8Encoding(false), true)
-        reader.ReadString()
+        ReadLaunchArguments(reader)
         return reader.ReadString()
+    }
+
+    private static func ReadLaunchArguments(reader: BinaryReader): string[] {
+        count := reader.ReadInt32()
+        if count < 0 || count > 65536 {
+            throw new InvalidDataException("Launch argument count " + count.ToString() + " is out of range.")
+        }
+
+        arguments := new string[](count)
+        index := 0
+        while index < count {
+            arguments[index] = reader.ReadString()
+            index = index + 1
+        }
+
+        return arguments
     }
 
     // Little-endian, as `BitConverter` writes it on every platform .NET runs this CLI on.

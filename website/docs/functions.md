@@ -68,6 +68,20 @@ namespace App.Text
 
 func validateInput(input: string): bool {
     return !string.IsNullOrEmpty(input)
+}
+```
+
+```n#
+// FILE Process.nl — same namespace, different file
+namespace App.Text
+
+import System.Collections.Generic
+import System.Linq
+
+func ProcessAll(inputs: List<string>): List<string> {
+    return inputs.Where(validateInput).ToList()     // the method group resolves too
+}
+```
 
 ### Which namespace a free function belongs to
 
@@ -88,18 +102,6 @@ func Describe(): string {
 ```
 
 ```n#
-// FILE Process.nl — same namespace, different file
-namespace App.Text
-
-import System.Collections.Generic
-import System.Linq
-
-func ProcessAll(inputs: List<string>): List<string> {
-    return inputs.Where(validateInput).ToList()     // the method group resolves too
-}
-```
-
-
 // FILE dashboard.nl
 namespace Dashboard
 
@@ -948,6 +950,55 @@ process := items.Select(item => {
 })
 ```
 
+### A lambda's parameters keep their names
+
+The method a lambda compiles to carries the parameter names you wrote, as C# does, so code that reads
+a delegate's `Method` by reflection sees them. ASP.NET Core Minimal APIs depend on this: they bind
+route values, query-string values and services to a handler's parameters **by name**.
+
+```n#
+import System
+import Microsoft.AspNetCore.Builder
+
+func routes(app: WebApplication) {
+    app.MapGet("/todos/{id}", (id: int) => "todo " + id.ToString())                  // GET /todos/7
+    app.MapGet("/sum/{a}/{b}", (a: int, b: int) => (a + b).ToString())                // GET /sum/2/3
+    app.MapGet("/search", (term: string) => "searching " + term)                      // GET /search?term=x
+}
+
+handler: Func<int, int> = (value) => value + 1
+print handler.Method.GetParameters()[0].Name    // value
+```
+
+**Where a lambda can be written directly as a handler.** `app.MapGet` and `app.MapPost` on a
+`WebApplication` take a lambda with parameters as written above: the handler becomes the delegate its
+written parameter types describe (`(id: int) => "…"` is a `Func<int, string>`), and a single
+parameter written without a type is the request's `HttpContext`.
+
+Other places whose parameter is typed `System.Delegate` do **not** accept a lambda literal yet:
+`app.MapPut`, `app.MapDelete`, a route group's `MapGet` (`app.MapGroup("/api").MapGet(...)`), and
+any other method taking `Delegate`, including one you write. For those, give the lambda a typed
+`Func<>` or `Action<>` local first and pass the local — its parameter names are kept the same way:
+
+```n#
+import System
+import Microsoft.AspNetCore.Builder
+
+func moreRoutes(app: WebApplication) {
+    update: Func<int, string> = (id: int) => "updated " + id.ToString()
+    app.MapPut("/todos/{id}", update)                                                   // PUT /todos/3
+
+    remove: Func<int, string> = (id: int) => "deleted " + id.ToString()
+    app.MapDelete("/todos/{id}", remove)                                                // DELETE /todos/4
+
+    api := app.MapGroup("/api")
+    byId: Func<int, string> = (id: int) => "todo " + id.ToString()
+    api.MapGet("/todos/{id}", byId)                                                     // GET /api/todos/5
+}
+```
+
+A delegate you already hold can also be passed to `MapGet`/`MapPost` as `f as Delegate`.
+
 ### Type Inference in Lambdas
 
 A lambda written without parameter types takes them from the delegate it is passed to. When the
@@ -1151,6 +1202,13 @@ longEnough: Predicate<string> = value => value.Length > 2
 first := words.Find(longEnough)
 ```
 
+A method group with exactly one signature also converts to a parameter typed `Delegate` or
+`MulticastDelegate`, which name no signature of their own. It takes its **natural function type**, the
+`Func`/`Action` its method spells (as in C# 10): `Register(Handlers.Twice)` passes a
+`Func<int, int>`. An overloaded name has no natural type, and a call that has a concrete delegate
+overload (such as `RequestDelegate`) still prefers it. `x as Delegate` is an ordinary reference
+conversion.
+
 A method group converts at exactly the same positions, by the same rule. N# has no `delegate`
 declaration of its own: write `Func<...>` / `Action<...>` for a signature you name yourself, and use a
 referenced assembly's delegate types where they are part of an API you are calling.
@@ -1325,6 +1383,51 @@ async func getValue(): ValueTask<int> {
     return 42
 }
 ```
+
+### Bare `return` in a task-returning function
+
+A unit `async` function (`: Task`, `: ValueTask`, or no return annotation) may leave early with a bare
+`return`. The task completes with no value, enclosing `finally` blocks run, and it works before or
+after the first `await`, inside loops and inside `try`:
+
+```n#
+async func work(x: int): Task {
+    if x == 0 {
+        return              // completes the task
+    }
+    await Task.Delay(1)
+    print "after delay " + x.ToString()
+}
+```
+
+### Generic async methods
+
+An `async` method on a type (static or instance) may declare its own type parameters. The result is
+the project's async family over the written result, as for any async function: `ValueTask<T>` by
+default, `Task<T>` under `language.asyncDefaultType: Task`, or whatever `Task<T>` / `ValueTask<T>` the
+signature writes. This matches C#, where `async Task<T> Read<T>()` carries `T` on the method:
+
+```n#
+import System.Text.Json
+import System.Threading.Tasks
+
+class Rd {
+    static async func Read<T>(text: string): T {
+        await Task.Delay(1)
+        return must JsonSerializer.Deserialize<T>(text, new JsonSerializerOptions())
+    }
+}
+
+func main() {
+    n := Rd.Read<int>("5").AsTask().Result       // ValueTask<int> under the default config
+    s := Rd.Read<string>("\"x\"").AsTask().Result
+}
+```
+
+Type arguments are inferred from arguments where they can be, a constraint (`where T : class`)
+applies, a `T` local may live across an `await`, and the result may be `T`, `T[]`, a tuple, or
+`Box<T>`. A generic **free** `async func` and a generic **local** `async` function are not supported
+yet; declare the generic async function as a method on a type instead.
 
 ### Async Void
 
@@ -2073,6 +2176,11 @@ func getFullName(first: string, last: string): string =>
 func isEven(n: int): bool => n % 2 == 0
 ```
 
+An expression continues across a line break after `=>` or an operator that takes a right-hand side,
+or before a leading `.` or `?.`. The rule applies uniformly to top-level and local functions,
+methods, expression-bodied properties, and statement expressions; the continued line must remain
+part of the expression.
+
 A `void` expression body **performs** its expression rather than returning it, so the expression
 must itself produce nothing:
 
@@ -2144,8 +2252,7 @@ func report(values: List<int>, label: string): string {
 }
 ```
 
-The body ends where the expression ends, so it may continue on the next line, and a `static` local
-function may use one too.
+A `static` local function may use an expression body too.
 
 ### Async Local Functions
 
@@ -2200,8 +2307,8 @@ func passThrough<T>(value: T): T {
 The compiler preserves the two owners in CLR metadata: a capture-free local copies enclosing
 parameters onto its synthesized static method, while a capturing local places them on its display
 type. Declaring a local parameter with the same name as an enclosing parameter is still NL316; use a
-distinct name such as `U`. An `async` generic local function is not supported, for the same reason a
-generic `async func` is not supported.
+distinct name such as `U`. An `async` generic local function is not supported yet; declare it as a method
+(see [Generic async methods](#generic-async-methods)).
 
 ### Scope: a local function is visible in its whole block
 
@@ -2373,6 +2480,19 @@ for i := 0; i < 3; i++ {
 }
 ```
 
+**Loop variables.** A `for x in xs` variable is declared afresh on every iteration, so each closure
+sees its own value. A classic `for i := 0; i < n; i++` variable is ONE variable for the whole loop,
+exactly as in C#: closures created in the loop all see its current (finally, the last) value.
+
+```n#
+fs := new List<Func<int>>()
+for x in [1, 2, 3] { fs.Add(() => x) }        // 1, 2, 3
+for i := 0; i < 3; i++ { fs.Add(() => i) }    // 3, 3, 3 once the loop has finished
+```
+
+An object initializer inside a capturing lambda reads captures like any other expression:
+`f: Func<string, Opts> = key => new Opts { N: limit }`.
+
 ## Function Overloading
 
 ### Basic Overloading
@@ -2405,9 +2525,10 @@ func create(name: string, age: int): User {
 
 ### Which overload a call means
 
-When more than one overload accepts a call, N# picks between them with the same rule C# uses
-(ECMA-334 §12.6.4.3, "better function member"), and it applies to overloads you declared and to
-overloads read out of a referenced assembly alike:
+When more than one overload accepts a call, N# compares candidates by the quality of their argument
+conversions, for overloads you declared and overloads read out of a referenced assembly alike. This
+uses C#'s better-function-member rule (ECMA-334 §12.6.4.3) as a model, with the generic and optional-call
+divergences described below:
 
 > A candidate is **better** than another when, for **every** argument, its parameter is at least as
 > good a conversion target, and for **at least one** argument it is strictly better.
@@ -2422,9 +2543,15 @@ A parameter is the better conversion target when:
    a `short`.
 
 Only when the conversions cannot separate two candidates do the remaining rules run, in this order: a
-**non-generic** signature beats a generic one whose parameters are the same types after
-substitution, a call in **normal form** beats one that had to expand a `params` tail, and a signature
-that fills **fewer defaults** beats one that fills more.
+**non-generic** signature beats a generic one whose supplied parameter types are identical after
+substitution, a call in **normal form** beats one that had to expand a `params` tail, and an exact-arity
+candidate beats one that needs optional parameters filled.
+
+For example, given `Pick(value: string)` and `Pick(value: string, suffix: string = "")`,
+`Pick("x")` selects the exact-arity overload because the supplied conversions tie and only the other
+candidate needs a default. If both candidates need optional parameters filled, differing omitted
+parameter types or counts do not by themselves decide the call; it remains ambiguous unless another
+overload rule separates them. Omitted parameters are not conversion arguments.
 
 ```n#
 import System.Collections.Generic
@@ -2439,9 +2566,9 @@ func awaitAll(work: List<Task<int>>): int[] {
 ```
 
 Declaration order is **not** a tiebreak, and neither is the order a referenced assembly's metadata
-happens to list its methods in. When two candidates are still tied after every rule above, the call
-is ambiguous and N# reports [NL414](./errors/NL414.md) rather than choosing for you — see that page
-for the three ways to say which overload you meant.
+happens to list its methods in. When two candidates remain tied and no documented generic/optional
+fallback below applies, the call is ambiguous and N# reports [NL414](./errors/NL414.md) rather than
+choosing for you — see that page for the three ways to say which overload you meant.
 
 ## Extension Methods
 
@@ -2464,10 +2591,10 @@ short := text.Truncate(10)  // "This is a..."
 
 ### Calling an extension method
 
-An extension call is resolved the way C# resolves one. The receiver's static type is converted to
-the `this` parameter's type by the ordinary assignability relation, and the method's type arguments
-are then inferred from the receiver and from the arguments. That is one rule, and it is why the
-receiver can be almost anything:
+For the extension-call shapes supported below, N# uses C#-style receiver and argument inference. The
+receiver's static type is converted to the `this` parameter's type by the ordinary assignability
+relation, and the method's type arguments are inferred from the receiver and from the arguments. This
+is why the receiver can be almost anything:
 
 ```n#
 import System.Collections.Generic
@@ -2491,8 +2618,25 @@ func examples(items: List<Query>, words: string[], text: string, map: Dictionary
 The element type may be a type your own project declares — `List<Query>` above is an
 `IEnumerable<Query>` exactly as `List<string>` is an `IEnumerable<string>`.
 
-A lambda argument is typed by the parameter it is passed to, so the compiler chooses the method
-first and types the lambda afterwards. A method group works wherever a lambda does.
+A lambda argument is typed by the selected parameter, so the compiler chooses the method first and
+types the lambda afterwards when the other arguments or an explicit type-argument list identify one
+candidate. Same-arity delegate targets that need the lambda body to choose between them remain
+declined, as described below. A method group works where its target type identifies one candidate.
+
+An instance method of the receiver wins over an extension of the same name **when it is applicable**.
+When none of the receiver's instance overloads accepts the call, the extension methods in scope are
+tried next, as in C#: `list.FindAll((value, index) => value > index)` binds an extension
+`FindAll(this List<int>, Func<int, int, bool>)` even though `List<int>` declares an instance
+`FindAll(Predicate<int>)`, and `app.Use(async (ctx, next) => { await next() })` on a `WebApplication`
+reaches `UseExtensions.Use` although `WebApplication` declares an instance
+`Use(Func<RequestDelegate, RequestDelegate>)`. The candidates are project `this` functions and
+`[Extension]` methods from imported namespaces of referenced assemblies. If nothing binds,
+[NL402](./errors/NL402.md) lists the instance and the extension overloads that were considered.
+For a **project-declared** class's own single instance method, a written lambda's parameter count and
+explicit parameter types are checked before the lambda body is target-typed; when that shape rejects
+the instance method, an applicable extension is tried. For a single method or an overload group,
+ordinary typed arguments also fall back to extension lookup when no instance overload applies; an
+applicable instance overload keeps precedence.
 
 ### Writing the type arguments out
 
@@ -2530,8 +2674,73 @@ func configure(app: WebApplication) {
     route := app.MapGet("/todo", () => "todo")
     route.Produces<Todo>()                            // statusCode = 200, contentType = null
     route.Produces<Todo>(201, "text/plain", "application/xml")
+    byId := app.MapGet("/todos/{id}", (id: int) => "todo " + id.ToString())
+    byId.Produces<Todo>()                             // `{id}` binds to the lambda's `id`
 }
 ```
+
+### Inferred type arguments with optional and `params` parameters
+
+Leaving the type argument to inference works when the call omits defaulted parameters or fills a
+`params` tail. Only the arguments you write take part in inference:
+
+```n#
+import System.Text.Json
+import Microsoft.EntityFrameworkCore
+
+func shapes(set: DbSet<Person>, name: string) {
+    json := JsonSerializer.Serialize(5)                          // Serialize<int>(5, options = null)
+    q := set.FromSqlRaw("SELECT * FROM People WHERE Name = {0}", name)  // TEntity from the receiver
+    all := RelationalQueryableExtensions.FromSqlRaw(set, "SELECT * FROM People")
+}
+```
+
+A call whose array argument is already built passes it through unpacked, and a type parameter that only
+an omitted parameter mentions cannot be inferred (write it). When generic and non-generic overloads
+both apply, the compiler compares each supplied argument's conversion to the candidates' effective
+parameter types. For extension calls, the reduced receiver is argument zero and its conversion to each
+candidate's `this` parameter participates in the same comparison as every written argument. If the
+receiver and an explicit argument favor different candidates, they are incomparable; an aggregate
+conversion score cannot decide between them. A strictly better parameter list wins. When effective
+parameter types and applicable parameter counts tie, the non-generic method wins. All applicable generic
+and non-generic candidates are compared together: incomparable candidates remain ambiguous only when no
+other candidate is better than each of them. Optional candidates with
+identical supplied parameter types but different numbers of declared parameters also remain ambiguous,
+matching C#'s optional-parameter tie-break. Runtime-value coverage checks that `Task.WhenAll(first, second)`
+over two `Task<int>` values returns `Task<int[]>`, that `WhenAny` keeps its typed result, that
+`Array.Sort(int[])` and `Array.IndexOf` choose the generic overloads, and that
+`Encoding.UTF8.GetBytes(JsonSerializer.Serialize(values))` produces the expected JSON bytes.
+
+Constraints on type parameters (`class`, `struct`, `new()`, and type constraints) are checked before
+an overload is considered. A source class with a declared public parameterless constructor can satisfy
+`new()` before the type is baked. A null literal contributes no inference bound; the receiver or another
+argument must bind that type parameter.
+
+Generic inference accumulates exact, lower, and upper bounds, then fixes a type argument that satisfies
+all bounds and their implicit conversions. A value type and its nullable lift fix to the nullable type,
+including when the value type is a source enum still being emitted. For example,
+`Enumerable.Contains` can infer `object` from `IEnumerable<object>` and a `string` value. Invariant
+positions still require matching exact bounds.
+
+### Written type arguments with a lambda
+
+When you write the type arguments, an inline lambda is bound after they are fixed: it can only convert to
+a delegate parameter with the same number of parameters, which is how
+`services.AddSingleton<Svc>(sp => new Svc())` chooses the factory overload over the instance one. Two
+same-arity overloads such as `Action<T>` and `Func<T, int>` both accept `_ => ...`, and parameterless
+`Action` and `Func<T>` both accept `() => ...`; those calls remain declined. Overloads that differ only
+by what the lambda body returns (`Task.Run<int>(() => 1)`) also remain ambiguous. Assign the lambda to a
+typed local.
+
+A public generic method inherited from an external base is callable bare, through `this`, or through an
+expression receiver, with its type arguments written (`Set<Person>()` inside a `DbContext` subclass).
+Source declarations are filtered by generic arity, so a derived `Set(int)` leaves an inherited
+`Set<Person>()` candidate available. Protected generic methods from external bases remain unsupported.
+Inherited calls inside a lambda or local function also remain unsupported because the receiver is a
+closure. For explicit generic calls with an inline lambda, overload selection uses the lambda's
+parameter count after written type arguments close the candidates. Same-arity `Action<T>` and
+`Func<T, TResult>` overloads, and parameterless overloads whose lambda bodies need return-type
+inference such as `Task.Run<int>(() => 1)`, remain declined; assign the lambda to a typed local.
 
 ### Extensions over a type parameter
 
@@ -2581,6 +2790,9 @@ func main() {
 }
 ```
 
+Cross-project extension lookup does not yet discover N# `this` functions declared in a referenced N#
+project.
+
 A value-type receiver closes `T` on the value type itself, so the value is passed as-is, not boxed.
 Inside the function, `value` has every member `object` gives every type, plus the members of its
 constraints ([Generic Constraints](#generic-constraints)).
@@ -2612,8 +2824,10 @@ func main() {
 }
 ```
 
-If the receiver implements the same generic interface at different type arguments, inference is
-ambiguous and the function is not offered for receiver syntax.
+If the receiver implements the same generic interface at different type arguments, it supplies no
+inference bound for that interface. The function is not offered when no other written argument fixes
+the type parameter. If another argument does fix it, the closed receiver parameter is checked against
+the receiver's interfaces before the function is offered.
 
 The result keeps its closed type in the surrounding expression, so receiver calls can be used in
 arithmetic, comparisons, and conditions. When an instance member and a top-level `this` function

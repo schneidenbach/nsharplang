@@ -524,7 +524,7 @@ class AnalyzerMemberAccess {
 
         includeStaticMembers := IsStaticMemberAccessTarget(member.Object)
         invocationPosition := IsCallCalleePosition(member)
-        memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition, InheritsProtectedThrough(receiverType, member.Object))
+        memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition, InheritsProtectedThrough(receiverType, member.Object), invocationPosition ? ambientValue.WrittenCallTypeArgumentCount : 0)
         if !invocationPosition && ambientValue.WriteTargetExpressionTypes != null {
             memberType = ApplyReflectedPropertyInputNullability(receiverType, member, includeStaticMembers, memberType)
         }
@@ -602,7 +602,7 @@ class AnalyzerMemberAccess {
             flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy
         }
 
-        property := owner.GetProperty(member.MemberName, flags)
+        property := ReflectedMemberLookup.FindProperty(owner, member.MemberName, flags)
         if property == null {
             return memberType
         }
@@ -861,7 +861,7 @@ class AnalyzerMemberAccess {
         answering := AnalyzerReflectionTypeOverride.Direct(overrides, null)
         memberFlags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
 
-        property := definition.GetProperty(memberName, memberFlags)
+        property := ReflectedMemberLookup.FindProperty(definition, memberName, memberFlags)
         if property != null {
             memberType = NullabilityMetadataReflection.ConvertPropertyWithOverride(property, answering)
             return true

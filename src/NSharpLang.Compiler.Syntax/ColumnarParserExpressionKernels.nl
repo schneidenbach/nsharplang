@@ -1,4 +1,5 @@
 import System.Collections.Generic
+import NSharpLang.Compiler
 import NSharpLang.Compiler.Columnar
 
 
@@ -985,6 +986,14 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     tokenStart := tokens.Starts[pos]
     tokenLength := tokens.ValueLengths[pos]
 
+    // If a reserved word is followed by an assignment operator, it is being used as a name here.
+    // Let it reach the assignment parser before keyword-led primary productions such as `new`,
+    // `true`, or `typeof` claim it.
+    if pos + 1 < count && ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, (TokenType)tokens.Kinds[pos + 1]) {
+        st.Pos = pos + 1
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+    }
+
     if kind == 1 {
         st.Pos = pos + 1
         return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IntLiteralExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
@@ -1704,6 +1713,14 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, childRunStart, 1, parenStart, rightParenEnd - parenStart)
     }
 
+    // A reserved word reaches the identifier fallback only after every keyword-led expression
+    // production above has had a chance to claim it. Keep this after `new`, literals, and the
+    // type-oriented primaries so recognizing names never steals valid keyword expressions.
+    if ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(kind) {
+        st.Pos = pos + 1
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+    }
+
     return -1
 }
 
@@ -1740,6 +1757,36 @@ func ParserTokenBeginsLine(tokens: ParserTokenTable, index: int): bool {
     return false
 }
 
+// Retain a physical Newline in the columnar token stream, but cross it when the shared grammar says
+// the expression continues: after `=>` or an operator, or before a leading `.` / `?.`. Blank lines
+// are crossed as one break; an identifier or declaration after `=>` is still parsed as the next
+// token and fails as a missing expression instead of being swallowed into a block.
+func SkipExpressionContinuationNewlines(tokens: ParserTokenTable, count: int, st: ParserState): void {
+    if st.Pos >= count || tokens.Kinds[st.Pos] != ColumnarTokenKindFacts.NewlineKind {
+        return
+    }
+
+    previous := st.Pos - 1
+    while previous >= 0 && tokens.Kinds[previous] == ColumnarTokenKindFacts.NewlineKind {
+        previous = previous - 1
+    }
+
+    next := st.Pos
+    while next < count && tokens.Kinds[next] == ColumnarTokenKindFacts.NewlineKind {
+        next = next + 1
+    }
+
+    if previous < 0 || next >= count {
+        return
+    }
+
+    previousType := (TokenType)tokens.Kinds[previous]
+    nextType := (TokenType)tokens.Kinds[next]
+    if ParserTokenFacts.ContinuesExpressionAcrossLineBreak(previousType, nextType) {
+        st.Pos = next
+    }
+}
+
 func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     expr := -1
     if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 42 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
@@ -1772,6 +1819,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
     matched := true
     while matched {
+        SkipExpressionContinuationNewlines(tokens, count, st)
         pos := st.Pos
 
         if pos < count && tokens.Kinds[pos] != 124 && tokens.Kinds[pos] != 118 && ParserTokenBeginsLine(tokens, pos) {
@@ -2199,9 +2247,21 @@ func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
         return -1
     }
 
+    SkipExpressionContinuationNewlines(tokens, count, st)
     pos := st.Pos
     if pos < count {
         k := tokens.Kinds[pos]
+        followingType := TokenType.Eof
+        if pos + 1 < count {
+            followingType = (TokenType)tokens.Kinds[pos + 1]
+        }
+        // Reserved prefix words such as `must` and `await` become names when followed by a binding
+        // operator. Apply the shared grammar check before their unary productions claim the token.
+        if ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)k, followingType) {
+            st.Pos = pos + 1
+            return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression, tokens.Starts[pos], tokens.ValueLengths[pos], -1, 0, tokens.Starts[pos], tokens.ValueLengths[pos])
+        }
+
         // `must <operand>` (Must 20) -- the prefix null-assert (MustExpression kind 45, ONE child;
         // the operand recurses at THIS unary level so `must must x` chains like the production parser).
         if k == 20 {
@@ -2395,6 +2455,7 @@ func ParseBinaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserS
         }
 
         st.Pos = st.Pos + 1
+        SkipExpressionContinuationNewlines(tokens, count, st)
         st.SplitGreaterDepth = 0
         isAsType := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
         if isAsType < 0 {
@@ -2442,6 +2503,7 @@ func ParseBinaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserS
             opStart := tokens.Starts[st.Pos]
             opLength := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
+            SkipExpressionContinuationNewlines(tokens, count, st)
             // `x ?? throw e` — the FALLBACK of a null-coalesce may be a throw expression (kind 83),
             // and `??` (116) is the only operator whose right operand may be: it is the one whose
             // result the LEFT side already decides, so a fallback that produces nothing still leaves
@@ -2499,6 +2561,7 @@ func ParseThrowExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
 // A value position that ADMITS a throw expression: `throw` (37) opens one, anything else is an
 // ordinary assignment-level expression. The three grammar positions all read exactly this way.
 func ParseValueOrThrowExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    SkipExpressionContinuationNewlines(tokens, count, st)
     if st.Pos < count && tokens.Kinds[st.Pos] == 37 {
         return ParseThrowExpressionNode(tokens, count, st, argStack, nodes, children, depth)
     }
@@ -2510,6 +2573,7 @@ func ParseValueOrThrowExpressionNode(tokens: ParserTokenTable, count: int, st: P
 // the assignment level (`=> x => x + 1` returns a lambda), so the non-throw fall-through is the
 // lambda-level entry; the throw arm is the same one.
 func ParseBodyValueOrThrowExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    SkipExpressionContinuationNewlines(tokens, count, st)
     if st.Pos < count && tokens.Kinds[st.Pos] == 37 {
         return ParseThrowExpressionNode(tokens, count, st, argStack, nodes, children, depth)
     }
@@ -2770,6 +2834,7 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
         return -1
     }
 
+    SkipExpressionContinuationNewlines(tokens, count, st)
     // `on target.Event (…) => …` is a keyword-led form of its own and is answered before anything
     // else at this level.
     if ParserTokenIsOnKeyword(tokens, count, st, st.Pos) {

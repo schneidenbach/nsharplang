@@ -61,13 +61,17 @@ class ColumnarParamsExpansion {
 
     // Expand the declared modifier facts to match the expanded argument list. Fixed arguments keep
     // their own parameter direction; every packed element belongs to the single declared params
-    // slot, even when the call supplies several elements for it.
+    // slot, even when the call supplies several elements for it. An empty source column means every
+    // declared parameter is by-value and expands to a zero-filled per-argument column.
     static func ExpandedParameterModifierKindsOrNull(parameterModifierKinds: int[], argumentSlotOffset: int, fixedArgumentCount: int, argumentCount: int): int[]? {
-        if parameterModifierKinds == null || argumentSlotOffset < 0 || fixedArgumentCount < 0 || argumentCount < fixedArgumentCount || argumentSlotOffset + fixedArgumentCount >= parameterModifierKinds.Length {
+        if parameterModifierKinds == null || argumentSlotOffset < 0 || fixedArgumentCount < 0 || argumentCount < fixedArgumentCount || parameterModifierKinds.Length > 0 && argumentSlotOffset + fixedArgumentCount >= parameterModifierKinds.Length {
             return null
         }
 
         result := new int[](argumentCount)
+        if parameterModifierKinds.Length == 0 {
+            return result
+        }
         index := 0
         while index < fixedArgumentCount {
             result[index] = parameterModifierKinds[argumentSlotOffset + index]

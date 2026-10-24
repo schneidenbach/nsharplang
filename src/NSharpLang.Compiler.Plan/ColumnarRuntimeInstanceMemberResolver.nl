@@ -264,7 +264,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(int), out selection)
         }
 
-        if receiverType == typeof(TimeSpan) && member == "TotalMilliseconds" {
+        if receiverType == typeof(TimeSpan) && (member == "TotalMilliseconds" || member == "TotalDays") {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(double), out selection)
         }
 
@@ -708,7 +708,7 @@ class ColumnarRuntimeInstanceMemberResolver {
                 return false
             }
 
-            property := definition.GetProperty(member, OrdinaryMemberFlags(allowInheritedProtected, definition))
+            property := ReflectedMemberLookup.FindProperty(definition, member, OrdinaryMemberFlags(allowInheritedProtected, definition))
             if property == null {
                 return false
             }
@@ -726,7 +726,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             getter = (MethodInfo)rebound
             resultType = SubstituteClosedTypeArguments(property.PropertyType, lookupType.GetGenericArguments())
         } else {
-            property := lookupType.GetProperty(member, OrdinaryMemberFlags(allowInheritedProtected, lookupType))
+            property := ReflectedMemberLookup.FindProperty(lookupType, member, OrdinaryMemberFlags(allowInheritedProtected, lookupType))
             if property == null {
                 return false
             }

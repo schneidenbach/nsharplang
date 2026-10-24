@@ -365,6 +365,9 @@ name := "Alice"
 age := 30
 message := $"Hello, {name}! You are {age} years old."
 Console.WriteLine(message)
+
+code: string? = null
+fallback := $"{code ?? "NOPNR"}-x"
 ```
 
 Backslash escapes (`\n`, `\t`, `\e`, `\x1b`, `\u0041`, ...) are listed in the
@@ -408,6 +411,32 @@ func DoSomething() {
  * Can span multiple lines
  */
 ```
+
+## Reserved Words
+
+N# reserves eighty-three words. A reserved word cannot be declared as a variable, parameter, field,
+function, type or member name: `out := 5` is refused where `outValue := 5` is not. When a reserved word
+appears in a recognized name slot—including shorthand or typed locals, parameter names, and `for`
+loop variables—the parser reports [`NL109`](./errors/NL109.md) at that word and retains its spelling
+in the recovered tree. NL109 is reported only once per reserved spelling in a file, so later uses in
+identifier positions do not cascade or repeat the same diagnostic.
+
+- **Declarations:** `func`, `class`, `struct`, `interface`, `duck`, `union`, `record`, `enum`, `namespace`, `using`, `import`, `package`, `newtype`, `operator`, `implicit`, `explicit`, `where`
+- **Bindings:** `let`, `const`, `readonly`, `must`
+- **Control flow:** `if`, `else`, `for`, `foreach`, `while`, `in`, `return`, `yield`, `match`, `switch`, `case`, `default`, `break`, `continue`, `throw`, `try`, `catch`, `finally`, `when`
+- **Values and operators:** `new`, `this`, `base`, `true`, `false`, `null`, `is`, `as`, `typeof`, `nameof`, `sizeof`, `and`, `or`, `not`, `with`, `await`, `checked`, `unchecked`
+- **Statements:** `print`, `assert`, `lock`
+- **Modifiers:** `virtual`, `override`, `abstract`, `sealed`, `partial`, `static`, `public`, `private`, `internal`, `protected`, `async`, `immutable`, `required`, `init`, `ref`, `out`, `params`
+- **Systems:** `alloc`, `allow`, `stackalloc`, `unsafe`, `scoped`
+
+Several words that are easy to mistake for ordinary names are reserved in N#: `out`, `explicit`,
+`partial`, `params`, `required`, `init`, `with`, `where`, `when`, `record`, `union` and `match`.
+Words that are **not** reserved and are ordinary names: `test`, `field`, `property`, `setup`,
+`teardown`, `on`, `off`, `type` (contextual: it opens a type alias only at the start of a
+declaration), `value`, `var` and every built-in type name such as `int` and `string`.
+
+This list is checked against the lexer's keyword table on every test run
+(`tests/native/error-docs-contract`), so it cannot drift from the language.
 
 ## Nullability
 
@@ -624,7 +653,9 @@ class Client {
 The constructor is chosen by ordinary overload resolution over the constructors the class declares;
 named arguments bind to its own or its base's settable members. An attribute may derive from another
 attribute, in this program or in a referenced assembly, and its constructor may chain to the base's
-with arguments (`constructor(text: string): base(text) {}`) in either world.
+with arguments (`constructor(text: string): base(text) {}`) in either world. If a derived attribute
+hides a base property with the same name, the named argument binds the derived property, following
+C# member lookup.
 
 `[AttributeUsage(...)]` on the declaration is honored, and it is inherited by derived attributes:
 

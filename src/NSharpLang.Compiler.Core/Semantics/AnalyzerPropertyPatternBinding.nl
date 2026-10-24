@@ -211,7 +211,7 @@ class AnalyzerPropertyPatternBinding {
 
         reflectionType := state.ValueType as ReflectionTypeInfo
         if reflectionType != null {
-            property := reflectionType.Type.GetProperty(name)
+            property := ReflectedMemberLookup.FindProperty(reflectionType.Type, name)
             if property != null {
                 return NullabilityMetadataReflection.ConvertProperty(property)
             }

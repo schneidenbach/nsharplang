@@ -138,8 +138,9 @@ class ConstructionState {
 // twice in its own voice (a case the union does not declare, a property the case does not declare)
 // and twice more through `AnalyzerMemberAccess`'s published rendering (an absent initializer member,
 // on the open type and on the constructed one), **NL321** (a sized array that also passes
-// constructor arguments), **NL402** twice (a SoA table constructed with the wrong argument count, or
-// with a name that is not `capacity`), **NL309** (a readonly field written by an initializer),
+// constructor arguments, or a C#-style array initializer), **NL402** twice (a SoA table
+// constructed with the wrong argument count, or with a name that is not `capacity`), **NL309**
+// (a readonly field written by an initializer),
 // **NL301** twice for SoA table initializer shapes and once for a SoA table member written directly,
 // and **NL202** four times — a non-`int` array length, an element that does not fit its array or
 // collection target, and the two initializer-value mismatches this owner exists to catch.
@@ -1451,6 +1452,7 @@ class AnalyzerConstruction {
     // escape on the length is a MORE useful diagnostic than the generic mismatch, so it suppresses it
     // — and the two escape questions short-circuit exactly as the C#'s `||` did.
     func NextArrayLengthStep(state: ConstructionState, node: NewExpression): ConstructionRequest? {
+        ReportArrayInitializerIfNeeded(node)
         if node.ArrayLengthExpression == null {
             return null
         }
@@ -1466,6 +1468,26 @@ class AnalyzerConstruction {
 
         state.Phase = 2
         return new ConstructionRequest(1, node.ArrayLengthExpression, null)
+    }
+
+    // `new byte[] { 1, 2 }` AND `new byte[2] { 1, 2 }` — C#'s array initializer. N# has no such form: an
+    // array's elements are written as the list literal `[1, 2]`, and `new T[n]` allocates `n` zeroed
+    // ones. The parser accepts the braces as a collection initializer, and the backend then declines
+    // the WHOLE enclosing function without saying which construct it refused, so the refusal is
+    // made here, on the `{` that opens the initializer. A `new` of any other type keeps its braces.
+    func ReportArrayInitializerIfNeeded(node: NewExpression) {
+        initializer := node.Initializer
+        if initializer == null {
+            return
+        }
+
+        arrayType := node.Type as ArrayTypeReference
+        isArrayCreation := node.ArrayLengthExpression != null || arrayType != null
+        if !isArrayCreation {
+            return
+        }
+
+        diagnosticsValue.Report(ErrorCode.InvalidSizedArrayConstructorArguments, "N# has no array initializer syntax; write the elements as a list, '[1, 2]'", initializer.Line, initializer.Column, "'new T[] { ... }' is C# syntax. Write the elements as a list — 'values := [1, 2]' — or use 'new T[n]' for a zero-initialized array of length n.", 1)
     }
 
     func ArrayLengthAnswered(state: ConstructionState, lengthType: TypeInfo) {
@@ -1848,6 +1870,93 @@ class AnalyzerConstruction {
 
         state.ConstructedType = targetType
         state.ResultType = targetType
+        if ReportNonRecordWithTargetIfNeeded(node.Target, targetType) {
+            // This is a conclusive target-shape error. Stop before walking replacement members so
+            // their diagnostics cannot cascade from a `with` that has no record copy operation.
+            state.ConstructedType = BuiltInTypes.Unknown
+            state.ResultType = BuiltInTypes.Unknown
+            state.Phase = 99
+        }
+    }
+
+    // REFERENCE `with` REQUIRES A RECORD COPY CONTRACT. Source records have their own TypeInfo
+    // shape; a referenced N# record exposes its public `<Clone>$()` method in metadata. Ordinary
+    // classes and reflected reference types without that method are rejected here, before emission,
+    // so users see the actionable reason at the receiver instead of a generic backend decline.
+    func ReportNonRecordWithTargetIfNeeded(target: Expression, targetType: TypeInfo): bool {
+        if !IsKnownNonRecordWithReferenceType(targetType) {
+            return false
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(NonNullableType(targetType))
+        span := spansValue.GetExpressionDiagnosticSpan(target)
+        diagnosticsValue.Report(
+            ErrorCode.TypeMismatch,
+            "'" + TypeText(resolved) + "' is not a record: it has no '<Clone>$' copy method for 'with' to call",
+            span.Line,
+            span.Column,
+            "Use a record or record struct for this `with` expression, or construct a separate value with an object initializer.",
+            span.Length
+        )
+        return true
+    }
+
+    // This predicate is deliberately conservative for type shapes the analyzer cannot classify. A
+    // source class is known not to be a record, a source record keeps its dedicated model, and a
+    // reflected/generic reference type is a record for this emitter only when its public metadata
+    // supplies the same clone contract the emitter calls.
+    func IsKnownNonRecordWithReferenceType(candidate: TypeInfo): bool {
+        if candidate == null || BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(NonNullableType(candidate))
+        if resolved as RecordTypeInfo != null || resolved as StructTypeInfo != null {
+            return false
+        }
+
+        if resolved as ClassTypeInfo != null {
+            return true
+        }
+
+        generic := resolved as GenericTypeInfo
+        if generic != null {
+            if generic.GenericDefinition == null {
+                return false
+            }
+
+            return IsKnownNonRecordWithReferenceType(generic.GenericDefinition)
+        }
+
+        reflection := resolved as ReflectionTypeInfo
+        if reflection != null {
+            receiverType := reflection.Type
+            if receiverType == null || receiverType.IsValueType || receiverType.IsGenericParameter {
+                return false
+            }
+
+            for method in receiverType.GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+                if method.Name != "<Clone>$" || method.GetParameters().Length != 0 {
+                    continue
+                }
+
+                if method.ReturnType == receiverType {
+                    return false
+                }
+
+                if receiverType.IsGenericType && method.ReturnType.IsGenericType && method.ReturnType.GetGenericTypeDefinition() == receiverType.GetGenericTypeDefinition() {
+                    return false
+                }
+            }
+
+            return true
+        }
+
+        if BuiltInTypes.Is(resolved, BuiltInTypes.String) || BuiltInTypes.Is(resolved, BuiltInTypes.Object) {
+            return true
+        }
+
+        return false
     }
 
     func WithIndexAnswered(state: ConstructionState, indexType: TypeInfo) {

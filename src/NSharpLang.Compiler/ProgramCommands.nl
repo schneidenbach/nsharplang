@@ -128,11 +128,19 @@ static class ProgramCommands {
         return result.ExitCode
     }
 
-    static func RunCommand(args: string[]): int {
+    static func RunCommand(allArgs: string[]): int {
+        // Everything after `--` belongs to the program; nlc's own options are read from the rest.
+        args := RunCommandKernels.GetLauncherArguments(allArgs)
+        programArguments := RunCommandKernels.GetProgramArguments(allArgs)
+
         helpOptions := RunCommandKernels.GetOptionSummary(args)
         if helpOptions.ShowHelp {
             Console.WriteLine(RunCommandKernels.GetHelpText())
             return 0
+        }
+
+        if RunCommandKernels.IsProjectOptionMissingValue(args) {
+            return CliError.Report(RunCommandKernels.GetProjectOptionMissingValueMessage())
         }
 
         // Extract --define/-d before operand detection so their values are never
@@ -141,15 +149,30 @@ static class ProgramCommands {
         cliDefines := ExtractDefineFlags(ref remainingArgs)
         runOptions := RunCommandKernels.GetOptionSummary(remainingArgs)
         backendOption := runOptions.BackendOption
+        projectOption := RunCommandKernels.GetProjectOption(remainingArgs)
         sourceFile := RunCommandKernels.GetSourceOperand(remainingArgs)
 
         try {
             if sourceFile == null {
-                projectRoot := RunCommandKernels.GetProjectRoot(Directory.GetCurrentDirectory())
+                projectRoot := CommandOutputKernels.GetProjectRoot(projectOption, RunCommandKernels.GetProjectRoot(Directory.GetCurrentDirectory()))
+                if projectOption != null {
+                    if !Directory.Exists(projectRoot) {
+                        return CliError.Report(CommandOutputKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
+                    }
+
+                    if !File.Exists(CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot)) {
+                        return CliError.Report(RunCommandKernels.GetMissingProjectFileAtMessage(projectRoot))
+                    }
+                }
+
                 currentProjectConfig := ProjectFileParser.ParseFromDirectory(projectRoot)
                 CompilationBackendSelectionKernels.Validate(backendOption, currentProjectConfig)
 
-                return CliIlBackend.RunWithIlBackend(projectRoot, cliDefines)
+                return CliIlBackend.RunWithIlBackend(projectRoot, cliDefines, programArguments)
+            }
+
+            if projectOption != null {
+                return CliError.Report(RunCommandKernels.GetProjectAndFileConflictMessage())
             }
 
             if !File.Exists(sourceFile) {
@@ -161,7 +184,7 @@ static class ProgramCommands {
             sourceDir := RunCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory())
             sourceProjectConfig := ProjectFileParser.ParseFromDirectory(sourceDir)
             CompilationBackendSelectionKernels.Validate(backendOption, sourceProjectConfig)
-            return CliIlBackend.RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig, cliDefines)
+            return CliIlBackend.RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig, cliDefines, programArguments)
         } catch ex: Exception {
             return CliError.Report(RunCommandKernels.GetFailedMessage(ex.Message))
         }

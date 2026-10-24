@@ -514,6 +514,7 @@ func InsertIndentationParserMetadataCore(raw: LexerTokenMetadataTable, rawCount:
     parenBracketDepth := 0
     hasBaseIndent := false
     baseIndent := 0
+    previousSignificantType := TokenType.Eof
 
     i := 0
     while i < rawCount {
@@ -565,7 +566,9 @@ func InsertIndentationParserMetadataCore(raw: LexerTokenMetadataTable, rawCount:
                 currentIndent = 0
             }
 
-            if parenBracketDepth == 0 && explicitBraceDepth == 0 {
+            nextTokenType := (TokenType)kind
+            continuesExpression := ParserTokenFacts.ContinuesExpressionAcrossLineBreak(previousSignificantType, nextTokenType)
+            if parenBracketDepth == 0 && explicitBraceDepth == 0 && !continuesExpression {
                 previousIndent := indentStack.Indents[stackTop]
                 if currentIndent > previousIndent {
                     stackTop = stackTop + 1
@@ -608,6 +611,7 @@ func InsertIndentationParserMetadataCore(raw: LexerTokenMetadataTable, rawCount:
         output.Starts[outCount] = tokenStart
         output.ValueLengths[outCount] = tokenValueLength
         outCount = outCount + 1
+        previousSignificantType = (TokenType)kind
         i = i + 1
     }
 

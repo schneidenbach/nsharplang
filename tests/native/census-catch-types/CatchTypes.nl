@@ -161,3 +161,43 @@ class CatchTypes {
         }
     }
 }
+
+// A QUALIFIED CATCH TYPE — `catch ex: System.InvalidOperationException` — names the same type the
+// imported spelling does, with no `import System` for the name.
+class QualifiedCatchTypes {
+    static func CatchQualified(): string {
+        try {
+            throw new System.IO.IOException("boom")
+        } catch ex: System.IO.IOException {
+            return "qualified:" + ex.Message
+        }
+    }
+
+    static func CatchQualifiedInParens(): string {
+        try {
+            throw new System.InvalidOperationException("paren")
+        } catch (ex: System.InvalidOperationException) {
+            return "paren:" + ex.Message
+        }
+    }
+
+    static func CatchQualifiedTypeFirst(): string {
+        try {
+            throw new System.IO.IOException("type-first")
+        } catch (System.IO.IOException ex) {
+            return "type-first:" + ex.Message
+        }
+    }
+
+    static func QualifiedUnmatchedFallsThrough(): string {
+        try {
+            try {
+                throw new System.ArgumentException("inner")
+            } catch ex: System.InvalidOperationException {
+                return "wrong"
+            }
+        } catch outer: System.ArgumentException {
+            return "outer:" + outer.Message
+        }
+    }
+}

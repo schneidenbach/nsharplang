@@ -1,6 +1,8 @@
 namespace NSharpLang.Cli.Commands
 
+import System
 import System.Collections.Generic
+import System.IO
 import NSharpLang.Compiler
 
 class AddArgumentSummary {
@@ -128,6 +130,59 @@ class AddCommandKernels {
         return false
     }
 
+    // THE SAME PROJECT, HOWEVER IT IS SPELLED. Each existing `project:` entry resolved against the
+    // project directory, as a full path; `AddCommand` resolves symbolic links in these and in the new
+    // target before `ContainsPath` compares them, case-insensitively as the spelling probe above is.
+    static func GetProjectDependencyPaths(dependencies: IReadOnlyList<Reference>, projectRoot: string): List<string> {
+        paths := new List<string>()
+        for dependency in dependencies {
+            project := dependency.Project
+            if project != null && project.Trim().Length > 0 {
+                paths.Add(Path.GetFullPath(CompilationReferenceResolverKernels.ResolveProjectReferencePath(projectRoot, project)))
+            }
+        }
+
+        return paths
+    }
+
+    static func ContainsPath(paths: IReadOnlyList<string>, target: string): bool {
+        for path in paths {
+            if string.Equals(path, target, StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func IsProjectFileName(fileName: string): bool {
+        return string.Equals(fileName, "project.yml", StringComparison.OrdinalIgnoreCase)
+    }
+
+    static func GetWrittenProjectReferencePath(path: string): string {
+        return path.Replace('\\', '/')
+    }
+
+    // A `project:` ENTRY NAMES A PROJECT FILE, NEVER A DIRECTORY. Both build front doors read it that
+    // way: `nlc build` validates the entry as a file, and `dotnet build` maps it to the `.csproj`
+    // beside a `project.yml`. `nlc add --path ../Lib` therefore writes `../Lib/project.yml` -- the
+    // spelling the user typed, with the file name appended -- instead of a bare directory every later
+    // build would refuse. Trailing separators are dropped first, so `../Lib/` does not become
+    // `../Lib//project.yml`, and `/` joins the two because project.yml is shared across platforms.
+    static func GetProjectFileReferencePath(directoryPath: string): string {
+        end := directoryPath.Length
+        while end > 1 && (directoryPath[end - 1] == '/' || directoryPath[end - 1] == '\\') {
+            end = end - 1
+        }
+
+        trimmed := directoryPath.Substring(0, end)
+        if trimmed == "/" || trimmed == "\\" {
+            return trimmed + "project.yml"
+        }
+
+        return trimmed + "/project.yml"
+    }
+
     static func GetDependencyInsertIndex(lines: string[]): int {
         depIndex := -1
         index := 0
@@ -157,7 +212,7 @@ class AddCommandKernels {
     }
 
     static func GetHelpText(): string {
-        return "N# Add Dependency\n" + "\n" + "Usage: nlc add <package> [options]\n" + "       nlc add <package>@<version>\n" + "       nlc add --path <local-project>\n" + "\n" + "Add a NuGet package, framework reference, or local project reference to project.yml.\n" + "If no version is specified, the latest version is resolved from NuGet.\n" + "\n" + "Options:\n" + "  --version <ver>   Package version (alternative to @version syntax)\n" + "  --prerelease      Allow prerelease versions when resolving latest\n" + "  --framework       Add as a framework reference instead of NuGet package\n" + "  --path <path>     Add a local project reference (project.yml or directory)\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc add Newtonsoft.Json\n" + "  nlc add Serilog@3.1.0\n" + "  nlc add Serilog --version 3.1.0\n" + "  nlc add System.Text.Json --prerelease\n" + "  nlc add Microsoft.AspNetCore.App --framework\n" + "  nlc add --path ../MyLibrary\n" + "\n" + "Exit codes:\n" + "  0  Dependency added successfully\n" + "  1  Failed to add dependency"
+        return "N# Add Dependency\n" + "\n" + "Usage: nlc add <package> [options]\n" + "       nlc add <package>@<version>\n" + "       nlc add --path <local-project>\n" + "\n" + "Add a NuGet package, framework reference, or local project reference to project.yml.\n" + "If no version is specified, the latest version is resolved from NuGet.\n" + "\n" + "Options:\n" + "  --version <ver>   Package version (alternative to @version syntax)\n" + "  --prerelease      Allow prerelease versions when resolving latest\n" + "  --framework       Add as a framework reference instead of NuGet package\n" + "  --path <path>     Add a local N# project reference (a project.yml, or a directory\n" + "                    containing one; a directory is written as <dir>/project.yml)\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc add Newtonsoft.Json\n" + "  nlc add Serilog@3.1.0\n" + "  nlc add Serilog --version 3.1.0\n" + "  nlc add System.Text.Json --prerelease\n" + "  nlc add Microsoft.AspNetCore.App --framework\n" + "  nlc add --path ../MyLibrary\n" + "\n" + "Exit codes:\n" + "  0  Dependency added successfully\n" + "  1  Failed to add dependency"
     }
 
     static func GetUsageMessage(): string {
@@ -182,6 +237,18 @@ class AddCommandKernels {
 
     static func GetDuplicateProjectReferenceMessage(localPath: string): string {
         return "Project reference '" + localPath + "' is already in dependencies."
+    }
+
+    static func GetProjectReferenceNotFoundMessage(localPath: string, resolvedPath: string): string {
+        return "Project reference '" + localPath + "' not found (resolved to " + resolvedPath + "). Pass a project.yml file or a directory that contains one."
+    }
+
+    static func GetProjectDirectoryWithoutProjectFileMessage(localPath: string): string {
+        return "'" + localPath + "' is a directory with no project.yml in it. Pass a project.yml file or a directory that contains one."
+    }
+
+    static func GetNotAProjectFileMessage(localPath: string): string {
+        return "'" + localPath + "' is not an N# project. Pass a project.yml file or a directory that contains one; reference a prebuilt assembly with a dll: entry instead."
     }
 
     static func GetFrameworkAddedMessage(packageName: string): string {
