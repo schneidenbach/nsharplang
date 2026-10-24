@@ -136,8 +136,8 @@ class AnalyzerPatternReachability {
 
         thenObject := thenType as object
         elseObject := elseType as object
-        thenText := thenObject.ToString()
-        elseText := elseObject.ToString()
+        thenText := thenObject.ToString() ?? ""
+        elseText := elseObject.ToString() ?? ""
         span := spansValue.GetConditionalDiagnosticSpan(ternary)
 
         valueText := thenText
@@ -173,7 +173,7 @@ class AnalyzerPatternReachability {
     // branch, because the value already has the type the reader wrote for it.
     func TargetMismatchHint(thenType: TypeInfo, elseType: TypeInfo, thenText: string, elseText: string, expectedType: TypeInfo): string {
         expectedObject := expectedType as object
-        expectedText := expectedObject.ToString()
+        expectedText := expectedObject.ToString() ?? ""
         thenFits := assignabilityValue.IsAssignable(expectedType, thenType)
         elseFits := assignabilityValue.IsAssignable(expectedType, elseType)
         if thenFits && !elseFits {
