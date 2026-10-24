@@ -90,7 +90,9 @@ class ColumnarInterpolationSplitter {
                     }
                 }
 
-                close := FindColumnarInterpolatedStringClose(literal, i + 1, end)
+                // The hole's MATCHING `}`: nested brace groups balance and literals are opaque, by the
+                // same rule the parser draws the hole with.
+                close := ParserLiteralFacts.FindInterpolationHoleClose(literal, i + 1, end)
 
                 // Raw-string parity with ParseInterpolatedString's `{`-literal heuristic: in a `$"""…"""`
                 // literal a `{` with no closing `}`, or whose brace group spans lines (the outer braces of
@@ -221,61 +223,18 @@ class ColumnarInterpolationSplitter {
         return partCount + 1
     }
 
-    // THE END OF A STRING LITERAL WRITTEN INSIDE A HOLE. `start` is the index of its opening quote
-    // and the answer is the index just PAST the closing quote, or -1 when nothing closes it before
-    // `end`. A backslash escape consumes the character after it, so `"\""` is one literal and not
-    // two -- which is the whole reason this cannot be a search for the next quote.
+    // THE END OF A STRING OR CHARACTER LITERAL WRITTEN INSIDE A HOLE: the index just past its closing
+    // quote, or -1 when nothing closes it before `end`. The rule is the parser's own
+    // (ParserLiteralFacts.InterpolationHoleQuotedLiteralEnd), so the splitter and the parser agree on
+    // every hole boundary.
     //
     // Every hole scan below consults it because a quoted region is OPAQUE to the hole grammar: the
-    // `}`, `:` and `,` that decide where a hole ends, where its format specifier begins and where
+    // `{`, `}`, `:` and `,` that decide where a hole ends, where its format specifier begins and where
     // its arguments divide are structure only OUTSIDE quotes. Reading them inside a literal is what
     // made `$"{name.Replace("o", "0")}"` unsplittable.
-    static func ColumnarInterpolatedStringQuotedRegionEnd(literal: string, start: int, end: int): int {
-        if start < 0 || start >= end || literal[start] != '"' {
-            return -1
-        }
+    static func ColumnarInterpolatedStringQuotedRegionEnd(literal: string, start: int, end: int): int => ParserLiteralFacts.InterpolationHoleQuotedLiteralEnd(literal, start, end)
 
-        i := start + 1
-        while i < end {
-            ch := literal[i]
-            if ch == '\\' {
-                i = i + 2
-                continue
-            }
-
-            if ch == '"' {
-                return i + 1
-            }
-
-            i = i + 1
-        }
-
-        return -1
-    }
-
-    static func FindColumnarInterpolatedStringClose(literal: string, start: int, end: int): int {
-        i := start
-        while i < end {
-            ch := literal[i]
-            if ch == '"' {
-                quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, i, end)
-                if quotedEnd < 0 {
-                    return -1
-                }
-
-                i = quotedEnd
-                continue
-            }
-
-            if ch == '}' {
-                return i
-            }
-
-            i = i + 1
-        }
-
-        return -1
-    }
+    static func ColumnarInterpolatedStringOpensQuotedRegion(literal: string, index: int, end: int): bool => ParserLiteralFacts.OpensInterpolationHoleLiteral(literal, index, end)
 
     static func ColumnarInterpolatedStringRangeSpansLine(literal: string, start: int, end: int): bool {
         i := start
@@ -291,32 +250,17 @@ class ColumnarInterpolationSplitter {
         return false
     }
 
-    // The FORMAT SPECIFIER boundary, which is the first colon that is part of the hole's structure.
-    // A colon inside a string literal operand is content: `$"{Join(": ", parts):X}"` has exactly
-    // one format specifier and it is the trailing `X`.
+    // The FORMAT SPECIFIER boundary: the parser's own rule (ParserLiteralFacts.FindFormatSpecifierColon),
+    // the first colon outside every literal, bracket, brace group and conditional. A colon inside a
+    // literal operand or a nested group is content: `$"{Join(": ", parts):X}"` and
+    // `$"{new { A: 1 }.A:D3}"` each have exactly one format specifier, the trailing one.
     static func FindColumnarInterpolatedStringColon(literal: string, start: int, length: int): int {
-        end := start + length
-        i := start
-        while i < end {
-            ch := literal[i]
-            if ch == '"' {
-                quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, i, end)
-                if quotedEnd < 0 {
-                    return -1
-                }
-
-                i = quotedEnd
-                continue
-            }
-
-            if ch == ':' {
-                return i
-            }
-
-            i = i + 1
+        colon := ParserLiteralFacts.FindFormatSpecifierColon(literal.Substring(start, length))
+        if colon < 0 {
+            return -1
         }
 
-        return -1
+        return start + colon
     }
 
     static func ColumnarInterpolatedStringFormatHasBoundaryChars(literal: string, start: int, length: int): bool {
@@ -395,7 +339,7 @@ class ColumnarInterpolationSplitter {
             i := 0
             while i < length {
                 ch := literal[start + i]
-                if ch == '"' {
+                if ColumnarInterpolatedStringOpensQuotedRegion(literal, start + i, start + length) {
                     quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, start + i, start + length)
                     if quotedEnd < 0 {
                         return false
@@ -451,7 +395,7 @@ class ColumnarInterpolationSplitter {
             // A STRING LITERAL IS AN OPERAND. Its contents are skipped whole, so the braces,
             // colons and commas inside it are content rather than hole structure -- and an
             // unterminated one is still refused.
-            if ch == '"' {
+            if ColumnarInterpolatedStringOpensQuotedRegion(literal, start + i, start + length) {
                 quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, start + i, start + length)
                 if quotedEnd < 0 {
                     return false
@@ -703,7 +647,7 @@ class ColumnarInterpolationSplitter {
         j := openParen + 1
         while j < length - 1 {
             ch := literal[start + j]
-            if ch == '"' {
+            if ColumnarInterpolatedStringOpensQuotedRegion(literal, start + j, start + length - 1) {
                 quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, start + j, start + length - 1)
                 if quotedEnd < 0 {
                     return false
@@ -755,10 +699,11 @@ class ColumnarInterpolationSplitter {
         bracketDepth := 0
         sawOperator := false
         sawQuotedOperand := false
+        sawBraceGroup := false
         i := 0
         while i < length {
             ch := literal[start + i]
-            if ch == '"' {
+            if ColumnarInterpolatedStringOpensQuotedRegion(literal, start + i, start + length) {
                 quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, start + i, start + length)
                 if quotedEnd < 0 {
                     return false
@@ -769,7 +714,22 @@ class ColumnarInterpolationSplitter {
                 continue
             }
 
-            if ch == '{' || ch == '}' || ch == ':' || ch == '\\' {
+            // A BRACE GROUP IS AN OPERAND, the way a quoted literal is: the body of an anonymous
+            // object or an initializer (`new { A: 1 }`, `Serialize(new { Ok: true })`). Its colons and
+            // commas are its own structure, so the whole balanced group is skipped and the parser,
+            // which reads the hole next, decides what it is.
+            if ch == '{' {
+                groupClose := ParserLiteralFacts.FindInterpolationHoleClose(literal, start + i + 1, start + length)
+                if groupClose < 0 {
+                    return false
+                }
+
+                sawBraceGroup = true
+                i = groupClose + 1 - start
+                continue
+            }
+
+            if ch == '}' || ch == ':' || ch == '\\' {
                 return false
             }
 
@@ -798,9 +758,10 @@ class ColumnarInterpolationSplitter {
             i = i + 1
         }
 
-        // A hole that is nothing but a string literal (`{"literal"}`) has no operator and is still
-        // a value the parsed-hole plan can type, so the quoted operand admits it on its own.
-        return (sawOperator || sawQuotedOperand) && parenDepth == 0 && bracketDepth == 0
+        // A hole that is nothing but a string literal (`{"literal"}`) or an object creation
+        // (`{new { A: 1 }}`) has no operator and is still a value the parsed-hole plan can type, so
+        // the quoted operand or the brace group admits it on its own.
+        return (sawOperator || sawQuotedOperand || sawBraceGroup) && parenDepth == 0 && bracketDepth == 0
     }
 
     static func ColumnarInterpolatedStringIsSupportedCastHoleExpression(literal: string, start: int, length: int): bool {
@@ -857,39 +818,41 @@ class ColumnarInterpolationSplitter {
         return ColumnarInterpolatedStringIsIdentifierChain(literal, typeStart, typeLength) && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, operandStart, operandLength)
     }
 
-    static func ColumnarInterpolatedStringFindEqualityOperator(literal: string, start: int, length: int): int {
-        found := -1
-        i := 0
-        while i + 1 < length {
-            ch := literal[start + i]
-            next := literal[start + i + 1]
-            if (ch == '=' && next == '=') || (ch == '!' && next == '=') {
-                if found >= 0 {
-                    return -1
-                }
-
-                found = i
-                i = i + 2
-                continue
-            }
-
-            i = i + 1
-        }
-
-        return found
-    }
+    // Locate the single TOP-LEVEL `==`/`!=` operator: the index of the sole one, or -1 for none OR a
+    // second (both decline). An operator inside a literal or a nested group belongs to an operand --
+    // `{new { Same: a == b }}` and `{Check(a == b)}` have no top-level equality.
+    static func ColumnarInterpolatedStringFindEqualityOperator(literal: string, start: int, length: int): int => ColumnarInterpolatedStringFindSoleTopLevelOperator(literal, start, length, '=', '!', '=')
 
     // Locate the single top-level `??` coalesce operator, mirroring the equality-operator scan: the index
     // of the sole `??`, or -1 for none OR a second occurrence (both decline). The C# emitter's coalesce
     // tier previously re-derived this with `text.IndexOf("??")` plus a second-`??` guard; stepping past a
     // match by two characters detects "exactly one `??`" identically to that IndexOf pair.
-    static func ColumnarInterpolatedStringFindCoalesceOperator(literal: string, start: int, length: int): int {
+    static func ColumnarInterpolatedStringFindCoalesceOperator(literal: string, start: int, length: int): int => ColumnarInterpolatedStringFindSoleTopLevelOperator(literal, start, length, '?', '?', '?')
+
+    // The sole two-character operator `first second` (or `alternateFirst second`) written OUTSIDE every
+    // literal and every parenthesized, bracketed or brace group of the hole; -1 for none, for a second
+    // one, and for an unterminated literal.
+    static func ColumnarInterpolatedStringFindSoleTopLevelOperator(literal: string, start: int, length: int, first: char, alternateFirst: char, second: char): int {
         found := -1
+        depth := 0
         i := 0
-        while i + 1 < length {
+        while i < length {
+            if ColumnarInterpolatedStringOpensQuotedRegion(literal, start + i, start + length) {
+                quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, start + i, start + length)
+                if quotedEnd < 0 {
+                    return -1
+                }
+
+                i = quotedEnd - start
+                continue
+            }
+
             ch := literal[start + i]
-            next := literal[start + i + 1]
-            if ch == '?' && next == '?' {
+            if ch == '(' || ch == '[' || ch == '{' {
+                depth = depth + 1
+            } else if ch == ')' || ch == ']' || ch == '}' {
+                depth = depth - 1
+            } else if depth == 0 && (ch == first || ch == alternateFirst) && i + 1 < length && literal[start + i + 1] == second {
                 if found >= 0 {
                     return -1
                 }

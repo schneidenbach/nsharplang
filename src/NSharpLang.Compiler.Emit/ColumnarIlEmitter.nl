@@ -32017,24 +32017,25 @@ sealed class ColumnarIlEmitter {
 
         // The equality decomposition (left / operator / right) is decided by the N# splitter owner
         // (ColumnarInterpolationSplitter.TrySplitEquality); this tier resolves each side and the operand
-        // type mechanically over those three strings.
+        // type mechanically over those three strings. Like the coalesce tier below, an equality this
+        // tier cannot plan -- `c == '}'`, a literal operand -- falls through to the general expression
+        // arm instead of refusing the hole.
         let equalityLeftText: string? = null
         let equalityOperator: string? = null
         let equalityRightText: string? = null
         if (ColumnarInterpolationSplitter.TrySplitEquality(text, out equalityLeftText, out equalityOperator, out equalityRightText)) {
             let equalityLeft: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
             let equalityRight: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
-            if (!TryResolveInterpolationChainPlan(equalityLeftText, true, out equalityLeft) || !TryResolveInterpolationChainPlan(equalityRightText, true, out equalityRight) || equalityLeft.ValueType == null || equalityRight.ValueType == null || !TypesEquivalent(equalityLeft.ValueType, equalityRight.ValueType) || !IsSupportedInterpolationEqualityType(equalityLeft.ValueType)) {
-                return false
+            if (TryResolveInterpolationChainPlan(equalityLeftText, true, out equalityLeft) && TryResolveInterpolationChainPlan(equalityRightText, true, out equalityRight) && equalityLeft.ValueType != null && equalityRight.ValueType != null && TypesEquivalent(equalityLeft.ValueType, equalityRight.ValueType) && IsSupportedInterpolationEqualityType(equalityLeft.ValueType)) {
+                equalityPlan := new ColumnarInterpolationHolePlan()
+                equalityPlan.BinaryOperator = equalityOperator
+                equalityPlan.BinaryLeft = equalityLeft
+                equalityPlan.BinaryRight = equalityRight
+                equalityPlan.ValueType = typeof(bool)
+                equalityPlan.Format = format
+                plan = equalityPlan
+                return true
             }
-            equalityPlan := new ColumnarInterpolationHolePlan()
-            equalityPlan.BinaryOperator = equalityOperator
-            equalityPlan.BinaryLeft = equalityLeft
-            equalityPlan.BinaryRight = equalityRight
-            equalityPlan.ValueType = typeof(bool)
-            equalityPlan.Format = format
-            plan = equalityPlan
-            return true
         }
 
         // The integer-additive constant FOLD is decided by the N# splitter owner
