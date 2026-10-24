@@ -16671,10 +16671,19 @@ sealed class ColumnarIlEmitter {
             // FULLY-PLANNABLE ternary at the front door; this arm serves ONLY the residual whose CONDITION
             // or ARM is non-plannable — a task-006 residual equality condition (`setter == null ? 0 : 1`;
             // enum/string equality) or a non-plannable arm (member chains on call results, indexers).
-            // Mirrors the planner's lowering byte-for-byte; MIXED-type arms decline (widening is a later
-            // concern), matching the planner's exact-type rule.
+            // Mirrors the planner's lowering byte-for-byte for identical arm types; MIXED-type arms are
+            // written as the conditional's natural type through `TryEmitConditionalAsType` first.
             if (_nodes.ChildCount(idx) != 3) {
                 return false
+            }
+
+            // ARMS OF TWO DIFFERENT TYPES are written as the conditional's NATURAL type, arm by arm —
+            // `flag ? dog : animal` as an `Animal`, `flag ? 1 : 2.5` as a `double`. The route is chosen
+            // before anything is emitted, so a mixed conditional with no natural type falls through to
+            // the exact-type rule below and declines there, as it always did.
+            let mixedConditionalType: System.Type? = null
+            if (TryGetMixedConditionalNaturalType(idx, out mixedConditionalType)) {
+                return TryEmitConditionalAsType(idx, mixedConditionalType, out columnarResolvedType)
             }
 
             // A `null` ARM HAS NO TYPE OF ITS OWN and takes the OTHER arm's. `flag ? name : null` is
@@ -19215,9 +19224,11 @@ sealed class ColumnarIlEmitter {
         // Keep the string overload only when preflight cannot tell us another type. An argument whose
         // type is known belongs to ordinary overload selection below; this fallback covers a
         // receiver-style generic call whose selected generic result is a string but whose result shape
-        // preflight still cannot carry through (the call-site binder owns that separate shape).
+        // preflight still cannot carry through (the call-site binder owns that separate shape). A
+        // conditional whose arms have two types and no natural one (`flag ? 1 : "x"`) is not that shape:
+        // its arms are known, and ordinary selection finds the overload both of them fit (`object`).
         let consoleArgumentType: System.Type? = null
-        if (typeName == "Console" && (member == nameof(Console.Write) || member == nameof(Console.WriteLine)) && argCount == 1 && !(TryGetPreflightExpressionType(Child(callIdx, 1), out consoleArgumentType) && consoleArgumentType != null && !TypesEquivalent(consoleArgumentType, typeof(string)))) {
+        if (typeName == "Console" && (member == nameof(Console.Write) || member == nameof(Console.WriteLine)) && argCount == 1 && !IsMixedConditional(Child(callIdx, 1)) && !(TryGetPreflightExpressionType(Child(callIdx, 1), out consoleArgumentType) && consoleArgumentType != null && !TypesEquivalent(consoleArgumentType, typeof(string)))) {
             method := typeof(Console).GetMethod(member, [typeof(string)])
             if (method == null || !EmitArg(callIdx, 1, typeof(string))) {
                 return false
@@ -22487,8 +22498,9 @@ sealed class ColumnarIlEmitter {
     // conditional with a typeless arm and how every other typeless literal in this emitter is read.
     //
     // THE ROUTE IS CHOSEN BEFORE ANYTHING IS EMITTED, because emit-then-check abandons the program: a
-    // conditional whose arms both carry types keeps the unification arm and its IL, and only one with a
-    // `null`, a `default` or a `throw` arm comes here. `CanEmitConditionalAsType` is asked first and
+    // conditional whose arms carry the SAME type keeps the unification arm and its IL, and only one with
+    // a `null`, a `default` or a `throw` arm, or with arms of two different types (`IsMixedConditional`
+    // — `y: object = flag ? 1 : "x"`, `y: Animal = flag ? dog : cat`), comes here. `CanEmitConditionalAsType` is asked first and
     // verifies that the condition is a plannable `bool` and that each value arm's type and conversion
     // is supported by the same rules `EmitConditionalArmAsType` applies. A conditional the preflight
     // cannot emit is refused before anything is written, so the caller may safely try its next door;
@@ -22508,7 +22520,7 @@ sealed class ColumnarIlEmitter {
         }
         thenNode := UnwrapParenthesizedNode(Child(node, 1))
         elseNode := UnwrapParenthesizedNode(Child(node, 2))
-        if (!IsTypelessConditionalArm(thenNode) && !IsTypelessConditionalArm(elseNode)) {
+        if (!IsTypelessConditionalArm(thenNode) && !IsTypelessConditionalArm(elseNode) && !IsMixedConditional(node)) {
             return false
         }
         thenThrows := IsThrowExpressionNode(thenNode)
@@ -22576,7 +22588,7 @@ sealed class ColumnarIlEmitter {
     // and any value `object`. Each arm is its own branch into the merge, so each converts on its own.
     private func EmitConditionalArmAsType(node: int, target: Type): bool {
         node = UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.TernaryExpression && IsTypelessConditionalArm(node)) {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.TernaryExpression && (IsTypelessConditionalArm(node) || IsMixedConditional(node))) {
             let nestedConditionalType: System.Type? = null
             return TryEmitConditionalAsType(node, target, out nestedConditionalType) && TypesEquivalent(nestedConditionalType, target)
         }
@@ -22612,7 +22624,7 @@ sealed class ColumnarIlEmitter {
         }
         thenNode := UnwrapParenthesizedNode(Child(node, 1))
         elseNode := UnwrapParenthesizedNode(Child(node, 2))
-        if (!IsTypelessConditionalArm(thenNode) && !IsTypelessConditionalArm(elseNode)) {
+        if (!IsTypelessConditionalArm(thenNode) && !IsTypelessConditionalArm(elseNode) && !IsMixedConditional(node)) {
             return false
         }
         thenThrows := IsThrowExpressionNode(thenNode)
@@ -22628,7 +22640,7 @@ sealed class ColumnarIlEmitter {
     private func CanEmitConditionalArmAsType(node: int, target: Type): bool {
         node = UnwrapParenthesizedNode(node)
         kind := _nodes.Kind(node)
-        if (kind == ColumnarExpressionNodeKind.TernaryExpression && IsTypelessConditionalArm(node)) {
+        if (kind == ColumnarExpressionNodeKind.TernaryExpression && (IsTypelessConditionalArm(node) || IsMixedConditional(node))) {
             return CanEmitConditionalAsType(node, target)
         }
         if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
@@ -22647,7 +22659,85 @@ sealed class ColumnarIlEmitter {
         if (!TryGetPreflightExpressionType(node, out armType)) {
             return false
         }
+        return CanConvertConditionalArmType(armType, target)
+    }
+
+    // WHETHER A VALUE OF ONE TYPE CAN BE WRITTEN AS ANOTHER IN AN ARM, judged by the TYPES alone — the
+    // conversions `EmitConditionalArmAsType` performs after its literal doors: identity, implicit
+    // numeric widening, the lifted conversion into a `Nullable<T>`, and the implicit reference, interface
+    // and `object` conversions. A literal's adoption (`1` written as a `byte`) is deliberately not here:
+    // the natural type of a conditional is a question about its arms' TYPES, as it is in C#.
+    private func CanConvertConditionalArmType(armType: Type, target: Type): bool {
         return TypesEquivalent(armType, target) || CanUseImplicitNumericWidening(armType, target) || CanEmitLiftedImplicitConversion(armType, target) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(armType, target) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(armType, target)
+    }
+
+    // A CONDITIONAL WHOSE TWO ARMS BOTH HAVE TYPES, AND NOT THE SAME ONE — `flag ? dog : animal`,
+    // `flag ? 1 : 2.5`, `flag ? 1 : "x"`. Neither the conditional planner nor the unification arm
+    // emits one (both demand identical arm types), so it is written arm by arm as a TARGET type
+    // instead: the target in force when there is one, and the conditional's natural type
+    // (`TryGetMixedConditionalNaturalType`) when there is not. A typeless arm is the other route's.
+    private func IsMixedConditional(node: int): bool {
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.TernaryExpression || _nodes.ChildCount(node) != 3) {
+            return false
+        }
+        thenNode := UnwrapParenthesizedNode(Child(node, 1))
+        elseNode := UnwrapParenthesizedNode(Child(node, 2))
+        if (IsTypelessConditionalArm(thenNode) || IsTypelessConditionalArm(elseNode)) {
+            return false
+        }
+        let thenType: System.Type? = null
+        let elseType: System.Type? = null
+        return TryGetPreflightExpressionType(thenNode, out thenType) && thenType != null && TryGetPreflightExpressionType(elseNode, out elseType) && elseType != null && !TypesEquivalent(thenType, elseType)
+    }
+
+    // WHAT A MIXED CONDITIONAL IS WORTH WITH NO TARGET, by the rule the analyzer types it with. Two
+    // numeric arms take the wider one when exactly one widens to the other, `int` when both are small
+    // enough to promote to it, and otherwise the mixed-numeric common type the arithmetic operators
+    // use — `AnalyzerOperatorExpressions.CommonType`'s promotion, stated over CLR types. Any other pair
+    // is C#'s rule: when exactly one arm converts to the other's type, that type. Two arms that convert
+    // both ways or neither have no natural type, and the analyzer has already refused the second.
+    private func TryGetMixedConditionalNaturalType(node: int, out naturalType: Type): bool {
+        naturalType = null
+        if (!IsMixedConditional(node)) {
+            return false
+        }
+        node = UnwrapParenthesizedNode(node)
+        let thenType: System.Type? = null
+        let elseType: System.Type? = null
+        if (!TryGetPreflightExpressionType(UnwrapParenthesizedNode(Child(node, 1)), out thenType) || thenType == null || !TryGetPreflightExpressionType(UnwrapParenthesizedNode(Child(node, 2)), out elseType) || elseType == null) {
+            return false
+        }
+        let candidate: System.Type? = null
+        if (ColumnarNumericFacts.IsCastableScalar(thenType) && ColumnarNumericFacts.IsCastableScalar(elseType)) {
+            thenWidens := CanUseImplicitNumericWidening(thenType, elseType)
+            elseWidens := CanUseImplicitNumericWidening(elseType, thenType)
+            if (thenWidens && !elseWidens) {
+                candidate = elseType
+            } else if (elseWidens && !thenWidens) {
+                candidate = thenType
+            } else if (ColumnarNumericFacts.IsIntPromotable(thenType) && ColumnarNumericFacts.IsIntPromotable(elseType)) {
+                candidate = typeof(int)
+            } else {
+                let mixedNumeric: System.Type? = null
+                if (TrySelectMixedNumericCommonType(thenType, elseType, out mixedNumeric)) {
+                    candidate = mixedNumeric
+                }
+            }
+        } else {
+            thenConverts := CanConvertConditionalArmType(thenType, elseType)
+            elseConverts := CanConvertConditionalArmType(elseType, thenType)
+            if (thenConverts && !elseConverts) {
+                candidate = elseType
+            } else if (elseConverts && !thenConverts) {
+                candidate = thenType
+            }
+        }
+        if (candidate == null || !CanEmitConditionalAsType(node, candidate)) {
+            return false
+        }
+        naturalType = candidate
+        return true
     }
 
     // The preflight half of `TryEmitValueAsNullable`, with the same null/default, adopted-literal and
@@ -24528,6 +24618,9 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (_nodes.Kind(node) == ColumnarExpressionNodeKind.TernaryExpression && IsTargetTypedConditionalNode(node) && TryGetPreflightConditionalNaturalType(node, out columnarResolvedType)) {
+            return true
+        }
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.TernaryExpression && TryGetMixedConditionalNaturalType(node, out columnarResolvedType)) {
             return true
         }
         if (ColumnarNameOfPlanner.TryGetType(_nodes, _source, node, _codePlan, out columnarResolvedType)) {

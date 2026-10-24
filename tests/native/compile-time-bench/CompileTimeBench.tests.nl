@@ -541,10 +541,12 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // nullable value type added tests/native/census-lifted-operators; 109 since `on`/`off` event
 // Wave 2's member-lookup, closure, and nullable/record projects and PR #271's generic-call
 // regression suites are included in this freshly measured merged-tree corpus. Historical project
-// ordinals are branch-local and overlap, so the count below comes from walking the merged tree.
-test "compile-time bench: the merged tree has 219 project.yml projects under examples, tests and templates" {
+// ordinals are branch-local and overlap, so the count below comes from walking the merged tree. 220
+// since conditionals whose branches have two different types reached the backend added
+// tests/native/census-mixed-conditionals.
+test "compile-time bench: the merged tree has 220 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 219
+    assert projects.Count == 220
     advancedFeatureProjects := 0
     templateProjects := 0
     i := 1

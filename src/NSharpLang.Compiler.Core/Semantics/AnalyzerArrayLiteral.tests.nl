@@ -219,12 +219,59 @@ test "an EMPTY literal takes no steps and answers an array of the expected eleme
     harness.Ambient.ExitExpectedType(saved)
 }
 
-test "an EMPTY literal with no annotation answers an array of unknown" {
+// AN EMPTY LITERAL WITH NOTHING TO BE IS NL203, on `default`'s rule. It still answers an array of
+// unknown, so nothing downstream reports again; with no site open the hint is the general one.
+test "an EMPTY literal with no annotation is NL203, and still answers an array of unknown" {
     harness := ArrayArmOf()
     trace := ArrayDrive(harness, ArrayLiteralOf(0), ArrayAnswers(BuiltInTypes.Int))
 
     assert trace.Steps == 0
     assert trace.Answer == "array(unknown)"
+    assert ArrayCodes(harness.Errors) == "203"
+    assert harness.Errors[0].Message == "I can't figure out what type of array '[]' is — it has no elements to infer from, and nothing here says what it should hold"
+    assert harness.Errors[0].Suggestion == "Write the type where the value is declared, for example 'items: int[] = []'."
+    assert harness.Errors[0].Line == 4
+    assert harness.Errors[0].Column == 1
+}
+
+// THE HINT NAMES THE SITE when the literal IS the site's value, writes `...` when it is one arm of
+// it, and falls back to the general hint when the literal is anywhere else under the site.
+test "an EMPTY literal's hint names the local it was going to, and only when it is that local's value" {
+    harness := ArrayArmOf()
+    literal := ArrayLiteralOf(0)
+    saved := harness.Ambient.EnterInferenceSite(new AmbientInferenceSite(literal, "scores", false, false))
+    ArrayDrive(harness, literal, ArrayAnswers(BuiltInTypes.Int))
+    harness.Ambient.ExitInferenceSite(saved)
+
+    other := ArrayLiteralOf(1)
+    arm := ArrayLiteralOf(0)
+    conditional := new TernaryExpression(new IdentifierExpression("flag", 4, 1), arm, other, 4, 6)
+    saved = harness.Ambient.EnterInferenceSite(new AmbientInferenceSite(conditional, "scores", false, true))
+    ArrayDrive(harness, arm, ArrayAnswers(BuiltInTypes.Int))
+    ArrayDrive(harness, ArrayLiteralOf(0), ArrayAnswers(BuiltInTypes.Int))
+    harness.Ambient.ExitInferenceSite(saved)
+
+    assert ArrayCodes(harness.Errors) == "203,203,203"
+    assert harness.Errors[0].Suggestion == "Say what type 'scores' is, for example 'scores: int[] = []'."
+    assert harness.Errors[1].Suggestion == "Say what type 'scores' is, for example 'let scores: int[] = ...'."
+    assert harness.Errors[2].Suggestion == "Write the type where the value is declared, for example 'items: int[] = []'."
+}
+
+// AN ARGUMENT WHOSE CALLEE IS STILL CHOOSING IS NOT AN ABSENT TARGET — the parameter will say what the
+// literal is — and a target that names no element type is the assignability judgement's to refuse.
+test "an EMPTY literal is silent as a pending argument and under a target that is not a collection" {
+    harness := ArrayArmOf()
+    argument := ArrayLiteralOf(0)
+    savedArgument := harness.Ambient.EnterPendingTargetArgument(argument)
+    pending := ArrayDrive(harness, argument, ArrayAnswers(BuiltInTypes.Int))
+    harness.Ambient.ExitPendingTargetArgument(savedArgument)
+
+    saved := harness.Ambient.EnterExpectedType(BuiltInTypes.Object)
+    ArrayDrive(harness, ArrayLiteralOf(0), ArrayAnswers(BuiltInTypes.Int))
+    harness.Ambient.ExitExpectedType(saved)
+
+    assert pending.Answer == "array(unknown)"
+    assert ArrayCodes(harness.Errors) == ""
 }
 
 test "a node that is not an array literal finishes at Begin" {
@@ -268,6 +315,22 @@ test "an inferred literal never accuses its FIRST element" {
 
     assert trace.Steps == 1
     assert trace.Reports == 0
+}
+
+// A FIRST ELEMENT WITH NO TYPE OF ITS OWN IS NOT A YARDSTICK. `[[], [1]]` already reported its empty
+// `[]`; telling the reader that `int[]` is not `unknown[]` would be a second report about the same
+// missing type, in words that name a type nobody wrote.
+test "an inferred literal whose FIRST element is untyped does not accuse the rest" {
+    harness := ArrayArmOf()
+    answers := new List<TypeInfo>()
+    answers.Add(new ArrayTypeInfo(BuiltInTypes.Unknown))
+    answers.Add(new ArrayTypeInfo(BuiltInTypes.Int))
+    trace := ArrayDrive(harness, ArrayLiteralOf(2), answers)
+
+    assert trace.Steps == 2
+    assert trace.Reports == 0
+    assert AnalyzerArrayLiteral.IsUntypedAnswer(new ArrayTypeInfo(new ArrayTypeInfo(BuiltInTypes.Unknown)))
+    assert !AnalyzerArrayLiteral.IsUntypedAnswer(new ArrayTypeInfo(BuiltInTypes.Int))
 }
 
 // ---- the targeted form ---------------------------------------------------------------------------

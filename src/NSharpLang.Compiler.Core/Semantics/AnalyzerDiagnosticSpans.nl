@@ -650,6 +650,36 @@ class AnalyzerDiagnosticSpans {
         return Math.Max(1, sourceLine.TrimEnd().Length - start)
     }
 
+    // A WHOLE ARRAY LITERAL, bracket to bracket — `[]` is two characters, and a caret under the `[`
+    // alone points at half of what the reader wrote. A literal that spans lines, or a line the
+    // snippet cannot supply, falls back to the opening token.
+    func GetArrayLiteralDiagnosticSpan(literal: ArrayLiteralExpression): DiagnosticSpan {
+        fallback := GetExpressionDiagnosticSpan(literal)
+        sourceLine := SourceSnippet(literal.Line)
+        start := literal.Column - 1
+        if sourceLine == null || start < 0 || start >= sourceLine.Length || sourceLine[start] != '[' {
+            return fallback
+        }
+
+        return new DiagnosticSpan(literal.Line, literal.Column, GetBalancedDelimiterLength(sourceLine, start, '[', ']'))
+    }
+
+    // A WHOLE CONDITIONAL, from the first character of its condition to the last of its `else` arm,
+    // when all of it sits on one line. The node's own position is the `?`, which is where the parser
+    // learned it was a conditional and not where the reader's eye starts.
+    func GetConditionalDiagnosticSpan(ternary: TernaryExpression): DiagnosticSpan {
+        fallback := GetExpressionDiagnosticSpan(ternary)
+        startLine := 0
+        startColumn := 0
+        AnalyzerDiagnosticSpanFacts.GetExpressionStartPosition(ternary.Condition, ternary.Line, ternary.Column, out startLine, out startColumn)
+        elseSpan := GetExpressionDiagnosticSpan(ternary.ElseExpression)
+        if startLine != ternary.Line || elseSpan.Line != startLine || elseSpan.Column <= startColumn {
+            return fallback
+        }
+
+        return new DiagnosticSpan(startLine, startColumn, elseSpan.Column + elseSpan.Length - startColumn)
+    }
+
     // A CALL reports on its callee's written NAME. A call through an arbitrary expression has no
     // written name, so the caller's display name supplies the width instead.
     func GetCallDiagnosticSpan(call: CallExpression, functionName: string): DiagnosticSpan {

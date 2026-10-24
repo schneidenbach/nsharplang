@@ -53,6 +53,9 @@ let numbers: int[] = [1, 2, 3, 4, 5]
 let pi: double = 3.14159
 ```
 
+The type can be left off, exactly as with `:=` — `let total = 0` (or `let total := 0`) infers `int`
+from the value.
+
 ## Functions
 
 Functions are declared with the `func` keyword.

@@ -1270,7 +1270,8 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
     // two) and ()/[] groups, ending at the first depth-0 `=` (93). Children = [name Identifier (kind 6),
     // init root]; the initializer parses at the LAMBDA level (so `let f: Func<int, int> = x => x + 1`
     // carries a kind-39 initializer the emitter types from the DECLARED type). A typed declaration with
-    // no initializer never finds a depth-0 `=` and refuses; `let name := init` is unmodeled (-1).
+    // no initializer never finds a depth-0 `=` and refuses. `let name = init` and `let name := init`,
+    // with no type, are the inferred form below.
     isTypedLocal := false
     typedNameIndex := start
     if kind == 19 && start + 2 < count && (tokens.Kinds[start + 1] == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(tokens.Kinds[start + 1])) && tokens.Kinds[start + 2] == 122 {
@@ -1370,6 +1371,26 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         AppendExpressionChild(st, children, typedInit)
         declStart := tokens.Starts[start]
         return EmitExpressionNode(st, nodes, 40, typeSpanStart, typeSpanEnd - typeSpanStart, typedChildRunStart, 2, declStart, typedInitEnd - declStart)
+    }
+
+    // THE INFERRED LOCAL SPELLED WITH `let` — `let name = init` or `let name := init`. It is the same
+    // declaration as `name := init`, and it is the same node (kind 24): the immutability `let` adds is
+    // the analyzer's to enforce, and there is nothing for the emitter to do differently. Without this
+    // arm the statement matched no production and the whole function declined at `parse.function`,
+    // although the language documents the spelling (`let other = new UserId(7)`).
+    if kind == 19 && start + 2 < count && (tokens.Kinds[start + 1] == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(tokens.Kinds[start + 1])) && (tokens.Kinds[start + 2] == 93 || tokens.Kinds[start + 2] == 121) {
+        letNameStart := tokens.Starts[start + 1]
+        letNameLength := tokens.ValueLengths[start + 1]
+        st.Pos = start + 3
+        letInitRoot := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+        if letInitRoot < 0 {
+            return -1
+        }
+
+        letInitEnd := nodes.SpanStarts[letInitRoot] + nodes.SpanLengths[letInitRoot]
+        letChildRunStart := st.ChildCursor
+        AppendExpressionChild(st, children, letInitRoot)
+        return EmitExpressionNode(st, nodes, 24, letNameStart, letNameLength, letChildRunStart, 1, letNameStart, letInitEnd - letNameStart)
     }
 
     if (kind == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(kind)) && start + 1 < count && tokens.Kinds[start + 1] == 121 {

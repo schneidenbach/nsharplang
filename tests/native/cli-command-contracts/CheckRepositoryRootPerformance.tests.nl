@@ -634,8 +634,10 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     // source files.
     // Generic-call inference and Wave 2's member lookup, closure, and nullable/record work are all
     // represented here. The expected count was remeasured by walking this merged tree; branch-local
-    // issue counts overlap and are not added together.
-    assert expectedRoots.Count == 257, "repository project-root census changed"
+    // issue counts overlap and are not added together. The inference-site estate rows for untargeted
+    // `[]` and disagreeing conditionals then added one Core file and no roots, and the mixed-branch
+    // conditional census added `tests/native/census-mixed-conditionals` (one root, two N# files).
+    assert expectedRoots.Count == 258, "repository project-root census changed"
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
