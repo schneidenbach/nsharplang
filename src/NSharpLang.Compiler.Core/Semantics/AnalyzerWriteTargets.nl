@@ -564,7 +564,29 @@ class AnalyzerWriteTargets {
                 return false
             }
 
-            return member.Kind == DeclaredMemberKind.Property && member.IsStatic == includeStaticMembers && (!member.HasSetter || member.IsReadonly)
+            if member.Kind != DeclaredMemberKind.Property || member.IsStatic != includeStaticMembers {
+                return false
+            }
+
+            if member.IsReadonly {
+                return true
+            }
+
+            if member.HasSetter {
+                return false
+            }
+
+            // A GET-ONLY `override` REPLACES THE GETTER ALONE. The setter it inherits is still the
+            // property's, so a write through the deriving type calls it, as C#'s does; the base that
+            // declares the setter answers.
+            if (member.DeclaredModifiers & Convert.ToInt32(Modifiers.Override)) != 0 {
+                inheritedFrom := BaseTypeOfDeclaringOwner(selection.Owner)
+                if inheritedFrom != null {
+                    return TryIsReadOnlyPropertyMember(inheritedFrom, memberName, includeStaticMembers)
+                }
+            }
+
+            return true
         }
 
         substitution: Dictionary<string, TypeInfo>? = null
@@ -587,6 +609,17 @@ class AnalyzerWriteTargets {
         return TryIsReadOnlyReflectionProperty(reflectedType, memberName, includeStaticMembers)
     }
 
+    // The base of the source type that declared a member, or null when it names none this analysis
+    // can read.
+    func BaseTypeOfDeclaringOwner(declaringOwner: TypeInfo): TypeInfo? {
+        shape: AnalyzerSourceMemberShape = new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(declaringOwner, null, out shape) {
+            return null
+        }
+
+        return shape.BaseType
+    }
+
     // THE FIRST DECLARATION THAT CLAIMS THE NAME DECIDES, one base type at a time. A FIELD claims it
     // and answers no — a field is not a property. A PROPERTY claims it and answers whether its public
     // setter is absent. A method or an event claims it and answers no.
@@ -607,10 +640,17 @@ class AnalyzerWriteTargets {
                 }
             }
 
+            // A property that overrides only its base's getter declares no setter of its own, and
+            // the setter it inherits is still the property's: the walk asks the base.
             properties := declaredType.GetProperties(flags)
             for property in properties {
                 if property.Name == memberName {
-                    return property.GetSetMethod(false) == null
+                    if property.GetSetMethod(false) != null {
+                        return false
+                    }
+                    if !OverridesInheritedGetter(property) {
+                        return true
+                    }
                 }
             }
 
@@ -632,6 +672,15 @@ class AnalyzerWriteTargets {
         }
 
         return false
+    }
+
+    static func OverridesInheritedGetter(property: PropertyInfo): bool {
+        getter := property.GetGetMethod(true)
+        if getter == null || !getter.IsVirtual {
+            return false
+        }
+
+        return getter.GetBaseDefinition().DeclaringType != getter.DeclaringType
     }
 
     // ------------------------------------------------------------------------------------------

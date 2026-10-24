@@ -5574,6 +5574,10 @@ sealed class ColumnarIlEmitter {
 
         // PASS 0a''' (fields and field-like events): with every base list and every duck match
         // registered, each declaration's storage and its event accessors are defined.
+        //
+        // An `override` bare member is the exception: it is only RECORDED here, at its place in the
+        // field order, and defined by PASS 0b' once every slot it could take exists (see there).
+        deferredOverrideAutoProperties := new List<ColumnarDeferredOverrideAutoProperty>()
         for s := 0; s < structs.Count; s++ {
             st := structs[s]
             tb := structBuilders[s]
@@ -5676,16 +5680,11 @@ sealed class ColumnarIlEmitter {
                     }
                     autoInheritanceKind := ColumnarAutoPropertyEmitter.InheritanceKindOf(st.FieldVirtualFlags[fi], st.FieldAbstractFlags[fi], st.FieldOverrideFlags[fi], st.FieldSealedFlags[fi])
                     if (ColumnarAutoPropertyEmitter.IsOverride(autoInheritanceKind)) {
-                        overriddenProperty := new ColumnarPropertyOverrideMatch(def, fieldName, fieldType, ColumnarTypeOfPlanner.RequiredVoidType())
-                        if (!overriddenProperty.Matched) {
-                            return DeclineStatic("emit.declaration.override-target", overriddenProperty.DeclineMessage, st.Name, -1, 0)
-                        }
-                        // AN `override` TAKES THE ACCESSIBILITY OF THE SLOT IT REUSES unless the source
-                        // wrote a word of its own — the method rule, for the same reason: the slot's
-                        // accessibility belongs to the type that opened it.
-                        if ((st.FieldVisibilityFlags[fi] & 15) == 0 && overriddenProperty.AccessibilityAttributes >= 0) {
-                            autoPropertyVisibility = overriddenProperty.AccessibilityAttributes
-                        }
+                        // Its storage is instance state like any dispatched property's, so its place
+                        // in the field order is kept; the field itself is defined with the property.
+                        deferredOverrideAutoProperties.Add(new ColumnarDeferredOverrideAutoProperty(s, fi, fieldName, fieldType, autoFillsInterfaceSlot))
+                        instanceFieldNames.Add(ColumnarAutoPropertyEmitter.BackingFieldName(fieldName))
+                        continue
                     }
                     autoProperty := ColumnarAutoPropertyEmitter.Define(def, fieldName, fieldType, false, autoPropertyVisibility, st.FieldRequiredFlags[fi], autoFillsInterfaceSlot, st.FieldTypeCanonicals[fi], false, autoInheritanceKind)
                     def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
@@ -6208,183 +6207,239 @@ sealed class ColumnarIlEmitter {
         // `receiver.Name` read (case 8 -> callvirt get_Name) + `receiver.Name = v` write (case 23 -> callvirt
         // set_Name). Same-declaration property source-name and synthesized get_Name/set_Name collisions are rejected
         // by the N# struct parser before rows reach this pass.
-        for s := 0; s < structs.Count; s++ {
-            if (structs[s].Properties.Count == 0) {
-                continue
-            }
-            def := structDefsInOrder[s]
-            typeResolution := structTypeResolutions[s]
-            for pi := 0; pi < structs[s].Properties.Count; pi++ {
-                prop := structs[s].Properties[pi]
-                let propType: System.Type = null
-                if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(prop.TypeCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out propType) || !ColumnarTypeOfPlanner.IsSupportedType(propType)) {
-                    return false
-                }
-                if (prop.IsStatic) {
-                    // STATIC property: CLR-static accessors — get_Name takes no args at all; set_Name's `value`
-                    // is arg 0 (no implicit `this`). The bodies are STATIC contexts (PASS 2 runs them with
-                    // `_currentStruct` null), so a bare backing-field reference inside an accessor declines
-                    // exactly where the N# pipeline reports NL103 — the backing access must be `TypeName.field`.
-                    staticAccessorAttributes := (MethodAttributes)declarationPlan.Properties.AccessorWords[s][pi]
-                    staticPropertyOwner := def.Builder
-                    staticPropertyGetterName := declarationPlan.Properties.GetterNames[s][pi]
-                    staticPropertyGetterAttributes := staticAccessorAttributes
-                    staticPropertyType := propType
-                    let staticPropertySetterName: string? = null
-                    if (declarationPlan.Properties.HasSetter[s][pi]) {
-                        staticPropertySetterName = declarationPlan.Properties.SetterNames[s][pi]
-                    }
-                    staticPropertySetterAttributes := staticAccessorAttributes
-                    staticAccessors := ColumnarPropertyDef.Define(
-                        staticPropertyOwner,
-                        staticPropertyGetterName,
-                        staticPropertyGetterAttributes,
-                        staticPropertyType,
-                        staticPropertySetterName,
-                        staticPropertySetterAttributes,
-                        ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
-                    )
-                    staticGetter := staticAccessors.Getter
-                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(staticGetter, prop.Getter.SourceAttributes, typeResolution)) {
-                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
-                    }
-                    structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), true)))
-                    staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
-                    ColumnarSignatureMetadataEmitter.ApplyToProperty(staticProperty, staticPropertyType, prop.TypeCanonical)
-                    def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
-                    // THE QUEUE IS THE ONLY WRITER OF A PROPERTY'S SOURCE ATTRIBUTES, INCLUDING THE
-                    // MSBUILD MARKERS. `[Microsoft.Build.Framework.Required]` and `[…Output]` once had a
-                    // second, hard-coded writer here, from before attribute attachment reached property
-                    // rows at all; keeping both wrote the row TWICE, which is invalid metadata for an
-                    // attribute that is not `AllowMultiple`. The declaration scanner still records the
-                    // exact marker (`ColumnarPropertyRows.HasMsBuild*Attribute`) as a parser fact, but
-                    // emission is the binder's, which resolves the name the way every other attribute is
-                    // resolved and therefore also honours the imported `[Required]` spelling.
-                    sourceAttributeQueue.QueueProperty(staticProperty, prop.Getter.SourceAttributes, typeResolution)
-                    if prop.IsRequired {
-                        ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(staticProperty)
-                    }
-                    staticProperty.SetGetMethod(staticGetter)
-                    staticSetter := staticAccessors.Setter
-                    if (prop.Setter != null) {
-                        exactStaticSetter := ColumnarEmitReflectionFacts.RequiredMethodBuilder(staticSetter, "setter for static property '" + prop.Name + "'")
-                        if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactStaticSetter, prop.Setter.SourceAttributes, typeResolution)) {
-                            return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
-                        }
-                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactStaticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {
+        //
+        // AN `override` PROPERTY IS DEFINED IN A SECOND SWEEP, BASE TYPES FIRST. Its accessors take a
+        // slot that must already exist: `ColumnarPropertyOverrideMatch` proves it from the base's own
+        // accessor builders, and the slot's accessibility is fixed into the override's accessor word
+        // when the accessor is defined. So every property that OPENS a slot is defined by the first
+        // sweep, and the overrides follow in derivation order — a written `override` property and a
+        // bare `override` member (recorded by PASS 0a''') alike, so either kind may override the
+        // other, and an override of an override finds the nearer one already defined. Neither source
+        // order nor which pass declared the base's member decides anything.
+        overrideOrder := BaseFirstStructOrder(structDepths)
+        for propertySweep := 0; propertySweep < 2; propertySweep++ {
+            definesOverrides := propertySweep == 1
+            for ordinal := 0; ordinal < structs.Count; ordinal++ {
+                s := definesOverrides ? overrideOrder[ordinal] : ordinal
+                def := structDefsInOrder[s]
+                typeResolution := structTypeResolutions[s]
+                if (definesOverrides) {
+                    for deferredOverride in deferredOverrideAutoProperties {
+                        if (deferredOverride.StructIndex == s && !TryDefineOverrideAutoProperty(def, structs[s], deferredOverride, typeResolution, sourceAttributeQueue)) {
                             return false
                         }
-                        staticSetOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
-                        staticSetOrdinals["value"] = declarationPlan.Properties.ValueOrdinals[s][pi]
-                        staticSetParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
-                        staticSetParamTypes["value"] = propType
-                        structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Setter, exactStaticSetter, ColumnarTypeOfPlanner.RequiredVoidType(), ColumnarTypeOfPlanner.RequiredVoidType(), null, staticSetOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(staticSetParamTypes, true)))
-                        staticProperty.SetSetMethod(exactStaticSetter)
-                    }
-                    def.StaticProperties[prop.Name] = staticAccessors
-                    continue
-                }
-                accessorAttributes := (MethodAttributes)declarationPlan.Properties.AccessorWords[s][pi]
-                propertyOwner := def.Builder
-                propertyGetterName := declarationPlan.Properties.GetterNames[s][pi]
-                // A DECLARED INTERFACE THAT NAMES THIS VALUE MEMBER MAKES THE GETTER A SLOT FILL,
-                // exactly as it does for an event's accessors: Virtual|Final|NewSlot, which is what
-                // C# emits for an implicit implementation. The SETTER is untouched — an interface's
-                // value member is a read slot, so nothing asks a setter to be virtual.
-                propertyGetterAttributes := accessorAttributes
-                propertyOwnerBaseNames := structs[s].BaseNames
-                let propertySlotType: System.Type? = null
-                if (TryFindDeclaredInterfaceValueMember(propertyOwnerBaseNames, typeResolution, prop.Name, out propertySlotType) || TryFindImplementedInterfaceValueMember(def, prop.Name, out propertySlotType)) {
-                    if (!InterfaceValueSlotAccepts(propertySlotType, propType)) {
-                        return DeclineStatic("emit.declaration.interface-value-member", "'" + structs[s].Name + "." + prop.Name + "' fills an interface value slot, so it must have the slot's own type", structs[s].Name, -1, 0)
-                    }
-                    propertyGetterAttributes = (MethodAttributes)((int)accessorAttributes | ColumnarInterfaceSlotFillMethodAttributes())
-                }
-                propertyType := propType
-                let propertySetterName: string? = null
-                if (declarationPlan.Properties.HasSetter[s][pi]) {
-                    propertySetterName = declarationPlan.Properties.SetterNames[s][pi]
-                }
-                propertySetterAttributes := accessorAttributes
-                // AN EXPLICITLY IMPLEMENTED VALUE MEMBER. The plan built its accessor names from the
-                // DECLARED spelling, which is all it can know; metadata spells the interface fully
-                // qualified, so the resolved interface supplies the real names here and the property row
-                // below takes the same qualification. The accessors then need a MethodImpl row each,
-                // because `ILabeled.get_Label` does not bind `get_Label` by name the way an implicit
-                // accessor does — without the row the CLR refuses to LOAD the type.
-                explicitPropertyQualifier := ExplicitInterfaceMemberFacts.QualifierOf(prop.Name)
-                explicitPropertySimpleName := ExplicitInterfaceMemberFacts.SimpleNameOf(prop.Name)
-                propertyMetadataName := prop.Name
-                let namedPropertyInterface: System.Type? = null
-                if (explicitPropertyQualifier != "") {
-                    if (!ColumnarExplicitInterfaceImplementation.TryResolveNamedInterface(explicitPropertyQualifier, def, typeResolution, out namedPropertyInterface) || namedPropertyInterface == null) {
-                        return DeclineStatic("emit.declaration.explicit-interface", "'" + structs[s].Name + "' does not implement '" + explicitPropertyQualifier + "', so it cannot implement '" + prop.Name + "' explicitly", structs[s].Name, -1, 0)
-                    }
-                    explicitPropertyInterfaceDisplayName := ExplicitInterfaceMemberFacts.RuntimeInterfaceDisplayName(namedPropertyInterface)
-                    propertyMetadataName = ExplicitInterfaceMemberFacts.MetadataName(explicitPropertyInterfaceDisplayName, explicitPropertySimpleName)
-                    propertyGetterName = ExplicitInterfaceMemberFacts.MetadataAccessorName(explicitPropertyInterfaceDisplayName, "get_", explicitPropertySimpleName)
-                    if (propertySetterName != null) {
-                        propertySetterName = ExplicitInterfaceMemberFacts.MetadataAccessorName(explicitPropertyInterfaceDisplayName, "set_", explicitPropertySimpleName)
-                    }
-                    if (!def.ExplicitInterfaceSlots.Add(propertyMetadataName)) {
-                        return DeclineStatic("emit.declaration.explicit-interface-duplicate", "'" + explicitPropertyQualifier + "." + explicitPropertySimpleName + "' is implemented explicitly more than once", structs[s].Name, -1, 0)
                     }
                 }
-                accessors := ColumnarPropertyDef.Define(
-                    propertyOwner,
-                    propertyGetterName,
-                    propertyGetterAttributes,
-                    propertyType,
-                    propertySetterName,
-                    propertySetterAttributes,
-                    ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
-                )
-                getter := accessors.Getter
-                if (!ColumnarMethodImplAttributes.TryApplyToMethod(getter, prop.Getter.SourceAttributes, typeResolution)) {
-                    return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
-                }
-                structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
-                if (namedPropertyInterface != null) {
-                    let explicitGetterSlot: System.Reflection.MethodInfo? = null
-                    if (!ColumnarExplicitInterfaceImplementation.TryResolveValueSlotAccessor(def, namedPropertyInterface, explicitPropertySimpleName, false, out explicitGetterSlot) || explicitGetterSlot == null) {
-                        return DeclineStatic("emit.declaration.explicit-interface-slot", "'" + explicitPropertyQualifier + "' declares no readable value member named '" + explicitPropertySimpleName + "'", structs[s].Name, -1, 0)
+                for pi := 0; pi < structs[s].Properties.Count; pi++ {
+                    prop := structs[s].Properties[pi]
+                    isOverrideProperty := !prop.IsStatic && ColumnarFunctionInput.HasOverrideModifier(prop.ModifierFlags)
+                    if (isOverrideProperty != definesOverrides) {
+                        continue
                     }
-                    def.Builder.DefineMethodOverride(getter, explicitGetterSlot)
-                }
-                property := def.Builder.DefineProperty(propertyMetadataName, PropertyAttributes.None, propType, Type.EmptyTypes)
-                ColumnarSignatureMetadataEmitter.ApplyToProperty(property, propertyType, prop.TypeCanonical)
-                def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
-                // One writer, for the reason spelled out on the static property above.
-                sourceAttributeQueue.QueueProperty(property, prop.Getter.SourceAttributes, typeResolution)
-                if prop.IsRequired {
-                    ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(property)
-                }
-                property.SetGetMethod(getter)
-                setter := accessors.Setter
-                if (prop.Setter != null) {
-                    exactSetter := ColumnarEmitReflectionFacts.RequiredMethodBuilder(setter, "setter for property '" + prop.Name + "'")
-                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactSetter, prop.Setter.SourceAttributes, typeResolution)) {
-                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
-                    }
-                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {
+                    let propType: System.Type = null
+                    if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(prop.TypeCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out propType) || !ColumnarTypeOfPlanner.IsSupportedType(propType)) {
                         return false
                     }
-                    // The body assigns fields via the reference-type field-write path (a void structMethodJob).
-                    setOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
-                    setOrdinals["value"] = declarationPlan.Properties.ValueOrdinals[s][pi]
-                    setParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
-                    setParamTypes["value"] = propType
-                    structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Setter, exactSetter, ColumnarTypeOfPlanner.RequiredVoidType(), ColumnarTypeOfPlanner.RequiredVoidType(), null, setOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(setParamTypes, false)))
-                    if (namedPropertyInterface != null) {
-                        let explicitSetterSlot: System.Reflection.MethodInfo? = null
-                        if (!ColumnarExplicitInterfaceImplementation.TryResolveValueSlotAccessor(def, namedPropertyInterface, explicitPropertySimpleName, true, out explicitSetterSlot) || explicitSetterSlot == null) {
-                            return DeclineStatic("emit.declaration.explicit-interface-slot", "'" + explicitPropertyQualifier + "' declares no writable value member named '" + explicitPropertySimpleName + "'", structs[s].Name, -1, 0)
+                    if (prop.IsStatic) {
+                        // STATIC property: CLR-static accessors — get_Name takes no args at all; set_Name's `value`
+                        // is arg 0 (no implicit `this`). The bodies are STATIC contexts (PASS 2 runs them with
+                        // `_currentStruct` null), so a bare backing-field reference inside an accessor declines
+                        // exactly where the N# pipeline reports NL103 — the backing access must be `TypeName.field`.
+                        staticAccessorAttributes := (MethodAttributes)declarationPlan.Properties.AccessorWords[s][pi]
+                        staticPropertyOwner := def.Builder
+                        staticPropertyGetterName := declarationPlan.Properties.GetterNames[s][pi]
+                        staticPropertyGetterAttributes := staticAccessorAttributes
+                        staticPropertyType := propType
+                        let staticPropertySetterName: string? = null
+                        if (declarationPlan.Properties.HasSetter[s][pi]) {
+                            staticPropertySetterName = declarationPlan.Properties.SetterNames[s][pi]
                         }
-                        def.Builder.DefineMethodOverride(exactSetter, explicitSetterSlot)
+                        staticPropertySetterAttributes := staticAccessorAttributes
+                        staticAccessors := ColumnarPropertyDef.Define(
+                            staticPropertyOwner,
+                            staticPropertyGetterName,
+                            staticPropertyGetterAttributes,
+                            staticPropertyType,
+                            staticPropertySetterName,
+                            staticPropertySetterAttributes,
+                            ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
+                        )
+                        staticGetter := staticAccessors.Getter
+                        if (!ColumnarMethodImplAttributes.TryApplyToMethod(staticGetter, prop.Getter.SourceAttributes, typeResolution)) {
+                            return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                        }
+                        structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), true)))
+                        staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                        ColumnarSignatureMetadataEmitter.ApplyToProperty(staticProperty, staticPropertyType, prop.TypeCanonical)
+                        def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
+                        // THE QUEUE IS THE ONLY WRITER OF A PROPERTY'S SOURCE ATTRIBUTES, INCLUDING THE
+                        // MSBUILD MARKERS. `[Microsoft.Build.Framework.Required]` and `[…Output]` once had a
+                        // second, hard-coded writer here, from before attribute attachment reached property
+                        // rows at all; keeping both wrote the row TWICE, which is invalid metadata for an
+                        // attribute that is not `AllowMultiple`. The declaration scanner still records the
+                        // exact marker (`ColumnarPropertyRows.HasMsBuild*Attribute`) as a parser fact, but
+                        // emission is the binder's, which resolves the name the way every other attribute is
+                        // resolved and therefore also honours the imported `[Required]` spelling.
+                        sourceAttributeQueue.QueueProperty(staticProperty, prop.Getter.SourceAttributes, typeResolution)
+                        if prop.IsRequired {
+                            ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(staticProperty)
+                        }
+                        staticProperty.SetGetMethod(staticGetter)
+                        staticSetter := staticAccessors.Setter
+                        if (prop.Setter != null) {
+                            exactStaticSetter := ColumnarEmitReflectionFacts.RequiredMethodBuilder(staticSetter, "setter for static property '" + prop.Name + "'")
+                            if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactStaticSetter, prop.Setter.SourceAttributes, typeResolution)) {
+                                return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                            }
+                            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactStaticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {
+                                return false
+                            }
+                            staticSetOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+                            staticSetOrdinals["value"] = declarationPlan.Properties.ValueOrdinals[s][pi]
+                            staticSetParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
+                            staticSetParamTypes["value"] = propType
+                            structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Setter, exactStaticSetter, ColumnarTypeOfPlanner.RequiredVoidType(), ColumnarTypeOfPlanner.RequiredVoidType(), null, staticSetOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(staticSetParamTypes, true)))
+                            staticProperty.SetSetMethod(exactStaticSetter)
+                        }
+                        def.StaticProperties[prop.Name] = staticAccessors
+                        continue
                     }
-                    property.SetSetMethod(exactSetter)
+                    accessorAttributes := (MethodAttributes)declarationPlan.Properties.AccessorWords[s][pi]
+                    // `abstract` is a bare member's word: an abstract slot supplies no body, and a
+                    // written property is its bodies. The analyzer refuses it (NL311).
+                    if (ColumnarFunctionInput.HasAbstractModifier(prop.ModifierFlags)) {
+                        return DeclineStatic("emit.declaration.property-abstract", "'" + structs[s].Name + "." + prop.Name + "' is declared 'abstract' but has accessor bodies", structs[s].Name, -1, 0)
+                    }
+                    // AN `override` PROVES THE SLOT IT TAKES before its accessors exist: only the getter
+                    // when it declares only a getter — a base setter is inherited as it is — and both
+                    // when it declares both. It then takes the slot's accessibility unless the source
+                    // wrote a word of its own, the method rule, for the method rule's reason.
+                    if (isOverrideProperty) {
+                        overriddenProperty := new ColumnarPropertyOverrideMatch(def, prop.Name, propType, ColumnarTypeOfPlanner.RequiredVoidType(), prop.Setter != null)
+                        if (!overriddenProperty.Matched) {
+                            return DeclineStatic("emit.declaration.override-target", overriddenProperty.DeclineMessage, structs[s].Name, -1, 0)
+                        }
+                        if ((prop.ModifierFlags & 15) == 0 && overriddenProperty.AccessibilityAttributes >= 0) {
+                            accessorAttributes = (MethodAttributes)(((int)accessorAttributes & ~7) | overriddenProperty.AccessibilityAttributes)
+                        }
+                    }
+                    propertyOwner := def.Builder
+                    propertyGetterName := declarationPlan.Properties.GetterNames[s][pi]
+                    // A DECLARED INTERFACE THAT NAMES THIS VALUE MEMBER MAKES THE GETTER A SLOT FILL,
+                    // exactly as it does for an event's accessors: Virtual|Final|NewSlot, which is what
+                    // C# emits for an implicit implementation. The SETTER is untouched — an interface's
+                    // value member is a read slot, so nothing asks a setter to be virtual. A `virtual`
+                    // or `override` getter is already virtual, which the interface slot accepts as it
+                    // is; Final would close the slot the source opened.
+                    propertyGetterAttributes := accessorAttributes
+                    propertyOwnerBaseNames := structs[s].BaseNames
+                    let propertySlotType: System.Type? = null
+                    propertyFillsInterfaceSlot := TryFindDeclaredInterfaceValueMember(propertyOwnerBaseNames, typeResolution, prop.Name, out propertySlotType) || TryFindImplementedInterfaceValueMember(def, prop.Name, out propertySlotType)
+                    if (propertyFillsInterfaceSlot) {
+                        if (!InterfaceValueSlotAccepts(propertySlotType, propType)) {
+                            return DeclineStatic("emit.declaration.interface-value-member", "'" + structs[s].Name + "." + prop.Name + "' fills an interface value slot, so it must have the slot's own type", structs[s].Name, -1, 0)
+                        }
+                        if (((int)accessorAttributes & 0x0040) == 0) {
+                            propertyGetterAttributes = (MethodAttributes)((int)accessorAttributes | ColumnarInterfaceSlotFillMethodAttributes())
+                        }
+                    }
+                    propertyType := propType
+                    let propertySetterName: string? = null
+                    if (declarationPlan.Properties.HasSetter[s][pi]) {
+                        propertySetterName = declarationPlan.Properties.SetterNames[s][pi]
+                    }
+                    propertySetterAttributes := accessorAttributes
+                    // AN EXPLICITLY IMPLEMENTED VALUE MEMBER. The plan built its accessor names from the
+                    // DECLARED spelling, which is all it can know; metadata spells the interface fully
+                    // qualified, so the resolved interface supplies the real names here and the property row
+                    // below takes the same qualification. The accessors then need a MethodImpl row each,
+                    // because `ILabeled.get_Label` does not bind `get_Label` by name the way an implicit
+                    // accessor does — without the row the CLR refuses to LOAD the type.
+                    explicitPropertyQualifier := ExplicitInterfaceMemberFacts.QualifierOf(prop.Name)
+                    explicitPropertySimpleName := ExplicitInterfaceMemberFacts.SimpleNameOf(prop.Name)
+                    propertyMetadataName := prop.Name
+                    let namedPropertyInterface: System.Type? = null
+                    if (explicitPropertyQualifier != "") {
+                        if (!ColumnarExplicitInterfaceImplementation.TryResolveNamedInterface(explicitPropertyQualifier, def, typeResolution, out namedPropertyInterface) || namedPropertyInterface == null) {
+                            return DeclineStatic("emit.declaration.explicit-interface", "'" + structs[s].Name + "' does not implement '" + explicitPropertyQualifier + "', so it cannot implement '" + prop.Name + "' explicitly", structs[s].Name, -1, 0)
+                        }
+                        explicitPropertyInterfaceDisplayName := ExplicitInterfaceMemberFacts.RuntimeInterfaceDisplayName(namedPropertyInterface)
+                        propertyMetadataName = ExplicitInterfaceMemberFacts.MetadataName(explicitPropertyInterfaceDisplayName, explicitPropertySimpleName)
+                        propertyGetterName = ExplicitInterfaceMemberFacts.MetadataAccessorName(explicitPropertyInterfaceDisplayName, "get_", explicitPropertySimpleName)
+                        if (propertySetterName != null) {
+                            propertySetterName = ExplicitInterfaceMemberFacts.MetadataAccessorName(explicitPropertyInterfaceDisplayName, "set_", explicitPropertySimpleName)
+                        }
+                        if (!def.ExplicitInterfaceSlots.Add(propertyMetadataName)) {
+                            return DeclineStatic("emit.declaration.explicit-interface-duplicate", "'" + explicitPropertyQualifier + "." + explicitPropertySimpleName + "' is implemented explicitly more than once", structs[s].Name, -1, 0)
+                        }
+                    }
+                    accessors := ColumnarPropertyDef.Define(
+                        propertyOwner,
+                        propertyGetterName,
+                        propertyGetterAttributes,
+                        propertyType,
+                        propertySetterName,
+                        propertySetterAttributes,
+                        ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
+                    )
+                    getter := accessors.Getter
+                    if (propertyFillsInterfaceSlot && namedPropertyInterface == null) {
+                        ColumnarExplicitInterfaceImplementation.DefineNonPublicValueSlotFills(def, getter, prop.Name)
+                    }
+                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(getter, prop.Getter.SourceAttributes, typeResolution)) {
+                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                    }
+                    structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
+                    if (namedPropertyInterface != null) {
+                        let explicitGetterSlot: System.Reflection.MethodInfo? = null
+                        if (!ColumnarExplicitInterfaceImplementation.TryResolveValueSlotAccessor(def, namedPropertyInterface, explicitPropertySimpleName, false, out explicitGetterSlot) || explicitGetterSlot == null) {
+                            return DeclineStatic("emit.declaration.explicit-interface-slot", "'" + explicitPropertyQualifier + "' declares no readable value member named '" + explicitPropertySimpleName + "'", structs[s].Name, -1, 0)
+                        }
+                        def.Builder.DefineMethodOverride(getter, explicitGetterSlot)
+                    }
+                    property := def.Builder.DefineProperty(propertyMetadataName, PropertyAttributes.None, propType, Type.EmptyTypes)
+                    ColumnarSignatureMetadataEmitter.ApplyToProperty(property, propertyType, prop.TypeCanonical)
+                    def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
+                    // One writer, for the reason spelled out on the static property above.
+                    sourceAttributeQueue.QueueProperty(property, prop.Getter.SourceAttributes, typeResolution)
+                    if prop.IsRequired {
+                        ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(property)
+                    }
+                    property.SetGetMethod(getter)
+                    setter := accessors.Setter
+                    if (prop.Setter != null) {
+                        exactSetter := ColumnarEmitReflectionFacts.RequiredMethodBuilder(setter, "setter for property '" + prop.Name + "'")
+                        if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactSetter, prop.Setter.SourceAttributes, typeResolution)) {
+                            return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                        }
+                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {
+                            return false
+                        }
+                        // The body assigns fields via the reference-type field-write path (a void structMethodJob).
+                        setOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+                        setOrdinals["value"] = declarationPlan.Properties.ValueOrdinals[s][pi]
+                        setParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
+                        setParamTypes["value"] = propType
+                        structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Setter, exactSetter, ColumnarTypeOfPlanner.RequiredVoidType(), ColumnarTypeOfPlanner.RequiredVoidType(), null, setOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(setParamTypes, false)))
+                        if (namedPropertyInterface != null) {
+                            let explicitSetterSlot: System.Reflection.MethodInfo? = null
+                            if (!ColumnarExplicitInterfaceImplementation.TryResolveValueSlotAccessor(def, namedPropertyInterface, explicitPropertySimpleName, true, out explicitSetterSlot) || explicitSetterSlot == null) {
+                                return DeclineStatic("emit.declaration.explicit-interface-slot", "'" + explicitPropertyQualifier + "' declares no writable value member named '" + explicitPropertySimpleName + "'", structs[s].Name, -1, 0)
+                            }
+                            def.Builder.DefineMethodOverride(exactSetter, explicitSetterSlot)
+                        }
+                        property.SetSetMethod(exactSetter)
+                    }
+                    // A GET-ONLY OVERRIDE OF A SETTABLE PROPERTY IS NOT THE MEMBER'S LOOKUP ENTRY. It
+                    // replaced the getter alone, so the declaration it overrides still names both
+                    // accessors: every read and write in this assembly binds there, as C# binds to the
+                    // original virtual, and `callvirt` on that getter reaches this override. Registering
+                    // it here would hide the inherited setter from `gauge.Reading = 3`.
+                    if (isOverrideProperty && prop.Setter == null && ColumnarPropertyOverrideMatch.InheritsSetter(def, prop.Name, propType, ColumnarTypeOfPlanner.RequiredVoidType())) {
+                        continue
+                    }
+                    def.Properties[prop.Name] = accessors
                 }
-                def.Properties[prop.Name] = accessors
             }
         }
 
@@ -10649,6 +10704,33 @@ sealed class ColumnarIlEmitter {
                             }
                             _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(writeProp))
                             return true
+                        }
+                        // A PROPERTY THE SOURCE CHAIN INHERITS FROM A REFERENCED BASE. `class
+                        // ParseError: Exception` has `HelpLink` because `Exception` declares it, and
+                        // `error.HelpLink = v` is that base's public setter, called virtually — which is
+                        // also how a get-only override of such a property is written through, since the
+                        // override replaced only the getter. Only a name the source chain does not
+                        // declare at all reaches here; a source member of that name has answered above.
+                        if (writeOwnerDef.IsReference && writeProp == null) {
+                            externalWriteBase := ColumnarInheritedExternalBase.Resolve(writeOwnerDef, writeChain.ReceiverType)
+                            if (externalWriteBase != null && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(externalWriteBase)) {
+                                externalWriteProperty := ReflectedMemberLookup.FindProperty(externalWriteBase, memberName, BindingFlags.Public | BindingFlags.Instance)
+                                let externalWriteSetter: System.Reflection.MethodInfo? = null
+                                if (externalWriteProperty != null && externalWriteProperty.GetIndexParameters().Length == 0) {
+                                    externalWriteSetter = externalWriteProperty.GetSetMethod()
+                                }
+                                if (externalWriteProperty != null && externalWriteSetter != null && !externalWriteSetter.IsStatic) {
+                                    if (!EmitMemberWriteLocator(writeChain)) {
+                                        return false
+                                    }
+                                    let externalWriteValueType: System.Type? = null
+                                    if (!TryEmitAssignableValue(Child(expr, 1), externalWriteProperty.PropertyType, out externalWriteValueType)) {
+                                        return false
+                                    }
+                                    _il.Emit(OpCodes.Callvirt, externalWriteSetter)
+                                    return true
+                                }
+                            }
                         }
                     }
                     // A REFLECTED OWNER — a type from a referenced assembly, including an N#-compiled
@@ -32964,9 +33046,51 @@ sealed class ColumnarIlEmitter {
         return 0x0040 | 0x0020 | 0x0100
     }
 
-    // WHETHER THIS NAME IS AN `override` EVENT'S OWN STORAGE STANDING OVER THE BASE EVENT'S. Both
-    // sides must be events and the derived one must carry the word — a plain derived event of the same
-    // name really would hide the base's, which this backend does not model for data members.
+    // AN `override` BARE MEMBER, DEFINED ONCE THE SLOT IT TAKES EXISTS (the second sweep of PASS 0b'). It
+    // replaces both accessors, so the base must open both; it takes the slot's accessibility unless
+    // the source wrote a word of its own — the method rule, for the same reason: the slot's
+    // accessibility belongs to the type that opened it. Its storage name already holds its place in
+    // the field order (PASS 0a''').
+    private static func TryDefineOverrideAutoProperty(def: ColumnarStructDef, st: ColumnarStructInput, deferred: ColumnarDeferredOverrideAutoProperty, typeResolution: ColumnarSemanticTypeResolution, sourceAttributeQueue: ColumnarSourceAttributeQueue): bool {
+        fi := deferred.FieldIndex
+        fieldName := deferred.FieldName
+        overriddenProperty := new ColumnarPropertyOverrideMatch(def, fieldName, deferred.FieldType, ColumnarTypeOfPlanner.RequiredVoidType(), true)
+        if (!overriddenProperty.Matched) {
+            return DeclineStatic("emit.declaration.override-target", overriddenProperty.DeclineMessage, st.Name, -1, 0)
+        }
+        visibility := ColumnarDeclarationPlanner.MethodVisibilityAttributes(fieldName, st.FieldVisibilityFlags[fi])
+        if ((st.FieldVisibilityFlags[fi] & 15) == 0 && overriddenProperty.AccessibilityAttributes >= 0) {
+            visibility = overriddenProperty.AccessibilityAttributes
+        }
+        inheritanceKind := ColumnarAutoPropertyEmitter.InheritanceKindOf(false, false, true, st.FieldSealedFlags[fi])
+        autoProperty := ColumnarAutoPropertyEmitter.Define(def, fieldName, deferred.FieldType, false, visibility, st.FieldRequiredFlags[fi], deferred.FillsInterfaceSlot, st.FieldTypeCanonicals[fi], false, inheritanceKind)
+        def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
+        sourceAttributeQueue.QueueAutoProperty(autoProperty.Property, must autoProperty.BackingField, st.FieldSourceAttributesAt(fi), typeResolution)
+        return true
+    }
+
+    // The declaration indices ordered so every base precedes the types deriving from it: by chain
+    // depth, source order within a depth.
+    private static func BaseFirstStructOrder(structDepths: int[]): int[] {
+        order := new int[](structDepths.Length)
+        cursor := 0
+        maxDepth := 0
+        for s := 0; s < structDepths.Length; s++ {
+            if (structDepths[s] > maxDepth) {
+                maxDepth = structDepths[s]
+            }
+        }
+        for depth := 0; depth <= maxDepth; depth++ {
+            for s := 0; s < structDepths.Length; s++ {
+                if (structDepths[s] == depth) {
+                    order[cursor] = s
+                    cursor++
+                }
+            }
+        }
+        return order
+    }
+
     // A derived property whose getter is virtual WITHOUT NewSlot reuses a base slot — the `override`
     // shape — over a base PROPERTY of the same name.
     private static func IsOverridingPropertySlot(def: ColumnarStructDef, chain: ColumnarStructDef, propertyName: string): bool {
@@ -32977,6 +33101,9 @@ sealed class ColumnarIlEmitter {
         return ColumnarPropertyOverrideMatch.ReusesSlot(derivedProperty.Getter)
     }
 
+    // WHETHER THIS NAME IS AN `override` EVENT'S OWN STORAGE STANDING OVER THE BASE EVENT'S. Both
+    // sides must be events and the derived one must carry the word — a plain derived event of the same
+    // name really would hide the base's, which this backend does not model for data members.
     private static func IsOverridingEventStorage(def: ColumnarStructDef, chain: ColumnarStructDef, fieldName: string): bool {
         let derivedEvent: NSharpLang.Compiler.Columnar.ColumnarEventDef? = null
         if (!def.Events.TryGetValue(fieldName, out derivedEvent)) {

@@ -101,9 +101,49 @@ virtual navigations. C#'s shapes: `public virtual|abstract|override|sealed overr
   the member planner (`ReusesSlot`) treat an override as the same member, not a shadow.
 - `sealed` reaches the emitter as field-word bit 14 (`FieldSealedFlags`).
 
-Known gap, separate from this: a WRITTEN-accessor property (`virtual X: T => …`, `{ get … set … }`)
-ignores `virtual`/`override` in emission — its accessors are emitted non-virtual — so such an
-override does not dispatch. The column `ColumnarPropertyInput` carries no modifier flags.
+- **Override definition order.** An `override` bare member is only RECORDED in PASS 0a''' (its
+  backing-field name keeps its place in the field order; `ColumnarDeferredOverrideAutoProperty`) and
+  is defined in the second sweep of PASS 0b', base types first (`BaseFirstStructOrder` over chain
+  depth), together with written `override` properties. So a bare override over a written `virtual`
+  property works, and neither kind depends on source order (a subclass declared before its base used
+  to decline `emit.declaration.override-target`).
+
+## Written-accessor properties (`virtual` / `override` / `sealed override`)
+
+**Added 2026-10-18.** A property written with accessors (`Text: T => …`, `{ get … set … }`) honours the
+inheritance words on each accessor it declares — before this, they were accepted by the analyzer and
+dropped by emission, so `override Message: string => …` on an exception compiled but did not dispatch.
+
+- **Parse/plan:** the property row's prefix word carries bits 5–8 (`virtual`, `abstract`, `override`,
+  `sealed`) and 9–12 (`public`, `private`, `internal`, `protected`)
+  (`ParseDeclarationMemberPropertyModifierBits`, `ColumnarStructPropertyFlagModifiers`), surfacing as
+  `ColumnarPropertyInput.ModifierFlags` in the `Modifiers` bit space.
+  `ColumnarDeclarationPlanner.InstanceAccessorAttributes(modifierFlags)`: Virtual|NewSlot, Virtual
+  (override), Virtual|Final (sealed override).
+- **Emitter:** override properties are the second sweep of PASS 0b' (above). `ColumnarPropertyOverrideMatch`
+  takes `overridesSetter`: a get-only override needs only the getter slot, and the setter walk steps
+  past an intermediate get-only override. A get-only override in a concrete type over an ABSTRACT
+  setter declines (the CLR would refuse to load it). Accessibility: the written word, else the slot's.
+  A `virtual`/`override` getter that fills an interface slot keeps its own word (no Final).
+- **Analyzer** (`ValidatePropertyInheritanceModifiers`): NL311 for `sealed` without `override`, a
+  static property, an interface's, a struct/record struct/union's, `virtual` in a sealed class, and a
+  `set` over a get-only base (CS0546). NL324 names `Name.set` when a concrete class's get-only override
+  leaves an abstract setter (`CollectAbstractSettersLeftOpen`). `abstract` stays NL311 (bodies).
+- **Accessibility (2026-10-23):** `InstanceAccessorAttributes(name, flags)` /
+  `StaticAccessorAttributes(name, flags)` use `MethodVisibilityAttributes` — the written word, else the
+  casing (camelCase = assembly). An `override` with no word still adopts the slot's. A non-public getter
+  (written or bare) that fills an interface value slot gets a MethodImpl row
+  (`ColumnarExplicitInterfaceImplementation.DefineNonPublicValueSlotFills`), as a non-public `func`
+  does; the CLR binds implicit implementations by name only when public.
+- **Inherited setter:** a get-only written override whose overridden property has a setter is NOT put
+  in `def.Properties` (`ColumnarPropertyOverrideMatch.InheritsSetter`): every read and write binds to
+  the overridden declaration, and `callvirt` on its getter reaches the override (C# binds to the
+  original virtual the same way). A CLR base's property is written through a source receiver by its
+  public setter (`ColumnarIlEmitter` member-write path). Analyzer: `TryIsReadOnlyPropertyMember` and
+  the reflected walk step past a get-only override (`OverridesInheritedGetter`).
+- **Known gap, separate:** writing an inherited written property through a subclass of a CLOSED
+  GENERIC source base (`class P: Holder<int>`, `p.Value = 5`) declines in emission
+  (`emit.statement.block-child`), override or not; so does `h: Holder<int> = new P()` as a typed local.
 
 ## Emitter support added alongside
 

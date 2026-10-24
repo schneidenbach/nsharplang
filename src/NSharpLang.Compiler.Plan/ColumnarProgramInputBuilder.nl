@@ -1129,7 +1129,8 @@ sealed class ColumnarProgramInputBuilder {
                     ColumnarStructPropertyFlagHasMsBuildRequired(outPropStaticFlags[pr]),
                     ColumnarStructPropertyFlagHasMsBuildOutput(outPropStaticFlags[pr]),
                     ColumnarStructPropertyFlagIsRequired(outPropStaticFlags[pr]),
-                    ColumnarStructPropertyFlagIsInitOnly(outPropStaticFlags[pr])
+                    ColumnarStructPropertyFlagIsInitOnly(outPropStaticFlags[pr]),
+                    ColumnarStructPropertyFlagModifiers(outPropStaticFlags[pr])
                 ) {
                     return DeclineAtToken(
                         ColumnarParseDeclines.StructProperty,
@@ -1846,7 +1847,7 @@ sealed class ColumnarProgramInputBuilder {
         return true
     }
 
-    private static func TryParseColumnarPropertyAt(ck: int[], cs: int[], cv: int[], n: int, propIndex: int, source: string, out input: ColumnarPropertyInput, isStatic: bool = false, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false, isRequired: bool = false, isInitOnly: bool = false): bool {
+    private static func TryParseColumnarPropertyAt(ck: int[], cs: int[], cv: int[], n: int, propIndex: int, source: string, out input: ColumnarPropertyInput, isStatic: bool = false, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false, isRequired: bool = false, isInitOnly: bool = false, modifierFlags: int = 0): bool {
         input = null
         cap := ColumnarDeclarationScratchCapacity(ck, n, propIndex)
         gk := new int[](cap)
@@ -1982,7 +1983,7 @@ sealed class ColumnarProgramInputBuilder {
         if setter != null {
             setter.SourceAttributes = propertyAttributes
         }
-        input = new ColumnarPropertyInput(propName, propType, getter, setter, isStatic, 0, hasMsBuildRequiredAttribute, hasMsBuildOutputAttribute, isRequired, isInitOnly)
+        input = new ColumnarPropertyInput(propName, propType, getter, setter, isStatic, 0, hasMsBuildRequiredAttribute, hasMsBuildOutputAttribute, isRequired, isInitOnly, modifierFlags)
         return true
     }
 

@@ -412,15 +412,17 @@ class ColumnarOverrideTargetResolver {
     }
 }
 
-// THE BASE SLOT AN `override` AUTO-PROPERTY TAKES.
+// THE BASE SLOT AN `override` PROPERTY TAKES.
 //
-// `override Name: T` replaces BOTH accessors, as C#'s `public override T Name { get; set; }` does, so
-// the base has to open both: a `get_Name` and a `set_Name` that are virtual, not sealed, and typed
-// `T`. The CLR then binds each accessor to its slot by name and signature — no MethodImpl row, which
-// is what C# emits — and that binding is silent when it misses: a non-newslot virtual with nothing to
-// reuse simply opens a new slot, and a base-typed caller never reaches the override. So the slot is
-// proved here and a miss is a decline that says which half is missing, never an emitted type that
-// dispatches to the wrong body.
+// An override replaces each accessor it declares. A bare `override Name: T` declares both, as C#'s
+// `public override T Name { get; set; }` does, so the base has to open both: a `get_Name` and a
+// `set_Name` that are virtual, not sealed, and typed `T`. A written `override Name: T => expr`
+// declares only the getter, as C#'s `public override T Name => expr` does, so only the getter slot is
+// needed and a base setter, if any, is inherited untouched. The CLR then binds each accessor to its
+// slot by name and signature — no MethodImpl row, which is what C# emits — and that binding is silent
+// when it misses: a non-newslot virtual with nothing to reuse simply opens a new slot, and a base-typed
+// caller never reaches the override. So the slot is proved here and a miss is a decline that says
+// which half is missing, never an emitted type that dispatches to the wrong body.
 //
 // The walk is the method walk's: a base being emitted in this compilation answers from its own
 // declaration table, whose accessor builders carry the virtual-ness the baked type will; past the
@@ -437,36 +439,45 @@ class ColumnarPropertyOverrideMatch {
     AccessibilityAttributes: int => accessibilityValue
     DeclineMessage: string => declineMessageValue
 
-    constructor(owner: ColumnarStructDef, name: string, propertyType: Type, voidType: Type) {
+    constructor(owner: ColumnarStructDef, name: string, propertyType: Type, voidType: Type, overridesSetter: bool) {
         if owner == null || name == null || propertyType == null || voidType == null {
             throw new InvalidOperationException("A property-override lookup requires its owner, name and type.")
         }
 
-        matched := false
         accessibility := -1
         decline := ""
-        sourceAnswered := false
+        getterProven := false
+        // A get-only override needs no setter slot; a base setter, if any, is inherited as it is.
+        setterProven := !overridesSetter
         typeName := owner.Builder.Name
 
+        // The getter slot is proved at the NEAREST declaration of the name. The setter slot may sit
+        // further up: a get-only `override` in between took only the getter, and the setter it
+        // inherited is still the slot the type that opened the property declared.
         current: ColumnarStructDef? = owner.BaseDef
         depth := 0
-        while current != null && !sourceAnswered && depth <= 64 {
+        while current != null && decline == "" && !(getterProven && setterProven) && depth <= 64 {
             property: ColumnarPropertyDef? = null
             if current.Properties.TryGetValue(name, out property) && property != null {
-                sourceAnswered = true
-                setter := property.Setter
-                if !IsOpenSlot(property.Getter) {
-                    decline = "'" + typeName + "." + name + "' overrides '" + current.Builder.Name + "." + name + "', whose getter is not virtual"
-                } else if setter == null || !IsOpenSlot(setter) {
-                    decline = "'" + typeName + "." + name + "' is a get/set auto-property, but '" + current.Builder.Name + "." + name + "' has no virtual setter to override"
-                } else if !SameDeclaredType(owner, property.PropertyType, propertyType, depth) {
-                    decline = "'" + typeName + "." + name + "' must have the type of the property it overrides"
-                } else {
-                    matched = true
-                    accessibility = ColumnarBaseMethodMatch.AccessibilityAttributesOf(property.Getter)
+                if !getterProven {
+                    if !IsOpenSlot(property.Getter) {
+                        decline = "'" + typeName + "." + name + "' overrides '" + current.Builder.Name + "." + name + "', whose getter is not virtual"
+                    } else if !SameDeclaredType(owner, property.PropertyType, propertyType, depth) {
+                        decline = "'" + typeName + "." + name + "' must have the type of the property it overrides"
+                    } else {
+                        getterProven = true
+                        accessibility = ColumnarBaseMethodMatch.AccessibilityAttributesOf(property.Getter)
+                    }
                 }
-            } else if current.SettableAutoProperties.ContainsKey(name) || current.Fields.ContainsKey(name) {
-                sourceAnswered = true
+                if decline == "" && !setterProven {
+                    setter := property.Setter
+                    if setter != null && IsOpenSlot(setter) {
+                        setterProven = true
+                    } else if setter != null || !ReusesSlot(property.Getter) {
+                        decline = "'" + typeName + "." + name + "' declares a setter, but '" + current.Builder.Name + "." + name + "' has no virtual setter to override"
+                    }
+                }
+            } else if !getterProven && (current.SettableAutoProperties.ContainsKey(name) || current.Fields.ContainsKey(name)) {
                 decline = "'" + typeName + "." + name + "' overrides '" + current.Builder.Name + "." + name + "', which is not virtual"
             }
 
@@ -474,25 +485,88 @@ class ColumnarPropertyOverrideMatch {
             depth = depth + 1
         }
 
-        if !sourceAnswered {
-            getterParameters := new Type[](0)
-            setterParameters := new Type[](1)
-            setterParameters[0] = propertyType
-            getterMatch := new ColumnarBaseMethodMatch(owner.ExactBaseType, "get_" + name, propertyType, getterParameters)
-            setterMatch := new ColumnarBaseMethodMatch(owner.ExactBaseType, "set_" + name, voidType, setterParameters)
-            if !getterMatch.Matched {
-                decline = "no overridable base property matches '" + name + "' for '" + typeName + "'"
-            } else if !setterMatch.Matched {
-                decline = "'" + typeName + "." + name + "' is a get/set auto-property, but the base property '" + name + "' has no overridable setter"
-            } else {
-                matched = true
+        // PAST THE SOURCE CHAIN, METADATA ANSWERS for whichever half is still open. The method walk
+        // skips the types being built, so it starts at the exact base and meets the first CLR type.
+        if decline == "" && !getterProven {
+            getterMatch := new ColumnarBaseMethodMatch(owner.ExactBaseType, "get_" + name, propertyType, new Type[](0))
+            if getterMatch.Matched {
+                getterProven = true
                 accessibility = ColumnarBaseMethodMatch.AccessibilityAttributesOf(getterMatch.RequiredTarget())
+            } else {
+                decline = "no overridable base property matches '" + name + "' for '" + typeName + "'"
             }
         }
 
+        if decline == "" && !setterProven {
+            setterParameters := new Type[](1)
+            setterParameters[0] = propertyType
+            setterMatch := new ColumnarBaseMethodMatch(owner.ExactBaseType, "set_" + name, voidType, setterParameters)
+            if setterMatch.Matched {
+                setterProven = true
+            } else {
+                decline = "'" + typeName + "." + name + "' declares a setter, but the base property '" + name + "' has no overridable setter"
+            }
+        }
+
+        // A GET-ONLY OVERRIDE INHERITS THE BASE'S SETTER, and a concrete type cannot inherit an abstract
+        // one: the CLR refuses to load it. The analyzer reports it (NL324, `Name.set`).
+        if decline == "" && !overridesSetter && !owner.Builder.IsAbstract && InheritsAbstractSetter(owner, name, propertyType, voidType) {
+            decline = "'" + typeName + "." + name + "' overrides only the getter, so the abstract setter it inherits is left unimplemented"
+        }
+
+        matched := decline == "" && getterProven && setterProven
         matchedValue = matched
         accessibilityValue = accessibility
         declineMessageValue = decline
+    }
+
+    // Whether a get-only override inherits a setter at all, by the same walk as `InheritsAbstractSetter`.
+    static func InheritsSetter(owner: ColumnarStructDef, name: string, propertyType: Type, voidType: Type): bool {
+        current: ColumnarStructDef? = owner.BaseDef
+        depth := 0
+        while current != null && depth <= 64 {
+            property: ColumnarPropertyDef? = null
+            if current.Properties.TryGetValue(name, out property) && property != null {
+                if property.Setter != null {
+                    return true
+                }
+                if !ReusesSlot(property.Getter) {
+                    return false
+                }
+            }
+            current = current.BaseDef
+            depth = depth + 1
+        }
+
+        setterParameters := new Type[](1)
+        setterParameters[0] = propertyType
+        return new ColumnarBaseMethodMatch(owner.ExactBaseType, "set_" + name, voidType, setterParameters).Matched
+    }
+
+    // The setter a get-only override inherits: the nearest declaration of the name with a setter, past
+    // get-only overrides, and past the source chain the nearest metadata `set_` slot.
+    static func InheritsAbstractSetter(owner: ColumnarStructDef, name: string, propertyType: Type, voidType: Type): bool {
+        current: ColumnarStructDef? = owner.BaseDef
+        depth := 0
+        while current != null && depth <= 64 {
+            property: ColumnarPropertyDef? = null
+            if current.Properties.TryGetValue(name, out property) && property != null {
+                setter := property.Setter
+                if setter != null {
+                    return ((int)setter.Attributes & 0x0400) != 0
+                }
+                if !ReusesSlot(property.Getter) {
+                    return false
+                }
+            }
+            current = current.BaseDef
+            depth = depth + 1
+        }
+
+        setterParameters := new Type[](1)
+        setterParameters[0] = propertyType
+        setterMatch := new ColumnarBaseMethodMatch(owner.ExactBaseType, "set_" + name, voidType, setterParameters)
+        return setterMatch.Matched && setterMatch.RequiredTarget().IsAbstract
     }
 
     // WHETHER AN ACCESSOR TAKES A BASE'S SLOT rather than opening its own: virtual with NewSlot clear,
