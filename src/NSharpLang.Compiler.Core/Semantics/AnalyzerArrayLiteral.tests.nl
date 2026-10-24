@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // Native contracts for the array-literal arm — what `[a, b, c]` MEANS.
 //
@@ -333,6 +334,33 @@ test "the element type is read from a collection FIRST and an array shape second
     assert targetKind == "collection"
 }
 
+// The annotation `System.Collections.Generic.List<string>` and the imported `List<string>` are ONE
+// type, so they are one target: the decomposition reads the head the definition proved, and the
+// literal's elements are walked expecting `string` in collection words under either spelling.
+test "a namespace-qualified collection annotation decomposes exactly as the imported spelling" {
+    harness := ArrayArmOf()
+    elementType: TypeInfo = BuiltInTypes.Unknown
+    targetKind := ""
+
+    listDefinition: TypeInfo = new ReflectionTypeInfo(RequiredArrayRuntimeType("System.Collections.Generic.List`1"))
+    qualifiedList: TypeInfo = new GenericTypeInfo("System.Collections.Generic.List", ArrayOneArgument(BuiltInTypes.String), listDefinition)
+    assert harness.Arm.TryGetExpectedElementType(qualifiedList, out elementType, out targetKind)
+    assert ArrayTypeName(elementType) == "simple:string"
+    assert targetKind == "collection"
+
+    nullableQualified: TypeInfo = new NullableTypeInfo(qualifiedList)
+    assert harness.Arm.TryGetExpectedElementType(nullableQualified, out elementType, out targetKind)
+    assert targetKind == "collection"
+
+    // The EMPTY literal answers the target's element type, not `unknown`, under the qualified
+    // spelling too — the shape whose `unknown[]` used to be refused against its own annotation.
+    saved := harness.Ambient.EnterExpectedType(qualifiedList)
+    trace := ArrayDrive(harness, ArrayLiteralOf(0), ArrayOneArgument(BuiltInTypes.String))
+    harness.Ambient.ExitExpectedType(saved)
+    assert trace.Answer == "array(simple:string)"
+    assert trace.Reports == 0
+}
+
 test "a REFLECTED array annotation decomposes, and a non-sequence annotation does not" {
     harness := ArrayArmOf()
     elementType: TypeInfo = BuiltInTypes.Unknown
@@ -378,10 +406,16 @@ test "an IQueryable target is refused outright, by either shape" {
     harness := ArrayArmOf()
     targetName := ""
 
-    arguments := new List<TypeInfo>()
-    arguments.Add(BuiltInTypes.Int)
-    queryable: TypeInfo = new GenericTypeInfo("IQueryable", arguments)
+    queryableDefinition: TypeInfo = new ReflectionTypeInfo(RequiredArrayRuntimeType("System.Linq.IQueryable`1, System.Linq.Expressions"))
+    queryable: TypeInfo = new GenericTypeInfo("IQueryable", ArrayOneArgument(BuiltInTypes.Int), queryableDefinition)
     assert harness.Arm.IsUnsupportedCollectionExpressionTarget(queryable, out targetName)
+
+    // The generic shape is judged by the definition it proved, so the spelled-out name is the same
+    // refusal and a program's own `IQueryable<T>` — no runtime definition — is not this one.
+    qualifiedQueryable: TypeInfo = new GenericTypeInfo("System.Linq.IQueryable", ArrayOneArgument(BuiltInTypes.Int), queryableDefinition)
+    assert harness.Arm.IsUnsupportedCollectionExpressionTarget(qualifiedQueryable, out targetName)
+    sourceQueryable: TypeInfo = new GenericTypeInfo("IQueryable", ArrayOneArgument(BuiltInTypes.Int))
+    assert !harness.Arm.IsUnsupportedCollectionExpressionTarget(sourceQueryable, out targetName)
 
     reflectedQueryable: TypeInfo = new ReflectionTypeInfo(ArrayClosedQueryable())
     assert harness.Arm.IsUnsupportedCollectionExpressionTarget(reflectedQueryable, out targetName)
@@ -495,4 +529,52 @@ test "the unsupported-target report runs BEFORE any element is walked" {
     // One `NextStep` — no element has been answered yet — and the report has already landed.
     assert harness.Errors.Count == 1
     harness.Ambient.ExitExpectedType(saved)
+}
+
+// ---- end to end over real source ------------------------------------------------------------------
+
+// THE FRAMEWORK IS LOADED, because every target here is a runtime collection: a bare `Analyzer` has no
+// reference assemblies, so `System.Collections.Generic` would be NL704 and no spelling would resolve.
+func ArrayLiteralSourceErrors(source: string): string {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-array-literal-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    report := ""
+    try {
+        analyzer.LoadSystemAssemblies()
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                codeValue: int = (int)error.Code
+                report = report + "[" + error.Line.ToString() + "] NL" + codeValue.ToString() + " " + error.Message + " | "
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return report
+}
+
+// THE SPELLING OF A COLLECTION TARGET NEVER DECIDES WHETHER A LITERAL FITS IT. Every position a
+// literal is target-typed from — an annotated local, an assignment, an object-initializer member, an
+// argument, a return and a field default — is written three ways (imported, namespace-qualified and
+// through a namespace alias), and each one is clean. Before the head was read from the definition,
+// every qualified line here was `NL202` with "but the value is 'string[]'" or "'unknown[]'".
+test "a collection literal fits its target however the target type is spelled" {
+    report := ArrayLiteralSourceErrors("namespace Probe\n\nimport System.Collections.Generic\nimport System.Collections.Generic as Scg\n\nclass ImportedBasket { Items: List<string> }\nclass QualifiedBasket {\n    Items: System.Collections.Generic.List<string>\n    Tags: System.Collections.Generic.HashSet<int>\n    Names: System.Collections.Generic.IEnumerable<string>\n    Defaulted: System.Collections.Generic.List<string> = [\"d\"]\n}\nclass AliasedBasket { Items: Scg.List<string> }\n\nfunc TakeQualified(xs: System.Collections.Generic.List<string>): int => xs.Count\nfunc TakeAliased(xs: Scg.IReadOnlyList<int>): int => xs.Count\nfunc MakeQualified(): System.Collections.Generic.List<string> {\n    return []\n}\n\nfunc Use(): int {\n    a: List<string> = []\n    b: System.Collections.Generic.List<string> = []\n    c: System.Collections.Generic.List<string> = [\"x\", \"y\"]\n    d: Scg.List<string> = [\"z\"]\n    e: System.Collections.Generic.HashSet<int> = []\n    f: System.Collections.Generic.Queue<int> = [1, 2]\n    g: System.Collections.Generic.IEnumerable<string> = []\n    h: HashSet<int> = []\n    i: IEnumerable<string> = []\n    widened: System.Collections.Generic.IEnumerable<string> = c\n    imported := new ImportedBasket { Items: [] }\n    qualified := new QualifiedBasket { Items: [], Tags: [1, 2], Names: [] }\n    aliased := new AliasedBasket { Items: [\"q\"] }\n    assigned := new QualifiedBasket()\n    assigned.Items = [\"a\"]\n    assigned.Tags = []\n    total := a.Count + b.Count + c.Count + d.Count + e.Count + f.Count + h.Count\n    total = total + imported.Items.Count + qualified.Items.Count + aliased.Items.Count + assigned.Items.Count\n    total = total + TakeQualified([\"m\", \"n\"]) + TakeAliased([1]) + MakeQualified().Count\n    for item in g { total = total + item.Length }\n    for item in i { total = total + item.Length }\n    for item in widened { total = total + item.Length }\n    return total\n}\n")
+    assert report == ""
+}
+
+// A wrong ELEMENT is still refused under the qualified spelling, in collection words — reading the
+// head semantically widened which spellings are targets, not what a target accepts.
+test "a qualified collection target still refuses an element of the wrong type" {
+    report := ArrayLiteralSourceErrors("namespace Probe\n\nfunc Use(): int {\n    xs: System.Collections.Generic.List<string> = [1]\n    return xs.Count\n}\n")
+    assert report == "[4] NL202 Collection element is 'int', but the target collection expects 'string' | "
 }

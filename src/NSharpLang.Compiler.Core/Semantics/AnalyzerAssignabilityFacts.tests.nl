@@ -359,6 +359,48 @@ test "the known-generic relation is a closed table over the runtime collection t
     )) == "decided:false"
 }
 
+// THE RELATION IS KEYED ON THE PROVED HEAD, NOT THE SPELLING. A program may write any side out in
+// full (`System.Collections.Generic.List<int>`) or through a namespace alias (`Scg.List<int>`); the
+// definition is the same runtime one, so the answer must be too — including the same-head walk that
+// only runs when the two sides name one definition, and the covariant hand-back.
+test "the known-generic relation answers a namespace-qualified spelling exactly as the imported one" {
+    owner := AssignabilityOwner("/tmp/assign-known-qualified.nl")
+    listOpen := AssignabilityListOpen()
+    enumerableOpen := AssignabilityEnumerableOpen()
+    hashSetOpen := AssignabilityHashSetOpen()
+
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("System.Collections.Generic.IEnumerable", enumerableOpen, BuiltInTypes.Int),
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
+    )) == "decided:true"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int),
+        AssignabilityKnownGeneric("Scg.HashSet", hashSetOpen, BuiltInTypes.Int)
+    )) == "decided:true"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("System.Collections.Generic.IEnumerable", enumerableOpen, BuiltInTypes.Object),
+        AssignabilityKnownGeneric("System.Collections.Generic.List", listOpen, BuiltInTypes.String)
+    )) == "pending [object<-string]"
+
+    // The same head under two spellings is the same head: the invariant per-argument walk runs and
+    // refuses only on the arguments, never on the spelling.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("System.Collections.Generic.List", listOpen, BuiltInTypes.Object),
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String)
+    )) == "decided:false"
+
+    // The table stays closed and nominal under a qualified spelling: no backwards pair, and a
+    // definition-less type spelled out in full is still not the runtime's.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("System.Collections.Generic.List", listOpen, BuiltInTypes.Int),
+        AssignabilityKnownGeneric("System.Collections.Generic.IEnumerable", enumerableOpen, BuiltInTypes.Int)
+    )) == "decided:false"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int),
+        AssignabilitySpelledGeneric("System.Collections.Generic.List", BuiltInTypes.Int)
+    )) == "decided:false"
+}
+
 test "the assignability owner admits only the real IReadOnlyList to IEnumerable relation" {
     assignability := AssignabilityDefault()
     facts := AssignabilityOwner("/tmp/assign-readonly-enumerable.nl")
@@ -677,6 +719,42 @@ test "a collection expression targets the runtime collections and names their el
     )
     assert !owner.TryGetCollectionElementType(new ArrayTypeInfo(BuiltInTypes.Int), out element)
     assert !owner.TryGetCollectionElementType(BuiltInTypes.String, out element)
+}
+
+// A COLLECTION TARGET IS THE TYPE, NOT ITS SPELLING. `xs: System.Collections.Generic.List<string> = []`
+// was refused with `NL202` while the imported `List<string>` was accepted, because the arm compared
+// the WRITTEN name against the table. It now reads the head the runtime definition proved.
+test "a namespace-qualified or aliased collection spelling is the same collection target" {
+    owner := AssignabilityOwner("/tmp/assign-collections-qualified.nl")
+    element := BuiltInTypes.Unknown as TypeInfo
+
+    assert owner.TryGetCollectionElementType(
+        AssignabilityKnownGeneric("System.Collections.Generic.List", AssignabilityListOpen(), BuiltInTypes.String),
+        out element
+    )
+    assert AssignabilityTypeName(element) == "string"
+    assert owner.TryGetCollectionElementType(
+        AssignabilityKnownGeneric("System.Collections.Generic.HashSet", AssignabilityHashSetOpen(), BuiltInTypes.Int),
+        out element
+    )
+    assert AssignabilityTypeName(element) == "int"
+    assert owner.TryGetCollectionElementType(
+        AssignabilityKnownGeneric("Scg.IEnumerable", AssignabilityEnumerableOpen(), BuiltInTypes.String),
+        out element
+    )
+    assert AssignabilityTypeName(element) == "string"
+
+    // Qualification proves nothing on its own: without the runtime definition it is still a decline,
+    // and a qualified head the table does not carry still declines.
+    assert !owner.TryGetCollectionElementType(
+        AssignabilitySpelledGeneric("System.Collections.Generic.List", BuiltInTypes.Int),
+        out element
+    )
+    assert BuiltInTypes.IsUnknown(element)
+    assert !owner.TryGetCollectionElementType(
+        AssignabilityKnownGeneric("System.Collections.Generic.Dictionary", AssignabilityDictionaryOpen(), BuiltInTypes.Int),
+        out element
+    )
 }
 
 test "the reflection collection arm matches metadata names and refuses an open definition" {

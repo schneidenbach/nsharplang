@@ -417,6 +417,43 @@ test "type info identity recognizes only exact admitted runtime generic definiti
     )
 }
 
+// The head is read from the spelling only to choose which runtime definition to compare against,
+// and it is ANSWERED only once that comparison succeeds — so every spelling of one type answers one
+// canonical head, and no spelling answers a head its definition did not prove.
+test "type info identity answers the proved runtime head whatever the spelling" {
+    listDefinition := IdentityRequiredRuntimeType("System.Collections.Generic.List`1, System.Private.CoreLib")
+    assert TypeInfoIdentityFacts.KnownRuntimeGenericName(IdentityRuntimeGeneric("List", listDefinition)) == "List"
+    assert TypeInfoIdentityFacts.KnownRuntimeGenericName(
+        IdentityRuntimeGeneric("System.Collections.Generic.List", listDefinition)
+    ) == "List"
+    assert TypeInfoIdentityFacts.KnownRuntimeGenericName(IdentityRuntimeGeneric("Scg.List", listDefinition)) == "List"
+    assert TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
+        IdentityRuntimeGeneric("System.Collections.Generic.List", listDefinition)
+    )
+    assert TypeInfoIdentityFacts.KnownRuntimeGenericName(
+        IdentityRuntimeGenericPair(
+            "System.Collections.Generic.Dictionary",
+            IdentityRequiredRuntimeType("System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+        )
+    ) == "Dictionary"
+
+    // A spelling over the WRONG definition, a definition-less spelling and an unknown head answer
+    // nothing, qualified or not.
+    queueDefinition := IdentityRequiredRuntimeType("System.Collections.Generic.Queue`1, System.Private.CoreLib")
+    assert TypeInfoIdentityFacts.KnownRuntimeGenericName(
+        IdentityRuntimeGeneric("System.Collections.Generic.List", queueDefinition)
+    ) == null
+    assert TypeInfoIdentityFacts.KnownRuntimeGenericName(
+        new GenericTypeInfo("System.Collections.Generic.List", IdentityTypeList(BuiltInTypes.Int))
+    ) == null
+    assert TypeInfoIdentityFacts.KnownRuntimeGenericName(
+        IdentityRuntimeGenericPair(
+            "System.Collections.Generic.IDictionary",
+            IdentityRequiredRuntimeType("System.Collections.Generic.IDictionary`2, System.Private.CoreLib")
+        )
+    ) == null
+}
+
 test "type info identity recognizes runtime and metadata delegate definitions exactly" {
     assert TypeInfoIdentityFacts.IsRuntimeDelegateDefinition(
         IdentityRuntimeGeneric(

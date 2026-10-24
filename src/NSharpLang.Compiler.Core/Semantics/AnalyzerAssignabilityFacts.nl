@@ -86,11 +86,15 @@ class AnalyzerAssignabilityFacts {
             return AnalyzerAssignabilityDecision.Answer(false)
         }
 
-        if !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(targetGeneric) || !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(sourceGeneric) {
+        // The rule is keyed on the HEAD each side proved, never on its spelling: an imported
+        // `List<string>` and a written-out `System.Collections.Generic.List<string>` are one head.
+        targetName := TypeInfoIdentityFacts.KnownRuntimeGenericName(targetGeneric)
+        sourceName := TypeInfoIdentityFacts.KnownRuntimeGenericName(sourceGeneric)
+        if targetName == null || sourceName == null {
             return AnalyzerAssignabilityDecision.Answer(false)
         }
 
-        if !IsKnownGenericConversion(targetGeneric.Name, sourceGeneric.Name) {
+        if !IsKnownGenericConversion(targetName, sourceName) {
             if TypeInfoIdentityFacts.AreEqual(targetGeneric, sourceGeneric) {
                 return AnalyzerAssignabilityDecision.Answer(false)
             }
@@ -102,12 +106,12 @@ class AnalyzerAssignabilityFacts {
             // compatibility path.
             targetDefinition := targetGeneric.GenericDefinition
             sourceDefinition := sourceGeneric.GenericDefinition
-            if targetGeneric.Name != sourceGeneric.Name || targetDefinition == null || sourceDefinition == null || !TypeInfoIdentityFacts.TypeDefinitionsEqual(targetDefinition, sourceDefinition) {
+            if targetName != sourceName || targetDefinition == null || sourceDefinition == null || !TypeInfoIdentityFacts.TypeDefinitionsEqual(targetDefinition, sourceDefinition) {
                 return AnalyzerAssignabilityDecision.Answer(false)
             }
         }
 
-        isCovariantTarget := IsCovariantKnownGenericTarget(targetGeneric.Name)
+        isCovariantTarget := IsCovariantKnownGenericTarget(targetName)
         pendingTargets := new List<TypeInfo>()
         pendingSources := new List<TypeInfo>()
         index := 0
@@ -237,15 +241,18 @@ class AnalyzerAssignabilityFacts {
 
     // Which types a collection expression may be assigned to, and the element type it then demands.
     // The generic arm is nominal: the instantiation must carry the real runtime definition, so a
-    // program's own `List<T>` does not silently accept `[1, 2, 3]`. The reflection arm matches the
-    // metadata name and is deliberately NARROWER — the three read-only/sorted spellings the generic
-    // arm accepts have no reflection counterpart here.
+    // program's own `List<T>` does not silently accept `[1, 2, 3]`, and it reads the head the
+    // definition proved, so `System.Collections.Generic.List<T>` spelled out is the same target as
+    // the imported `List<T>`. The reflection arm matches the metadata name and is deliberately
+    // NARROWER — the three read-only/sorted spellings the generic arm accepts have no reflection
+    // counterpart here.
     func TryGetCollectionElementType(candidate: TypeInfo, out elementType: TypeInfo): bool {
         elementType = BuiltInTypes.Unknown
 
         genericType := candidate as GenericTypeInfo
         if genericType != null {
-            if TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(genericType) && IsCollectionGenericName(genericType.Name) && genericType.TypeArguments.Count > 0 {
+            headName := TypeInfoIdentityFacts.KnownRuntimeGenericName(genericType)
+            if headName != null && IsCollectionGenericName(headName) && genericType.TypeArguments.Count > 0 {
                 elementType = genericType.TypeArguments[0]
                 return true
             }

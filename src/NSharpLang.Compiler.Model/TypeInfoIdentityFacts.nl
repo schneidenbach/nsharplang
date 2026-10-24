@@ -276,9 +276,19 @@ class TypeInfoIdentityFacts {
     // read-only dictionary's KEY stays invariant (it is deliberately not a covariant target), so the
     // argument comparison the caller runs is unchanged.
     static func HasKnownRuntimeGenericDefinition(typeInfo: GenericTypeInfo): bool {
+        return KnownRuntimeGenericName(typeInfo) != null
+    }
+
+    // THE HEAD AN ADMITTED INSTANTIATION CARRIES, WHATEVER IT WAS SPELLED. `List<string>` under an
+    // import, `System.Collections.Generic.List<string>` written out and `Scg.List<string>` through a
+    // namespace alias are one type, so every one of them answers `List` here — and only once the
+    // definition has proved to be the runtime's own. A caller that keys a rule on the head (the
+    // collection-literal targets, the known conversions) asks THIS rather than reading the written
+    // `Name`, which is how a qualified spelling once fell out of every such rule with an `NL202`.
+    static func KnownRuntimeGenericName(typeInfo: GenericTypeInfo): string? {
         definition := typeInfo.GenericDefinition as ReflectionTypeInfo
         if definition == null {
-            return false
+            return null
         }
 
         expectedIdentity := ""
@@ -320,11 +330,15 @@ class TypeInfoIdentityFacts {
         } else if name == "IReadOnlyDictionary" {
             expectedIdentity = "System.Collections.Generic.IReadOnlyDictionary`2, System.Private.CoreLib"
         } else {
-            return false
+            return null
         }
 
         expected := Type.GetType(expectedIdentity)
-        return expected != null && HaveSameReflectionTypeIdentity(definition.Type, expected)
+        if expected == null || !HaveSameReflectionTypeIdentity(definition.Type, expected) {
+            return null
+        }
+
+        return name
     }
 
     // Delegate definitions can arrive either from the runtime load context or from the
