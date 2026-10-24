@@ -470,3 +470,49 @@ test "a type with NO declared constructor still binds its synthesized default" {
     assert synthesized.FieldValue == 3, "synthesized default field assignment"
     assert synthesized.PropertyValue == 4, "synthesized default property assignment"
 }
+
+test "an empty collection literal takes the initializer member's declared type" {
+    empty := new CollectionObjectInitializer { Id: 1, Lines: [], Items: [], Grid: [], Mixed: [] }
+
+    assert empty.Lines.Length == 0, "an empty string[] member"
+    assert empty.Items.Count == 0, "an empty List<string> member"
+    assert empty.Grid.Length == 0, "an empty jagged member"
+    assert empty.Mixed.Length == 0, "an empty object[] member"
+
+    value := new CollectionObjectInitializerValue { Coords: [] }
+    assert value.Coords.Length == 0, "an empty array member of a value type"
+
+    generic := new GenericObjectInitializer<int[]> { Value: [] }
+    assert generic.Value.Length == 0, "an empty array member closed from a type argument"
+}
+
+test "a collection literal member is written at the member's type rather than inferred" {
+    written := new CollectionObjectInitializer { Lines: ["a", "b"], Items: ["x"], Grid: [[1], [], [2, 3]], Mixed: ["m", 7] }
+
+    assert written.Lines[1] == "b", "string[] member"
+    assert written.Items.Count == 1 && written.Items[0] == "x", "a List<string> member written as a literal"
+    assert written.Grid[1].Length == 0 && written.Grid[2][1] == 3, "an empty row inside a jagged member"
+    assert (written.Mixed[0] as string) == "m" && (int)written.Mixed[1] == 7, "an object[] member with mixed elements"
+}
+
+test "initializers with empty collection members are elements of an inferred array literal" {
+    orders := [
+        new CollectionObjectInitializer { Id: 1, Lines: [], Items: [] },
+        new CollectionObjectInitializer { Id: 2, Lines: ["z"], Items: ["y"], Grid: [[]] }
+    ]
+
+    assert orders.Length == 2, "both elements"
+    assert orders[0].Lines.Length == 0 && orders[0].Items.Count == 0, "the empty members of the first element"
+    assert orders[1].Lines[0] == "z" && orders[1].Items[0] == "y", "the written members of the second element"
+    assert orders[1].Grid[0].Length == 0, "an empty row of a jagged member"
+
+    values := [new CollectionObjectInitializerValue { Coords: [] }]
+    assert values[0].Coords.Length == 0, "a value-type element"
+
+    boxes := [new GenericObjectInitializer<string[]> { Value: [] }]
+    assert boxes[0].Value.Length == 0, "a closed generic element"
+
+    holder := new NestedObjectInitializerOuter { Inner: new NestedObjectInitializerInner { Value: 5 } }
+    nested := [new CollectionObjectInitializer { Id: holder.Inner.Value, Lines: [] }]
+    assert nested[0].Id == 5 && nested[0].Lines.Length == 0, "an element whose other member reads a local"
+}

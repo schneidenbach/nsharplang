@@ -1,6 +1,7 @@
 namespace NSharpLang.ConstructionArrays.Tests
 
 import System
+import System.Collections.Generic
 import System.Diagnostics
 import System.IO
 import System.Text
@@ -197,6 +198,18 @@ class NestedObjectInitializerInner {
 
 class NestedObjectInitializerOuter {
     Inner: NestedObjectInitializerInner
+}
+
+class CollectionObjectInitializer {
+    Id: int
+    Lines: string[]
+    Items: List<string>
+    Grid: int[][]
+    Mixed: object[]
+}
+
+struct CollectionObjectInitializerValue {
+    Coords: int[]
 }
 
 class MappedObjectInitializerBase<A, B> {

@@ -24639,6 +24639,8 @@ sealed class ColumnarIlEmitter {
             return TryGetPreflightBinaryExpressionType(node, out columnarResolvedType)
         } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.NewExpression {
             return TryGetNewExpressionResultType(node, out columnarResolvedType)
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.ObjectInitializerExpression {
+            return TryGetObjectInitializerResultType(node, out columnarResolvedType)
         } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.CastExpression {
             if (_nodes.ChildCount(node) != 2 || _nodes.Kind(Child(node, 0)) != 0) {
                 return false
@@ -33416,6 +33418,30 @@ sealed class ColumnarIlEmitter {
             return true
         }
         return false
+    }
+
+    // AN OBJECT INITIALIZER PRODUCES THE TYPE IT CONSTRUCTS. The construction planner types every
+    // initializer it owns before the preflight switch is reached; this answers for one it hands to the
+    // emission arm (`Items: ["a"]` into a `List<string>` member), so `[new Basket { Items: ["a"] }]`
+    // can still infer its element type. The type is resolved as `CanUseObjectInitializerAsType`
+    // resolves it. A union case is left unanswered: its result is the union base, which only the
+    // emission arm decides.
+    private func TryGetObjectInitializerResultType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if ((_nodes.ChildCount(node) % 2) != 1) {
+            return false
+        }
+        typeRoot := Child(node, 0)
+        if (_nodes.Kind(typeRoot) == ColumnarExpressionNodeKind.NewExpression) {
+            return TryGetNewExpressionResultType(typeRoot, out columnarResolvedType)
+        }
+        let columnarDiscardCaseKey: string = null
+        let unionCase: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+        if (TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, typeRoot), out columnarDiscardCaseKey, out unionCase)) {
+            return false
+        }
+        let canonical: string? = null
+        return TryBuildTypeNodeCanonical(typeRoot, out canonical) && TryResolveBodyType(canonical, out columnarResolvedType)
     }
 
     private func TryInferArrayLiteralElementType(node: int, out elementType: Type): bool {
