@@ -390,7 +390,8 @@ class AnalyzerArrayLiteral {
 
         genericType := candidate as GenericTypeInfo
         if genericType != null {
-            return genericType.Name == "IQueryable"
+            headName := TypeInfoIdentityFacts.KnownRuntimeGenericName(genericType)
+            return headName != null && headName == "IQueryable"
         }
 
         reflectionType := candidate as ReflectionTypeInfo

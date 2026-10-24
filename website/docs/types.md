@@ -293,6 +293,29 @@ func Block(sha: SHA256, output: byte[]): int {
 
 Every element has to convert: `[0, 300]` is not a `byte[]`, because 300 is not a `byte`.
 
+A literal can build a **collection** as well as an array. A `List<T>` or `HashSet<T>` target gets a
+new collection holding the elements, and a target that is one of the sequence interfaces every array
+implements — `IEnumerable<T>`, `ICollection<T>`, `IList<T>`, `IReadOnlyCollection<T>` or
+`IReadOnlyList<T>` — gets a `T[]`. Either way each element converts to `T`, and the empty literal is
+an empty collection of the target's element type:
+
+```n#
+import System.Collections.Generic
+
+names: List<string> = ["ada", "grace"]
+ids: System.Collections.Generic.HashSet<int> = []   // the qualified spelling is the same target
+pending: IReadOnlyList<string> = []                 // an empty string[]
+values: IEnumerable<object> = ["a", 1]              // an object[]
+queue := new Queue<int>([1, 2])                     // other collections take the literal as a sequence
+```
+
+The target is the **type**, not how it is written: `List<string>` under an import and
+`System.Collections.Generic.List<string>` written out are one target. A type of your own that happens
+to be named `List<T>` is not a collection target. An `IQueryable<T>` target is refused with
+[NL323](errors/NL323.md), because a literal has no query provider behind it. `Queue<T>`, `Stack<T>`,
+`SortedSet<T>` and `ISet<T>` are not yet built from a literal directly; pass the literal to their
+constructor as above.
+
 Where no target exists, the FIRST element decides the element type and every later one must fit it:
 
 ```n#

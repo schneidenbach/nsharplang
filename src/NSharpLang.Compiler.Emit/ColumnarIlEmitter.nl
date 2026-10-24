@@ -22876,7 +22876,11 @@ sealed class ColumnarIlEmitter {
         if (!CanUseArrayLiteralAsType(node, target)) {
             return false
         }
-        elementType := ColumnarEmitReflectionFacts.RequiredElementType(target.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
+        let storageType: System.Type? = null
+        if (!TryGetArrayLiteralStorageType(target, out storageType) || storageType == null) {
+            return false
+        }
+        elementType := ColumnarEmitReflectionFacts.RequiredElementType(storageType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
         elementCount := _nodes.ChildCount(node)
         _il.Emit(OpCodes.Ldc_I4, elementCount)
         _il.Emit(OpCodes.Newarr, elementType)
@@ -22897,10 +22901,11 @@ sealed class ColumnarIlEmitter {
 
     private func CanUseArrayLiteralAsType(node: int, target: Type): bool {
         node = UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.ArrayLiteralExpression || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(target)) {
+        let storageType: System.Type? = null
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.ArrayLiteralExpression || !TryGetArrayLiteralStorageType(target, out storageType) || storageType == null) {
             return false
         }
-        elementType := ColumnarEmitReflectionFacts.RequiredElementType(target.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
+        elementType := ColumnarEmitReflectionFacts.RequiredElementType(storageType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
         if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
             return false
         }
@@ -22910,6 +22915,37 @@ sealed class ColumnarIlEmitter {
                 return false
             }
         }
+        return true
+    }
+
+    // THE ARRAY A TARGET-TYPED LITERAL IS BUILT AS. An array target is its own storage. One of the five
+    // sequence interfaces every `T[]` implements — `IEnumerable<T>`, `ICollection<T>`, `IList<T>`,
+    // `IReadOnlyCollection<T>`, `IReadOnlyList<T>` — is built as exactly `T[]`, the value C# hands such
+    // a target, and the array is already that interface with no conversion instruction. Without this
+    // the literal was INFERRED and then upcast, so `IEnumerable<string> = []` had nothing to infer
+    // from and declined, and `IEnumerable<object> = ["a", 1]` inferred no single element type, though
+    // the analyzer had already target-typed both against the interface's element type.
+    private static func TryGetArrayLiteralStorageType(target: Type, out storageType: Type): bool {
+        storageType = null
+        if (target == null) {
+            return false
+        }
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(target)) {
+            storageType = target
+            return true
+        }
+        if (!target.IsInterface || !target.IsGenericType || target.IsGenericTypeDefinition) {
+            return false
+        }
+        definitionName := target.GetGenericTypeDefinition().FullName
+        if (definitionName != "System.Collections.Generic.IEnumerable`1" && definitionName != "System.Collections.Generic.ICollection`1" && definitionName != "System.Collections.Generic.IList`1" && definitionName != "System.Collections.Generic.IReadOnlyCollection`1" && definitionName != "System.Collections.Generic.IReadOnlyList`1") {
+            return false
+        }
+        arrayType := target.GetGenericArguments()[0].MakeArrayType()
+        if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
+            return false
+        }
+        storageType = arrayType
         return true
     }
 
