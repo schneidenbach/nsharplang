@@ -546,7 +546,7 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/census-mixed-conditionals.
 test "compile-time bench: the merged tree has 220 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 220
+    assert projects.Count == 221
     advancedFeatureProjects := 0
     templateProjects := 0
     i := 1

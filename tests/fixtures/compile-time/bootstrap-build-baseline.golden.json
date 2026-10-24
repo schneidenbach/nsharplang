@@ -7,7 +7,7 @@
   "phaseContract": "analysis-before-strict-lint/v1",
   "phaseDiagnosticMultiset": "NL011 ×1, NL202 ×1",
   "coreCounters": {
-    "filesParsed": 487,
+    "filesParsed": 489,
     "emitParses": 288,
     "filesAnalyzed": 288,
     "assembliesEmitted": 3,

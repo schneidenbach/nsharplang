@@ -637,7 +637,7 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     // issue counts overlap and are not added together. The inference-site estate rows for untargeted
     // `[]` and disagreeing conditionals then added one Core file and no roots, and the mixed-branch
     // conditional census added `tests/native/census-mixed-conditionals` (one root, two N# files).
-    assert expectedRoots.Count == 258, "repository project-root census changed"
+    assert expectedRoots.Count == 259, "repository project-root census changed"
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
@@ -679,7 +679,7 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
     // This total was independently remeasured from the merged filesystem, with each source file
     // assigned to its deepest discovered project and that project's excludes applied.
-    assert checkedFiles == 2112, "repository checked-source-file census changed"
+    assert checkedFiles == 2122, "repository checked-source-file census changed"
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"
