@@ -149,3 +149,59 @@ func omittedStructConstructor(): Gauge {
 func omittedPrimaryConstructor(): Window {
     return new Window()
 }
+
+func omittedProduct(): int {
+    return productDefault()
+}
+
+func omittedMask(): long {
+    return maskDefault()
+}
+
+func omittedWidened(): long {
+    return widenedDefault()
+}
+
+func omittedRatio(): double {
+    return ratioDefault()
+}
+
+func omittedTruncated(): double {
+    return truncatedDefault()
+}
+
+func omittedMoney(): decimal {
+    return moneyDefault()
+}
+
+func omittedJoined(): string {
+    return joinedDefault()
+}
+
+func omittedNegated(): int {
+    return negatedDefault()
+}
+
+func omittedXor(): uint {
+    return xorDefault()
+}
+
+func omittedFlags(): Access {
+    return flagsDefault()
+}
+
+func omittedMaskedFlags(): Access {
+    return maskedFlagsDefault()
+}
+
+func omittedNullableFlags(): Access {
+    return nullableFlagsDefault()
+}
+
+func omittedZeroFlags(): Access {
+    return zeroFlagsDefault()
+}
+
+func omittedGrant(): Grant {
+    return new Grant()
+}

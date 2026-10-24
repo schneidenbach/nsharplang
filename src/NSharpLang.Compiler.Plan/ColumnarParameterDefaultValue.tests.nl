@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.CompilerServices
@@ -38,6 +39,8 @@ test "an integer literal default is held as its parameter's own integral type" {
     AssertDefaultConstant(1, "5000000000L", typeof(long), 5000000000L)
     AssertDefaultConstant(1, "-9223372036854775808L", typeof(long), -9223372036854775807L - 1L)
     AssertDefaultConstant(1, "7u", typeof(long), 7L)
+    // `-1u` is a `long` in C#: unary minus has no `uint` form.
+    AssertDefaultConstant(1, "-1u", typeof(long), -1L)
     AssertDefaultConstant(1, "18446744073709551615UL", typeof(ulong), 18446744073709551615UL)
     AssertDefaultConstant(1, "65", typeof(char), 'A')
 }
@@ -66,7 +69,9 @@ test "a floating, decimal and character literal default keeps its own type" {
 test "a constant for a Nullable or an enum parameter is held as the type underneath" {
     AssertDefaultConstant(1, "12", typeof(int?), 12)
     AssertDefaultConstant(2, "2.5m", typeof(decimal?), 2.5m)
-    AssertDefaultConstant(1, "3", typeof(DayOfWeek), 3)
+    // The literal `0` is every enum's zero; no other integer converts to an enum.
+    AssertDefaultConstant(1, "0", typeof(DayOfWeek), 0)
+    AssertDefaultDeclines(1, "3", typeof(DayOfWeek))
 }
 
 test "a literal its parameter cannot hold is not a default" {
@@ -77,7 +82,6 @@ test "a literal its parameter cannot hold is not a default" {
     AssertDefaultDeclines(1, "2147483648", typeof(int))
     AssertDefaultDeclines(1, "1L", typeof(int))
     AssertDefaultDeclines(1, "1u", typeof(int))
-    AssertDefaultDeclines(1, "-1u", typeof(long))
     AssertDefaultDeclines(2, "2.5", typeof(float))
     AssertDefaultDeclines(2, "2.5", typeof(decimal))
     AssertDefaultDeclines(2, "2.5m", typeof(double))
@@ -249,4 +253,52 @@ test "an omitted default executes as its parameter's own type" {
     assert DefaultValueInvoke("DefaultNullableNone", typeof(int?), ColumnarParameterDefaultValue.FromSource(46, "null", typeof(int?))) == null
     assert Convert.ToInt64(Convert.ToDateTime(DefaultValueInvoke("DefaultDate", typeof(DateTime), ColumnarParameterDefaultValue.FromSource(34, "default", typeof(DateTime)))).Ticks) == 0L
     assert DefaultValueInvoke("DefaultReference", typeof(string), ColumnarParameterDefaultValue.FromSource(46, "null", typeof(string))) == null
+}
+
+func ExpressionConstant(text: string, parameterType: Type, memberValues: Dictionary<string, int>): object {
+    decoded := ColumnarParameterDefaultValue.FromExpression(text, parameterType, memberValues)
+    assert decoded != null, "'" + text + "' should fold as a default for " + parameterType.Name
+    known := decoded.Constant
+    assert known != null
+    return known
+}
+
+func NoMembers(): Dictionary<string, int> {
+    return new Dictionary<string, int>(StringComparer.Ordinal)
+}
+
+test "a constant expression default folds and converts to its parameter's type" {
+    assert ExpressionConstant("2 * 3", typeof(int), NoMembers()).Equals(6)
+    assert ExpressionConstant("(1L << 40) - 1", typeof(long), NoMembers()).Equals(1099511627775L)
+    assert ExpressionConstant("2 * 3", typeof(long), NoMembers()).Equals(6L)
+    assert ExpressionConstant("1 / 2", typeof(double), NoMembers()).Equals(0.0)
+    assert ExpressionConstant("1.0 / 4", typeof(double), NoMembers()).Equals(0.25)
+    assert ExpressionConstant("10m * 1.5m", typeof(decimal), NoMembers()).Equals(15.0m)
+    assert ExpressionConstant("\"a\" + \"b\"", typeof(string), NoMembers()).Equals("ab")
+    assert ExpressionConstant("-(3 + 4)", typeof(int), NoMembers()).Equals(-7)
+    assert ExpressionConstant("1 < 2 && !false", typeof(bool), NoMembers()).Equals(true)
+    assert ExpressionConstant("2 * 3", typeof(int?), NoMembers()).Equals(6)
+}
+
+test "a constant expression's enum members are the values the caller resolved" {
+    members := NoMembers()
+    members["DayOfWeek.Monday"] = 1
+    members["DayOfWeek.Friday"] = 5
+    assert ExpressionConstant("DayOfWeek.Monday | DayOfWeek.Friday", typeof(DayOfWeek), members).Equals(5)
+    assert ExpressionConstant("DayOfWeek.Monday | DayOfWeek.Friday", typeof(DayOfWeek?), members).Equals(5)
+    assert ExpressionConstant("~DayOfWeek.Monday & DayOfWeek.Friday", typeof(DayOfWeek), members).Equals(4)
+
+    names := ColumnarParameterDefaultValue.ExpressionMemberNames("(DayOfWeek.Monday | DayOfWeek.Friday) & DayOfWeek.Friday")
+    assert names != null
+    assert names.Count == 3
+    assert names[0] == "DayOfWeek.Monday"
+}
+
+test "a constant expression that does not fold, or does not convert, is not a default" {
+    assert ColumnarParameterDefaultValue.FromExpression("2147483647 + 1", typeof(int), NoMembers()) == null
+    assert ColumnarParameterDefaultValue.FromExpression("7 / 0", typeof(int), NoMembers()) == null
+    assert ColumnarParameterDefaultValue.FromExpression("2L * 3", typeof(int), NoMembers()) == null
+    assert ColumnarParameterDefaultValue.FromExpression("1.5 * 2", typeof(float), NoMembers()) == null
+    assert ColumnarParameterDefaultValue.FromExpression("Missing.Member | Missing.Other", typeof(DayOfWeek), NoMembers()) == null
+    assert ColumnarParameterDefaultValue.FromExpression("Compute() + 1", typeof(int), NoMembers()) == null
 }

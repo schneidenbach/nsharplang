@@ -2699,14 +2699,15 @@ Two rules the compiler enforces about the type-argument list itself:
   on a BASE class with an omitted default is not filled yet; write `this.` or the owner's name.
   Every constant default is filled, in your own project and from a
   referenced assembly alike: the null reference, `default`, a `Nullable<T>` with no value or with a
-  constant, and every integral, floating, `char`, `bool`, `string`, `decimal` and enum constant (see
-  [Optional Parameters](./functions.md#optional-parameters)). What remains:
+  constant, every integral, floating, `char`, `bool`, `string`, `decimal` and enum constant, and a
+  constant expression over them (see [Optional Parameters](./functions.md#optional-parameters)). What remains:
   - A default must be a constant of the parameter's type. `DateTime.MinValue` and other values read
     at run time are [NL410](./errors/NL410.md) — `= default` is the constant zero of any struct — and
     there is no N# spelling for a non-zero `DateTime` default (C#'s `[DateTimeConstant]`).
-  - A default combining enum members (`flags: Options = Options.A | Options.B`) is accepted by the
-    analyzer but declines at emission with [NL103](./errors/NL103.md); write the single member, or
-    `0`, and combine in the body.
+  - A constant EXPRESSION default (`size: int = 4 * 1024`, `flags: Options = Options.A | Options.B`)
+    is folded as C# folds it, but it is typed like a local's initializer: its type is the operands'
+    type, so `b: byte = 2 + 3` is a type mismatch ([NL202](./errors/NL202.md)) where C# would accept
+    it. Write the folded literal (`b: byte = 5`).
   - From a referenced assembly, a parameter that is merely `[Optional]` with no constant at all (and
     a `[DateTimeConstant]` default) still declines; pass the argument explicitly.
 - **Reading a member off a local initialised from an external static call** declines

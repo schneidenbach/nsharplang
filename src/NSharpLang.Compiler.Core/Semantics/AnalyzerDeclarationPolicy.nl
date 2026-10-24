@@ -700,6 +700,18 @@ class AnalyzerDeclarationPolicy {
             return null
         }
 
+        // THE FOLD RULE. A constant EXPRESSION has to have a value before it can be stored: one that
+        // overflows its type, divides by zero or applies an operator its operands do not have is
+        // refused here, with the reason, rather than reaching emission. `ConstantFolder` is the same
+        // folder the back end writes the value with.
+        foldFailure := DefaultFoldFailure(defaultValue, parameter.Type)
+        if foldFailure != null {
+            span := WholeDefaultSpan(defaultValue)
+            diagnostics.Report(ErrorCode.InvalidDefaultParameterValue, "The default value for '" + parameter.Name + "' cannot be computed: " + foldFailure.Problem, span.Line, span.Column, foldFailure.Hint, span.Length)
+            state.Index = state.Index + 1
+            return null
+        }
+
         // THE TYPE RULE, WHICH SUSPENDS. A constant the compiler can store must still be a value of
         // the parameter's own type: `n: int = null`, `b: byte = 300` and `f: float = 2.5` are
         // constants, and none of them is a value its parameter can hold. A default that names an
@@ -727,6 +739,11 @@ class AnalyzerDeclarationPolicy {
         binary := expr as BinaryExpression
         if binary != null {
             return NamesEnumMember(binary.Left) || NamesEnumMember(binary.Right)
+        }
+
+        parenthesized := expr as ParenthesizedExpression
+        if parenthesized != null {
+            return NamesEnumMember(parenthesized.Inner)
         }
 
         return false
@@ -765,6 +782,10 @@ class AnalyzerDeclarationPolicy {
     // a constant — `DateTime.MinValue`, `TimeSpan.Zero`, `Guid.Empty` — and is read at run time. The
     // two spellings that DO work are what the hint offers.
     static func InvalidDefaultHint(defaultValue: Expression, parameterName: string): string? {
+        if defaultValue is ArrayLiteralExpression {
+            return "An array is created when the program runs, so it cannot be stored as a default. Default '" + parameterName + "' to null and create the array in the body when it is null."
+        }
+
         memberAccess := defaultValue as MemberAccessExpression
         if memberAccess == null {
             return null
@@ -892,8 +913,8 @@ class AnalyzerDeclarationPolicy {
     // WHAT THE COMPILER CAN EVALUATE INTO METADATA
     // ----------------------------------------------------------------------------------------------
 
-    // The six literal forms, `default`, a matching enum member, and the unary, binary and array
-    // combinations of those. The recursion carries the SAME expected type down, which is what makes
+    // The six literal forms, `default`, a matching enum member, and the unary, binary and
+    // parenthesized combinations of those. An array is not a constant (C# refuses it too). The recursion carries the SAME expected type down, which is what makes
     // an enum member valid inside a `|` combination of flags but not inside one against a different
     // enum.
     func IsValidDefaultValue(expr: Expression, expectedType: TypeReference): bool {
@@ -920,23 +941,197 @@ class AnalyzerDeclarationPolicy {
             return IsValidDefaultValue(binary.Right, expectedType)
         }
 
-        arrayLiteral := expr as ArrayLiteralExpression
-        if arrayLiteral != null {
-            return AllElementsAreValidDefaults(arrayLiteral, expectedType)
+        parenthesized := expr as ParenthesizedExpression
+        if parenthesized != null {
+            return IsValidDefaultValue(parenthesized.Inner, expectedType)
         }
 
         return false
     }
 
-    func AllElementsAreValidDefaults(arrayLiteral: ArrayLiteralExpression, expectedType: TypeReference): bool {
-        elements := arrayLiteral.Elements
-        for element in elements {
-            if !IsValidDefaultValue(element, expectedType) {
-                return false
-            }
+    // WHAT FOLDING A COMPOSITE DEFAULT FOUND WRONG, or null when it folds (or is a single value,
+    // which has nothing to fold). An enum member's VALUE is not the analyzer's to know here — the
+    // back end resolves it — and it does not need to be: an enum folds only through `|`, `&`, `^`
+    // and `~`, which cannot fail, so every member is folded as `0` of the parameter's enum and only
+    // the operators applied to it are judged.
+    func DefaultFoldFailure(defaultValue: Expression, expectedType: TypeReference): ConstantFoldResult? {
+        if !(defaultValue is UnaryExpression) && !(defaultValue is BinaryExpression) && !(defaultValue is ParenthesizedExpression) {
+            return null
         }
 
-        return true
+        term := DefaultTermOf(defaultValue, expectedType.ToString() ?? "enum")
+        if term == null {
+            return ConstantFoldResult.Failed("it is not an expression over constants")
+        }
+
+        folded := ConstantFolder.Fold(term)
+        if folded.Value != null {
+            return null
+        }
+        return folded
+    }
+
+    // THE WHOLE EXPRESSION, first token to last, when it sits on one line: what cannot be computed
+    // is the expression, not its last operator. A default that wraps falls back to the ordinary
+    // expression span.
+    func WholeDefaultSpan(expr: Expression): DiagnosticSpan {
+        start := DefaultStart(expr)
+        end := DefaultEnd(expr)
+        if start.Line != end.Line || end.Column <= start.Column {
+            return spans.GetExpressionDiagnosticSpan(expr)
+        }
+        return new DiagnosticSpan(start.Line, start.Column, end.Column - start.Column)
+    }
+
+    func DefaultStart(expr: Expression): DiagnosticSpan {
+        binary := expr as BinaryExpression
+        if binary != null {
+            return DefaultStart(binary.Left)
+        }
+        if expr is UnaryExpression || expr is ParenthesizedExpression {
+            return new DiagnosticSpan(expr.Line, expr.Column, 0)
+        }
+        return spans.GetExpressionDiagnosticSpan(expr)
+    }
+
+    // The column just past the expression's last token.
+    func DefaultEnd(expr: Expression): DiagnosticSpan {
+        binary := expr as BinaryExpression
+        if binary != null {
+            return DefaultEnd(binary.Right)
+        }
+        unary := expr as UnaryExpression
+        if unary != null {
+            return DefaultEnd(unary.Operand)
+        }
+        parenthesized := expr as ParenthesizedExpression
+        if parenthesized != null {
+            inner := DefaultEnd(parenthesized.Inner)
+            return new DiagnosticSpan(inner.Line, inner.Column + 1, 0)
+        }
+        span := spans.GetExpressionDiagnosticSpan(expr)
+        return new DiagnosticSpan(span.Line, span.Column + span.Length, 0)
+    }
+
+    static func DefaultTermOf(expr: Expression, enumIdentity: string): ConstantTerm? {
+        intLiteral := expr as IntLiteralExpression
+        if intLiteral != null {
+            return ConstantTerm.Literal(1, intLiteral.Value)
+        }
+        floatLiteral := expr as FloatLiteralExpression
+        if floatLiteral != null {
+            return ConstantTerm.Literal(2, floatLiteral.Value)
+        }
+        charLiteral := expr as CharLiteralExpression
+        if charLiteral != null {
+            return ConstantTerm.Literal(3, charLiteral.Value)
+        }
+        stringLiteral := expr as StringLiteralExpression
+        if stringLiteral != null {
+            return ConstantTerm.Literal(stringLiteral.IsRaw ? 5 : 4, stringLiteral.Value)
+        }
+        boolLiteral := expr as BoolLiteralExpression
+        if boolLiteral != null {
+            return ConstantTerm.Literal(boolLiteral.Value ? 44 : 45, boolLiteral.Value ? "true" : "false")
+        }
+        if expr is MemberAccessExpression {
+            return ConstantTerm.EnumMember(enumIdentity, 0)
+        }
+        parenthesized := expr as ParenthesizedExpression
+        if parenthesized != null {
+            return DefaultTermOf(parenthesized.Inner, enumIdentity)
+        }
+        unary := expr as UnaryExpression
+        if unary != null {
+            operand := DefaultTermOf(unary.Operand, enumIdentity)
+            operatorText := UnaryOperatorText(unary.Operator)
+            if operand == null || operatorText == "" {
+                return null
+            }
+            return ConstantTerm.Unary(operatorText, operand)
+        }
+        binary := expr as BinaryExpression
+        if binary != null {
+            left := DefaultTermOf(binary.Left, enumIdentity)
+            right := DefaultTermOf(binary.Right, enumIdentity)
+            operatorText := BinaryOperatorText(binary.Operator)
+            if left == null || right == null || operatorText == "" {
+                return null
+            }
+            return ConstantTerm.Binary(operatorText, left, right)
+        }
+        return null
+    }
+
+    static func UnaryOperatorText(op: UnaryOperator): string {
+        if op == UnaryOperator.Negate {
+            return "-"
+        }
+        if op == UnaryOperator.Not {
+            return "!"
+        }
+        if op == UnaryOperator.BitwiseNot {
+            return "~"
+        }
+        return ""
+    }
+
+    static func BinaryOperatorText(op: BinaryOperator): string {
+        if op == BinaryOperator.Add {
+            return "+"
+        }
+        if op == BinaryOperator.Subtract {
+            return "-"
+        }
+        if op == BinaryOperator.Multiply {
+            return "*"
+        }
+        if op == BinaryOperator.Divide {
+            return "/"
+        }
+        if op == BinaryOperator.Modulo {
+            return "%"
+        }
+        if op == BinaryOperator.Equal {
+            return "=="
+        }
+        if op == BinaryOperator.NotEqual {
+            return "!="
+        }
+        if op == BinaryOperator.Less {
+            return "<"
+        }
+        if op == BinaryOperator.LessOrEqual {
+            return "<="
+        }
+        if op == BinaryOperator.Greater {
+            return ">"
+        }
+        if op == BinaryOperator.GreaterOrEqual {
+            return ">="
+        }
+        if op == BinaryOperator.And {
+            return "&&"
+        }
+        if op == BinaryOperator.Or {
+            return "||"
+        }
+        if op == BinaryOperator.BitwiseAnd {
+            return "&"
+        }
+        if op == BinaryOperator.BitwiseOr {
+            return "|"
+        }
+        if op == BinaryOperator.BitwiseXor {
+            return "^"
+        }
+        if op == BinaryOperator.LeftShift {
+            return "<<"
+        }
+        if op == BinaryOperator.RightShift {
+            return ">>"
+        }
+        return ""
     }
 
     // AN ENUM MEMBER IS A VALID DEFAULT ONLY FOR ITS OWN ENUM. The owner named on the left of the dot
@@ -957,6 +1152,11 @@ class AnalyzerDeclarationPolicy {
 
         ownerType := declarationContext.ResolveDeclaredAlias(ResolveDefaultEnumTypeName(ownerName))
         resolvedExpectedType := declarationContext.ResolveDeclaredAlias(ExpectedTypeFor(expectedType))
+        // An enum member is a default of the enum's `Nullable<T>` as well (`mode: Mode? = Mode.Fast`).
+        nullableExpected := resolvedExpectedType as NullableTypeInfo
+        if nullableExpected != null {
+            resolvedExpectedType = declarationContext.ResolveDeclaredAlias(nullableExpected.InnerType)
+        }
         if !TypeInfoIdentityFacts.AreEqual(ownerType, resolvedExpectedType) {
             return false
         }
