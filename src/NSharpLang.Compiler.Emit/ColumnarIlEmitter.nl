@@ -6319,12 +6319,8 @@ sealed class ColumnarIlEmitter {
                         if (!overriddenProperty.Matched) {
                             return DeclineStatic("emit.declaration.override-target", overriddenProperty.DeclineMessage, structs[s].Name, -1, 0)
                         }
-                        overrideVisibility := overriddenProperty.AccessibilityAttributes
-                        if ((prop.ModifierFlags & 15) != 0) {
-                            overrideVisibility = ColumnarDeclarationPlanner.MethodVisibilityAttributes(prop.Name, prop.ModifierFlags)
-                        }
-                        if (overrideVisibility >= 0) {
-                            accessorAttributes = (MethodAttributes)(((int)accessorAttributes & ~7) | overrideVisibility)
+                        if ((prop.ModifierFlags & 15) == 0 && overriddenProperty.AccessibilityAttributes >= 0) {
+                            accessorAttributes = (MethodAttributes)(((int)accessorAttributes & ~7) | overriddenProperty.AccessibilityAttributes)
                         }
                     }
                     propertyOwner := def.Builder
@@ -6338,7 +6334,8 @@ sealed class ColumnarIlEmitter {
                     propertyGetterAttributes := accessorAttributes
                     propertyOwnerBaseNames := structs[s].BaseNames
                     let propertySlotType: System.Type? = null
-                    if (TryFindDeclaredInterfaceValueMember(propertyOwnerBaseNames, typeResolution, prop.Name, out propertySlotType) || TryFindImplementedInterfaceValueMember(def, prop.Name, out propertySlotType)) {
+                    propertyFillsInterfaceSlot := TryFindDeclaredInterfaceValueMember(propertyOwnerBaseNames, typeResolution, prop.Name, out propertySlotType) || TryFindImplementedInterfaceValueMember(def, prop.Name, out propertySlotType)
+                    if (propertyFillsInterfaceSlot) {
                         if (!InterfaceValueSlotAccepts(propertySlotType, propType)) {
                             return DeclineStatic("emit.declaration.interface-value-member", "'" + structs[s].Name + "." + prop.Name + "' fills an interface value slot, so it must have the slot's own type", structs[s].Name, -1, 0)
                         }
@@ -6386,6 +6383,9 @@ sealed class ColumnarIlEmitter {
                         ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
                     )
                     getter := accessors.Getter
+                    if (propertyFillsInterfaceSlot && namedPropertyInterface == null) {
+                        ColumnarExplicitInterfaceImplementation.DefineNonPublicValueSlotFills(def, getter, prop.Name)
+                    }
                     if (!ColumnarMethodImplAttributes.TryApplyToMethod(getter, prop.Getter.SourceAttributes, typeResolution)) {
                         return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
                     }
@@ -6429,6 +6429,14 @@ sealed class ColumnarIlEmitter {
                             def.Builder.DefineMethodOverride(exactSetter, explicitSetterSlot)
                         }
                         property.SetSetMethod(exactSetter)
+                    }
+                    // A GET-ONLY OVERRIDE OF A SETTABLE PROPERTY IS NOT THE MEMBER'S LOOKUP ENTRY. It
+                    // replaced the getter alone, so the declaration it overrides still names both
+                    // accessors: every read and write in this assembly binds there, as C# binds to the
+                    // original virtual, and `callvirt` on that getter reaches this override. Registering
+                    // it here would hide the inherited setter from `gauge.Reading = 3`.
+                    if (isOverrideProperty && prop.Setter == null && ColumnarPropertyOverrideMatch.InheritsSetter(def, prop.Name, propType, ColumnarTypeOfPlanner.RequiredVoidType())) {
+                        continue
                     }
                     def.Properties[prop.Name] = accessors
                 }
@@ -10696,6 +10704,33 @@ sealed class ColumnarIlEmitter {
                             }
                             _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(writeProp))
                             return true
+                        }
+                        // A PROPERTY THE SOURCE CHAIN INHERITS FROM A REFERENCED BASE. `class
+                        // ParseError: Exception` has `HelpLink` because `Exception` declares it, and
+                        // `error.HelpLink = v` is that base's public setter, called virtually — which is
+                        // also how a get-only override of such a property is written through, since the
+                        // override replaced only the getter. Only a name the source chain does not
+                        // declare at all reaches here; a source member of that name has answered above.
+                        if (writeOwnerDef.IsReference && writeProp == null) {
+                            externalWriteBase := ColumnarInheritedExternalBase.Resolve(writeOwnerDef, writeChain.ReceiverType)
+                            if (externalWriteBase != null && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(externalWriteBase)) {
+                                externalWriteProperty := ReflectedMemberLookup.FindProperty(externalWriteBase, memberName, BindingFlags.Public | BindingFlags.Instance)
+                                let externalWriteSetter: System.Reflection.MethodInfo? = null
+                                if (externalWriteProperty != null && externalWriteProperty.GetIndexParameters().Length == 0) {
+                                    externalWriteSetter = externalWriteProperty.GetSetMethod()
+                                }
+                                if (externalWriteProperty != null && externalWriteSetter != null && !externalWriteSetter.IsStatic) {
+                                    if (!EmitMemberWriteLocator(writeChain)) {
+                                        return false
+                                    }
+                                    let externalWriteValueType: System.Type? = null
+                                    if (!TryEmitAssignableValue(Child(expr, 1), externalWriteProperty.PropertyType, out externalWriteValueType)) {
+                                        return false
+                                    }
+                                    _il.Emit(OpCodes.Callvirt, externalWriteSetter)
+                                    return true
+                                }
+                            }
                         }
                     }
                     // A REFLECTED OWNER — a type from a referenced assembly, including an N#-compiled

@@ -1,7 +1,9 @@
 namespace NSharpLang.ClassInheritance.Tests
 
 import System
+import System.Collections.Generic
 import System.Reflection
+import System.Text.Json
 
 func PropertyAccessor(owner: Type, name: string, setter: bool): MethodInfo {
     flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly
@@ -137,4 +139,90 @@ test "a get-only override declares only the getter" {
 test "an override with no accessibility word takes the slot's" {
     assert PropertyAccessor(typeof(Gauge), "Weight", false).IsFamily
     assert PropertyAccessor(typeof(FixedGauge), "Weight", false).IsFamily
+}
+
+// ---- a written property's accessibility -------------------------------------------------------------
+
+func LedgerAccessor(name: string): MethodInfo {
+    flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly
+    property := typeof(Ledger).GetProperty(name, flags)
+    if property == null {
+        throw new InvalidOperationException("'Ledger' declares no property named '" + name + "'.")
+    }
+    return must property.GetGetMethod(true)
+}
+
+test "a written property's accessors take its accessibility word, or its casing" {
+    assert LedgerAccessor("Plain").IsPublic
+    assert LedgerAccessor("open").IsAssembly
+    assert LedgerAccessor("Shown").IsPublic
+    assert LedgerAccessor("Guarded").IsFamily
+    assert LedgerAccessor("Inside").IsAssembly
+    assert LedgerAccessor("Secret").IsPrivate
+    assert LedgerAccessor("Shared").IsFamilyOrAssembly
+    assert LedgerAccessor("Count").IsPublic && LedgerAccessor("Count").IsStatic
+    assert LedgerAccessor("Seed").IsFamily && LedgerAccessor("Seed").IsStatic
+
+    flags := BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly
+    balance := must typeof(Ledger).GetProperty("Balance", flags)
+    assert (must balance.GetSetMethod(true)).IsPrivate
+}
+
+test "only the exported properties are part of the type's public surface" {
+    publicNames := new List<string>()
+    for property in typeof(Ledger).GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly) {
+        publicNames.Add(property.Name)
+    }
+    publicNames.Sort(StringComparer.Ordinal)
+    assert string.Join(",", publicNames) == "Count,Plain,Shown"
+
+    // What a serializer in another assembly sees is that same surface.
+    assert JsonSerializer.Serialize(new Ledger()) == "{\"Plain\":1,\"Shown\":4}"
+}
+
+test "the declaring type's own bodies, closures and async bodies read its non-public properties" {
+    ledger := new Ledger()
+    assert ledger.Total() == 1 + 2 + 4 + 8 + 16 + 32 + 64 + 128 + 256 + 3
+    ledger.Deposit(10)
+    assert ledger.SecretReader()() == 32 + 13
+    assert ledger.SecretLater().Result == 32 + 8
+    assert new AuditedLedger().GuardedReader()() == 8 + 256
+}
+
+test "a non-public property fills an interface's value slot" {
+    written: ICaption = new InternalCaption()
+    assert written.Caption == "internal"
+    bare: ICaption = new BareInternalCaption()
+    assert bare.Caption == "bare"
+    assert PropertyAccessor(typeof(InternalCaption), "Caption", false).IsAssembly
+    assert PropertyAccessor(typeof(BareInternalCaption), "Caption", false).IsAssembly
+}
+
+// ---- a get-only override inherits the base's setter --------------------------------------------------
+
+test "a get-only override is written through the deriving type with the setter it inherited" {
+    gauge := new FixedGauge()
+    gauge.Reading = 3
+    gauge.Reading += 2
+    gauge.Reading++
+    assert gauge.Reading == 42
+    assert gauge.Report() == "reading 42"
+
+    initialized := new FixedGauge { Reading: 11 }
+    assert initialized.Reading == 42
+
+    // Inside the overriding type: a write stores through the base's setter, a read is the override's.
+    assert new PinnedGauge().Overwrite() == 100
+}
+
+test "a get-only override of a CLR base property inherits that base's setter" {
+    linked := new LinkedError()
+    linked.HelpLink = "https://example.test/ignored"
+    assert linked.HelpLink == "https://example.test/fixed"
+    asException: Exception = linked
+    assert asException.HelpLink == "https://example.test/fixed"
+
+    plain := new PlainError()
+    plain.HelpLink = "https://example.test/plain"
+    assert plain.HelpLink == "https://example.test/plain"
 }

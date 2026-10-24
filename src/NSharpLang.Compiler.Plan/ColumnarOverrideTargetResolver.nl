@@ -520,6 +520,29 @@ class ColumnarPropertyOverrideMatch {
         declineMessageValue = decline
     }
 
+    // Whether a get-only override inherits a setter at all, by the same walk as `InheritsAbstractSetter`.
+    static func InheritsSetter(owner: ColumnarStructDef, name: string, propertyType: Type, voidType: Type): bool {
+        current: ColumnarStructDef? = owner.BaseDef
+        depth := 0
+        while current != null && depth <= 64 {
+            property: ColumnarPropertyDef? = null
+            if current.Properties.TryGetValue(name, out property) && property != null {
+                if property.Setter != null {
+                    return true
+                }
+                if !ReusesSlot(property.Getter) {
+                    return false
+                }
+            }
+            current = current.BaseDef
+            depth = depth + 1
+        }
+
+        setterParameters := new Type[](1)
+        setterParameters[0] = propertyType
+        return new ColumnarBaseMethodMatch(owner.ExactBaseType, "set_" + name, voidType, setterParameters).Matched
+    }
+
     // The setter a get-only override inherits: the nearest declaration of the name with a setter, past
     // get-only overrides, and past the source chain the nearest metadata `set_` slot.
     static func InheritsAbstractSetter(owner: ColumnarStructDef, name: string, propertyType: Type, voidType: Type): bool {

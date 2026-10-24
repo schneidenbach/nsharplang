@@ -1,6 +1,7 @@
 namespace NSharpLang.ClassInheritance.Tests
 
 import System
+import System.Threading.Tasks
 
 // VIRTUAL, OVERRIDE AND SEALED OVERRIDE ON WRITTEN PROPERTIES (website/docs/types.md "Properties").
 //
@@ -141,4 +142,80 @@ class Holder<T> {
 
 class FortyTwo: Holder<int> {
     override Value: int => 42
+}
+
+// ---- a written property's accessibility -------------------------------------------------------------
+
+// The accessors take the property's own word, or its casing when it writes none — the method rule.
+// `Total()` reads every one of them from inside the type, through closures and an async body too.
+class Ledger {
+    stored: int = 3
+
+    Plain: int => 1
+    open: int => 2
+    public Shown: int => 4
+    protected Guarded: int => 8
+    internal Inside: int => 16
+    private Secret: int => 32
+    protected internal Shared: int => 64
+    static Count: int => 128
+    protected static Seed: int => 256
+
+    private Balance: int {
+        get { return stored }
+        set { stored = value }
+    }
+
+    func Total(): int => Plain + open + Shown + Guarded + Inside + Secret + Shared + Count + Seed + Balance
+
+    func Deposit(amount: int) {
+        Balance = Balance + amount
+    }
+
+    func SecretReader(): Func<int> => () => Secret + Balance
+
+    async func SecretLater(): Task<int> {
+        await Task.Yield()
+        return Secret + Guarded
+    }
+}
+
+class AuditedLedger: Ledger {
+    func GuardedReader(): Func<int> => () => Guarded + Seed
+}
+
+// A non-public property that fills an interface's value slot names the slot it fills, as a non-public
+// `func` filling an interface method does; a bare member does the same.
+interface ICaption {
+    Caption: string
+}
+
+class InternalCaption: ICaption {
+    internal Caption: string => "internal"
+}
+
+class BareInternalCaption: ICaption {
+    internal Caption: string = "bare"
+}
+
+// ---- a get-only override inherits the base's setter --------------------------------------------------
+
+class PinnedGauge: Gauge {
+    override Reading: int => 99
+
+    func Overwrite(): int {
+        Reading = 7
+        Reading += 1
+        Reading++
+        return base.Reading
+    }
+}
+
+// `Exception.HelpLink` is `virtual { get; set; }`: the override replaces its getter, and a write still
+// reaches `Exception`'s setter.
+class LinkedError: Exception {
+    override HelpLink: string? => "https://example.test/fixed"
+}
+
+class PlainError: Exception {
 }

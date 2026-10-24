@@ -973,3 +973,17 @@ test "an UNRESOLVED static owner leaves the target ADDRESSABLE rather than refus
 
     assert harness.Targets.IsRefOutArgumentTarget(WriteTargetMember(receiver, "Anything", false), types)
 }
+
+// A GET-ONLY OVERRIDE INHERITS ITS BASE'S SETTER, so the reflected walk steps past a property whose
+// getter overrides an inherited one. `ArgumentException.Message` overrides `Exception.Message`; the
+// base's own declaration and a non-virtual property open nothing further up.
+test "a reflected property whose getter overrides an inherited one sends the setter question up the chain" {
+    assert AnalyzerWriteTargets.OverridesInheritedGetter(must typeof(ArgumentException).GetProperty("Message"))
+    assert !AnalyzerWriteTargets.OverridesInheritedGetter(must typeof(Exception).GetProperty("Message"))
+    assert !AnalyzerWriteTargets.OverridesInheritedGetter(must typeof(string).GetProperty("Length"))
+
+    // `Exception.Message` has no setter anywhere, so the walk still answers read-only.
+    assert AnalyzerWriteTargets.TryIsReadOnlyReflectionProperty(typeof(ArgumentException), "Message", false)
+    // `Exception.HelpLink` is `virtual { get; set; }`: settable through any subclass.
+    assert !AnalyzerWriteTargets.TryIsReadOnlyReflectionProperty(typeof(ArgumentException), "HelpLink", false)
+}

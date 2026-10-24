@@ -201,6 +201,9 @@ class ColumnarAutoPropertyEmitter {
             ApplyCompilerGeneratedToMethod(getter)
             EmitGetterBody(getter.GetILGenerator(), backingField, isStatic)
         }
+        if implementsInterfaceValueSlot && !isStatic {
+            ColumnarExplicitInterfaceImplementation.DefineNonPublicValueSlotFills(owner, getter, propertyName)
+        }
 
         setterParameters := new Type[](1)
         setterParameters[0] = propertyType

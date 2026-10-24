@@ -355,6 +355,11 @@ class Product {
 }
 ```
 
+A written property's accessors take its accessibility the way a method does: the word it writes, or
+with none, its casing ([Visibility](./language-tour.md#visibility)). `protected Margin: decimal => …`
+emits `protected` accessors, a camelCase `discount: decimal => …` emits `internal` ones, and only the
+exported properties are what another assembly — or a serializer — sees.
+
 #### `virtual` and `override` on a written property
 
 A property written with accessors is a getter, and a setter when it declares one — methods — so it
@@ -395,7 +400,8 @@ class ParseError: Exception {
 a `catch e: Exception` around `throw new ParseError(7)` reads `ParseError`'s message.
 
 - **An override replaces the accessors it declares.** A get-only override replaces the getter and
-  inherits the base's setter, as C#'s does. One that declares a `set` needs a setter slot in the
+  inherits the base's setter, as C#'s does: `gauge.Reading = 3` on the overriding type stores through
+  the base's setter, and the next read is the override's. One that declares a `set` needs a setter slot in the
   base ([NL311](./errors/NL311.md), C#'s CS0546) — `Exception.Message` is get-only, so it is
   overridden with a getter alone.
 - **Written and bare members override each other.** A written override can replace a bare

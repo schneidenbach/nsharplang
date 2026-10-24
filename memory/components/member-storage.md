@@ -129,9 +129,21 @@ dropped by emission, so `override Message: string => …` on an exception compil
   static property, an interface's, a struct/record struct/union's, `virtual` in a sealed class, and a
   `set` over a get-only base (CS0546). NL324 names `Name.set` when a concrete class's get-only override
   leaves an abstract setter (`CollectAbstractSettersLeftOpen`). `abstract` stays NL311 (bodies).
-- **Not yet:** writing a get-only override through the DERIVED type (`fixedGauge.Reading = 3`) is
-  NL103 "read-only"; C# allows it (the inherited setter). Through a base-typed reference it works.
-  Written properties still ignore their accessibility word outside `override` (always `public`).
+- **Accessibility (2026-10-23):** `InstanceAccessorAttributes(name, flags)` /
+  `StaticAccessorAttributes(name, flags)` use `MethodVisibilityAttributes` — the written word, else the
+  casing (camelCase = assembly). An `override` with no word still adopts the slot's. A non-public getter
+  (written or bare) that fills an interface value slot gets a MethodImpl row
+  (`ColumnarExplicitInterfaceImplementation.DefineNonPublicValueSlotFills`), as a non-public `func`
+  does; the CLR binds implicit implementations by name only when public.
+- **Inherited setter:** a get-only written override whose overridden property has a setter is NOT put
+  in `def.Properties` (`ColumnarPropertyOverrideMatch.InheritsSetter`): every read and write binds to
+  the overridden declaration, and `callvirt` on its getter reaches the override (C# binds to the
+  original virtual the same way). A CLR base's property is written through a source receiver by its
+  public setter (`ColumnarIlEmitter` member-write path). Analyzer: `TryIsReadOnlyPropertyMember` and
+  the reflected walk step past a get-only override (`OverridesInheritedGetter`).
+- **Known gap, separate:** writing an inherited written property through a subclass of a CLOSED
+  GENERIC source base (`class P: Holder<int>`, `p.Value = 5`) declines in emission
+  (`emit.statement.block-child`), override or not; so does `h: Holder<int> = new P()` as a typed local.
 
 ## Emitter support added alongside
 
