@@ -70,6 +70,16 @@ class ReflectedDefaults {
         return value
     }
 
+    // GENERIC declarations with a defaulted tail. A call that writes only the value infers `T` from
+    // it and fills the rest from metadata, the shape of `JsonSerializer.Serialize(value)`.
+    static func Tag<T>(value: T, label: string = "tag"): string {
+        return $"{label}:{value}"
+    }
+
+    func Join<T>(first: T, second: T, separator: char = '|'): string {
+        return $"{first}{separator}{second}"
+    }
+
     func Factor(factor: double = 0.5): double {
         return factor
     }

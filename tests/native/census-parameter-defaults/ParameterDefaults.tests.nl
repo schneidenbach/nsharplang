@@ -195,3 +195,21 @@ test "a referenced constructor and instance method fill their omitted defaults f
     assert named.Mark == 'n'
     assert named.Ratio == 1.25m
 }
+
+test "a referenced generic method infers its type argument and fills its omitted defaults" {
+    assert ReflectedDefaults.Tag(5) == "tag:5"
+    assert ReflectedDefaults.Tag("x", "named") == "named:x"
+    reflected := new ReflectedDefaults()
+    assert reflected.Join(1, 2) == "1|2"
+    assert reflected.Join("a", "b", '-') == "a-b"
+}
+
+// INSIDE A LAMBDA, with an argument built from the lambda's own parameter, the same defaults are
+// filled.
+test "a referenced generic method fills its omitted defaults inside a lambda" {
+    tag: Func<int, string> = n => ReflectedDefaults.Tag(new { N: n })
+    assert tag(3) == "tag:{ N = 3 }"
+    reflected := new ReflectedDefaults()
+    join: Func<int, string> = n => reflected.Join(new { N: n }, new { N: n + 1 })
+    assert join(1) == "{ N = 1 }|{ N = 2 }"
+}

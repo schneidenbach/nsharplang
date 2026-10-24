@@ -542,9 +542,11 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // Wave 2's member-lookup, closure, and nullable/record projects and PR #271's generic-call
 // regression suites are included in this freshly measured merged-tree corpus. Historical project
 // ordinals are branch-local and overlap, so the count below comes from walking the merged tree.
-test "compile-time bench: the merged tree has 219 project.yml projects under examples, tests and templates" {
+// System.Text.Json round-trips of source classes and anonymous objects then added
+// tests/native/system-text-json.
+test "compile-time bench: the merged tree has 220 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 219
+    assert projects.Count == 220
     advancedFeatureProjects := 0
     templateProjects := 0
     i := 1
