@@ -102,6 +102,39 @@ test "the rest of the base framework issue #215 found missing builds and runs wi
     }
 }
 
+// `Meter.CreateObservableGauge<T>(string, Func<T>, string? unit = null, string? description = null)`
+// lives in `System.Diagnostics.DiagnosticSource`, an assembly no hand-written namespace row ever
+// named: the import resolves only because the framework index reads it from the reference pack. The
+// call is an INSTANCE generic whose `T` is inferred from a `Func<int>` local with both trailing
+// defaults omitted, and the second call writes them, so the program shows the defaults were filled
+// with null rather than shifted onto a written argument.
+test "a framework instance generic from System.Diagnostics.Metrics infers T and fills its omitted defaults" {
+    root := ResolverNewTempDirectory("default-refs-gauge")
+    try {
+        source := new List<string>()
+        source.Add("import System")
+        source.Add("import System.Diagnostics.Metrics")
+        source.Add("")
+        source.Add("func main() {")
+        source.Add("    meter := new Meter(\"Orders\")")
+        source.Add("    observe: Func<int> = () => 42")
+        source.Add("    gauge := meter.CreateObservableGauge(\"queue.depth\", observe)")
+        source.Add("    print gauge.GetType().ToString()")
+        source.Add("    print gauge.Name")
+        source.Add("    print gauge.Unit ?? \"<no unit>\"")
+        source.Add("    print gauge.Description ?? \"<no description>\"")
+        source.Add("    print gauge.Meter.Name")
+        source.Add("    written := meter.CreateObservableGauge(\"queue.age\", observe, \"ms\", \"Age of the oldest order\")")
+        source.Add("    print written.Name + \"|\" + (written.Unit ?? \"\") + \"|\" + (written.Description ?? \"\")")
+        source.Add("}")
+        program := string.Join("\n", source) + "\n"
+        DefaultRefsProject(root, DefaultRefsConsoleYml("GaugeBase", ""), program)
+        assert DefaultRefsBuildAndRun(root, "GaugeBase") == "System.Diagnostics.Metrics.ObservableGauge`1[System.Int32]\nqueue.depth\n<no unit>\n<no description>\nOrders\nqueue.age|ms|Age of the oldest order"
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
 test "a fully-qualified framework type needs no import, as under dotnet build" {
     root := ResolverNewTempDirectory("default-refs-qualified")
     try {
