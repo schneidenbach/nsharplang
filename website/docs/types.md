@@ -1407,7 +1407,7 @@ An anonymous object can go anywhere an `object` or a type parameter can, and a g
 the anonymous type, so nothing is lost:
 
 ```n#
-import Newtonsoft.Json
+import System.Text.Json
 
 func Echo<T>(value: T): T {
     return value
@@ -1417,7 +1417,32 @@ func main() {
     person := new { Name: "Alice", Age: 30 }
     same := Echo(person)
     print same.Name                                 // Alice
-    print JsonConvert.SerializeObject(person)       // {"Name":"Alice","Age":30}
+    print JsonSerializer.Serialize(person)          // {"Name":"Alice","Age":30}
+}
+```
+
+Serializers read the properties, so an anonymous object is a ready-made JSON payload. The example
+uses System.Text.Json, which ships with .NET: `JsonSerializer.Serialize(person)` infers the
+anonymous type as its type argument, and the options argument it leaves out is filled with its
+default (see
+[inferred type arguments with optional parameters](./functions.md#inferred-type-arguments-with-optional-and-params-parameters)).
+Newtonsoft.Json works the same way: add `- nuget: Newtonsoft.Json` under `dependencies:` in
+`project.yml`, `import Newtonsoft.Json`, and call `JsonConvert.SerializeObject(person)`.
+
+To read JSON back into an anonymous type, which has no name to write as a type argument, pass a
+sample of the shape and let inference name it:
+
+```n#
+import System.Text.Json
+
+func ParseLike<T>(json: string, _sample: T): T? {
+    return JsonSerializer.Deserialize<T>(json)
+}
+
+func main() {
+    json := JsonSerializer.Serialize(new { Name: "Alice", Age: 30 })
+    back := must ParseLike(json, new { Name: "", Age: 0 })
+    print back.Age + 1                              // 31
 }
 ```
 
