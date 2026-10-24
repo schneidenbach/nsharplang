@@ -101,6 +101,21 @@ class ColumnarAttributeBlobs {
         return blob.ToArray()
     }
 
+    // `[DebuggerDisplay("...", Type = "<Anonymous Type>")]`: prolog, ONE SerString fixed argument,
+    // then ONE named argument — the PROPERTY marker 0x54, the string element type 0x0E, the property
+    // name and its value, each a SerString (II.23.3).
+    static func StringWithNamedStringProperty(value: string, propertyName: string, propertyValue: string): byte[] {
+        blob := new List<byte>()
+        WritePrologue(blob)
+        WriteSerString(blob, value)
+        WriteNamedArgumentCount(blob, 1)
+        Append(blob, 84)
+        Append(blob, 14)
+        WriteSerString(blob, propertyName)
+        WriteSerString(blob, propertyValue)
+        return blob.ToArray()
+    }
+
     // `[TupleElementNames(new string[] { "Min", "Max" })]`: prolog, ONE fixed argument that is a
     // SZARRAY of strings, no named arguments. Verified byte-for-byte against what the C# compiler
     // writes for `(int Min, int Max)`.
@@ -118,6 +133,16 @@ class ColumnarAttributeBlobs {
         blob := new List<byte>()
         WritePrologue(blob)
         Append(blob, value)
+        WriteNamedArgumentCount(blob, 0)
+        return blob.ToArray()
+    }
+
+    // `[DebuggerBrowsable(DebuggerBrowsableState.Never)]`: prolog, ONE `int32` fixed argument (an enum
+    // argument is its underlying value, little-endian), no named arguments.
+    static func OneInt32(value: int): byte[] {
+        blob := new List<byte>()
+        WritePrologue(blob)
+        WriteUInt32(blob, value)
         WriteNamedArgumentCount(blob, 0)
         return blob.ToArray()
     }

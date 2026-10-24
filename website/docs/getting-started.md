@@ -28,7 +28,7 @@ nlc --version
 nlc doctor
 ```
 
-`nlc doctor` checks the CLI, SDK/template restore path, language server, and the VS Code extension when the `code` CLI is available. The installer also writes `~/.nsharp/env` and updates common shell profiles so new terminals can find `nlc` and the right .NET root.
+`nlc doctor` checks the CLI, the N# package cache of the install it belongs to (`$NSHARP_INSTALL_DIR/packages`, defaulting to `~/.nsharp/packages` — the same feed `nlc new` writes into projects), the template restore path, the language server, and the VS Code extension when the `code` CLI is available. The installer also writes `~/.nsharp/env` and updates common shell profiles so new terminals can find `nlc` and the right .NET root.
 
 Windows gap: the canonical installer is bash-only in this release pass. Use WSL or translate the installer commands to PowerShell until a supported Windows installer exists.
 
@@ -109,7 +109,8 @@ Hello, World!
 
 ## Project Configuration
 
-All configuration lives in `project.yml` — never add build settings to a `.csproj`.
+All configuration lives in `project.yml` — never add build settings to a `.csproj`. The
+[project.yml reference](./project-yml.md) lists every key and every dependency kind.
 
 ```yaml
 name: MyApp
@@ -139,6 +140,12 @@ dependencies:
     version: 13.0.3
 ```
 
+Dependencies can also be shared frameworks (`framework:`), other N# projects (`project:`) and
+prebuilt assemblies (`dll:`); see [Dependencies](./project-yml.md#dependencies). Without any
+dependencies, a project compiles against all of `Microsoft.NETCore.App`, the same base library
+`dotnet build` uses, so types such as `IServiceProvider` or `ClaimsIdentity` need only their `import`;
+see [What a project can see](./project-yml.md#what-a-project-can-see).
+
 Then use it in your code:
 
 ```n#
@@ -151,12 +158,34 @@ func main() {
 }
 ```
 
+### Language settings
+
+The optional `language:` section changes how the compiler reads your code:
+
+```yaml
+language:
+  profile: default          # or systems — see the Systems Profile guide
+  asyncDefaultType: Task    # the task an unannotated async func returns: ValueTask (default) or Task
+```
+
+| Key | Values | Default | Effect |
+|-----|--------|---------|--------|
+| `profile` | `default`, `systems` | `default` | `systems` turns on the allocation and AOT policy checks described in [the Systems Profile](./systems.md). |
+| `asyncDefaultType` | `ValueTask`, `Task` | `ValueTask` | The task an `async func` returns when it does not write one. `main`, overrides and interface implementations follow their own rule; see [Implicit Task Wrapping](./functions.md#implicit-task-wrapping). Web projects whose middleware or other convention-based methods must return `Task` usually want `Task`. |
+
+Every `nlc` command, the language server and the MSBuild SDK read the same section, so a hover in
+VS Code shows the same task type `nlc build` emits.
+
+There is no `pooledAsync` key. An `async func` that returns `ValueTask` already completes without
+allocating, so there is nothing for a pooled builder to recycle, and a `project.yml` that still sets
+`pooledAsync` is refused with that reason. See [Implicit Task Wrapping](./functions.md#implicit-task-wrapping).
+
 ## VS Code Setup
 
-The installer runs `code --install-extension nsharp.nsharp` when the `code` CLI is on PATH. If `code` was not available during install, enable it from VS Code with **Shell Command: Install 'code' command in PATH**, then run:
+When the `code` CLI is on PATH, the installer downloads `nsharp.vsix` from the latest GitHub Release, verifies it against the release's `SHA256SUMS`, and installs it with `code --install-extension`. The extension is not published to the VS Code Marketplace yet. If `code` was not available during install, enable it from VS Code with **Shell Command: Install 'code' command in PATH**, then re-run the installer:
 
 ```bash
-code --install-extension nsharp.nsharp
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
 nlc doctor --require-vscode
 ```
 

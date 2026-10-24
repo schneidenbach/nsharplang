@@ -1279,7 +1279,20 @@ class ColumnarTypeOfPlanner {
         if IsSupportedValueTuple(valueType) {
             return true
         }
-        return !valueType.IsValueType && IsSupportedCatalogType(valueType)
+        // A CLOSED INSTANTIATION OF A TYPE THIS COMPILATION DECLARES — `Box<string>`, or the
+        // `<>f__AnonymousType0<string, int>` an anonymous object is — is an element like its open
+        // definition is: `[box, box]` and `[person, other]` are the same array shape.
+        if IsClosedSourceGeneric(valueType) {
+            return true
+        }
+        // A small number of external structs have an explicit array-element contract. `Guid` is
+        // representable with the same element-handle opcodes as a source struct. The broader catalog
+        // value surface is not an array-element surface: DateTime and JSON value structs remain outside
+        // it, as do generic and by-ref-like structs.
+        if IsValueTypeSafely(valueType) {
+            return valueType == typeof(Guid) && IsSupportedCatalogType(valueType)
+        }
+        return IsSupportedCatalogType(valueType)
     }
 
     // A `Nullable<T>` NEEDS A NON-NULLABLE VALUE `T`, AND THAT IS THE WHOLE QUESTION.

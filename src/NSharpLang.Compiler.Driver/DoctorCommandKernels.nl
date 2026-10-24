@@ -89,7 +89,7 @@ class DoctorCommandKernels {
     }
 
     static func GetVscodeExtensionMissingMessage(extensionId: string): string {
-        return extensionId + " is not installed; run code --install-extension " + extensionId
+        return extensionId + " is not installed; re-run the N# installer, or download nsharp.vsix from https://github.com/schneidenbach/nsharplang/releases/latest and run code --install-extension nsharp.vsix"
     }
 
     static func GetTextHeader(): string {

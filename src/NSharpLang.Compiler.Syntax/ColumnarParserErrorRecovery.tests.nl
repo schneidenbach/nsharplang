@@ -1679,3 +1679,158 @@ test "020 slice 16: a C-style `for` header is not claimed by the reserved-keywor
     assert PeCensus("func test() {\n    for i := 0; i < 3; i++ {\n        print i\n    }\n}") == "", PeCensus("func test() {\n    for i := 0; i < 3; i++ {\n        print i\n    }\n}")
     assert PeStmts("func test() {\n    for i := 0; i < 3; i++ {\n        print i\n    }\n}") == "ForStatement(BlockStatement);", PeStmts("func test() {\n    for i := 0; i < 3; i++ {\n        print i\n    }\n}")
 }
+
+// ══ A RESERVED WORD WRITTEN AS A VARIABLE NAME (NL109, EXPRESSION POSITION) ══════════════════
+//
+// `out := 5` used to report `NL101 Unexpected token 'out' in expression` — at the declaration AND at
+// every later read of the variable — and never said the word was reserved. The word is the mistake,
+// not the token, so the report is NL109 with the sentence a C# programmer needs, it lands on the
+// word, it is made ONCE per word per file, and every later use is read as the same name.
+
+func PeReservedNameRow(word: string): string {
+    return "NL109@3:5+" + word.Length.ToString() + "|'" + word + "' is a reserved word; choose another name|    " + word + " := 5|'" + word + "' is a reserved keyword in N#, so it can't be used as a variable name. N# reports it once; rename every use of it.|Choose a name that isn't a reserved keyword (for example '" + word + "Value' or '_" + word + "').|{Rename it to '" + word + "Value' or '_" + word + "'}{Pick any name that isn't a reserved N# keyword}|https://schneidenbach.github.io/nsharplang/docs/errors/NL109"
+}
+
+// Derive the recovery matrix from the lexer source of truth. A new reserved keyword must enter all
+// name-position contracts automatically; a contextual/non-keyword token must stay out.
+func PeReservedKeywordNames(): List<string> {
+    words := new List<string>()
+    tokenTypes := Enum.GetValues(typeof(TokenType))
+    index := 0
+    while index < tokenTypes.Length {
+        tokenType := (TokenType)Convert.ToInt32(tokenTypes.GetValue(index))
+        keyword := Lexer.KeywordTextForType(tokenType)
+        if keyword.Length > 0 {
+            words.Add(keyword)
+        }
+        index = index + 1
+    }
+
+    return words
+}
+
+func PeReservedNameCensus(word: string, line: int, column: int): string {
+    return "NL109@" + line.ToString() + ":" + column.ToString() + "+" + word.Length.ToString() + ";"
+}
+
+test "issue 248: `out := 5` is one NL109 on the word, and the later uses of the variable report nothing" {
+    source := "\nfunc test() {\n    out := 5\n    print out.ToString()\n    print out\n}"
+    assert !PeParse(source).Success
+    assert PeCensus(source) == "NL109@3:5+3;", PeCensus(source)
+    assert PeRow(source, 0) == PeReservedNameRow("out"), PeRow(source, 0)
+    assert PeStmts(source) == "VariableDeclarationStatement(out);PrintStatement;PrintStatement;", PeStmts(source)
+}
+
+test "issue 248: `explicit := 1` and `partial := 1` are the same NL109, not an unexpected token" {
+    explicitSource := "\nfunc test() {\n    explicit := 5\n    print explicit.ToString()\n}"
+    assert PeCensus(explicitSource) == "NL109@3:5+8;", PeCensus(explicitSource)
+    assert PeRow(explicitSource, 0) == PeReservedNameRow("explicit"), PeRow(explicitSource, 0)
+
+    partialSource := "\nfunc test() {\n    partial := 5\n    print partial.ToString()\n}"
+    assert PeCensus(partialSource) == "NL109@3:5+7;", PeCensus(partialSource)
+    assert PeRow(partialSource, 0) == PeReservedNameRow("partial"), PeRow(partialSource, 0)
+}
+
+test "issue 248 review: every lexer-reserved word recovers as a shorthand local name" {
+    for word in PeReservedKeywordNames() {
+        source := "func test() {\n    " + word + " := 1\n}"
+        census := PeCensus(source)
+        assert census == PeReservedNameCensus(word, 2, 5), word + " shorthand: " + census
+    }
+}
+
+test "issue 248 review: every lexer-reserved word recovers as a typed let name" {
+    for word in PeReservedKeywordNames() {
+        source := "func test() {\n    let " + word + ": int = 1\n}"
+        census := PeCensus(source)
+        assert census == PeReservedNameCensus(word, 2, 9), word + " typed let: " + census
+    }
+}
+
+test "issue 248 review: every lexer-reserved word recovers as a parameter name" {
+    for word in PeReservedKeywordNames() {
+        source := "func test(" + word + ": int) {}"
+        census := PeCensus(source)
+        assert census == PeReservedNameCensus(word, 1, 11), word + " parameter: " + census
+    }
+}
+
+test "issue 248 review: every lexer-reserved word recovers as a for-in variable name" {
+    for word in PeReservedKeywordNames() {
+        source := "func test() {\n    for " + word + " in [1] {}\n}"
+        census := PeCensus(source)
+        assert census == PeReservedNameCensus(word, 2, 9), word + " for-in: " + census
+    }
+}
+
+test "issue 248 review: a typed reserved local is retained and its later use does not repeat NL109" {
+    source := "func test() {\n    let explicit: int = 1\n    return explicit\n}"
+    assert PeCensus(source) == "NL109@2:9+8;", PeCensus(source)
+    assert PeStmts(source) == "VariableDeclarationStatement(explicit);ReturnStatement;", PeStmts(source)
+
+    parsed := PeParse(source)
+    unit := parsed.CompilationUnit
+    assert unit != null
+    function := unit.Declarations[0] as FunctionDeclaration
+    assert function != null && function.Body != null
+    body := function.Body
+    assert body != null
+    declaration := body.Statements[0] as VariableDeclarationStatement
+    returnStatement := body.Statements[1] as ReturnStatement
+    assert returnStatement != null
+    returnValue := returnStatement.Value as IdentifierExpression
+    assert declaration != null && declaration.Name == "explicit"
+    assert returnValue != null && returnValue.Name == "explicit"
+}
+
+test "a null arm in a conditional expression is not a reserved-name binding" {
+    source := "func test(flag: bool, value: int) {\n    result := flag ? null : value\n}"
+    assert PeCensus(source) == "", PeCensus(source)
+}
+
+test "issue 248: each reserved word is reported once, and a second word is its own report" {
+    source := "\nfunc test() {\n    out := 1\n    explicit := 2\n    out = out + 1\n}\n\nfunc other() {\n    out := 3\n}"
+    assert PeCensus(source) == "NL109@3:5+3;NL109@4:5+8;", PeCensus(source)
+}
+
+test "issue 248: a bare reserved word in an expression is still diagnosed as a name" {
+    source := "\nfunc test() {\n    print out\n}"
+    assert PeCensus(source) == "NL109@3:11+3;", PeCensus(source)
+    assert PeStmts(source) == "PrintStatement;", PeStmts(source)
+}
+
+test "issue 248: the reserved-word report does not touch the words that are still words" {
+    // `out` and `ref` as ARGUMENT MODIFIERS, and names that merely contain a keyword.
+    source := "\nfunc test() {\n    let x: int\n    ok := int.TryParse(\"5\", out x)\n    outValue := 5\n    explicitly := 1\n}"
+    assert PeCensus(source) == "", PeCensus(source)
+}
+
+// ══ EXPRESSION-BODY LINE CONTINUATION (issue 252) ═════════════════════════════════════════════
+
+test "issue 252: arrow bodies and trailing operators continue across lines for every declaration kind" {
+    source := "func TopLevel(): string =>\n    \"top\"\nfunc Join(): string => \"left\" +\n    \"right\"\nclass C {\n    func Method(): string =>\n        \"method\"\n    Name: string =>\n        \"property\"\n}\n"
+    parsed := PeParse(source)
+    assert parsed.Success, PeCensus(source)
+    assert PeCensus(source) == "", PeCensus(source)
+
+    unit := parsed.CompilationUnit
+    assert unit != null
+    assert unit.Declarations.Count == 3, PeDecls(source)
+    topLevel := unit.Declarations[0] as FunctionDeclaration
+    joined := unit.Declarations[1] as FunctionDeclaration
+    owner := unit.Declarations[2] as ClassDeclaration
+    assert topLevel != null && PeKind(topLevel.ExpressionBody) == "StringLiteralExpression"
+    assert joined != null && PeKind(joined.ExpressionBody) == "BinaryExpression"
+    assert owner != null && owner.Members.Count == 2
+}
+
+test "issue 252: an arrow with no expression before the next declaration remains a positioned error" {
+    source := "func broken(): string =>\nfunc next(): string => \"ok\"\n"
+    assert PeCensus(source) == "NL101@2:1+4;", PeCensus(source)
+    assert PeRow(source, 0).StartsWith("NL101@2:1+4|Unexpected token 'func' in expression|", StringComparison.Ordinal), PeRow(source, 0)
+    assert PeDecls(source).IndexOf("FunctionDeclaration[next", StringComparison.Ordinal) >= 0, PeDecls(source)
+
+    typeSource := "func broken(): string =>\nclass Next {}\n"
+    assert PeCensus(typeSource) == "NL101@2:1+5;", PeCensus(typeSource)
+    assert PeDecls(typeSource).IndexOf("ClassDeclaration[Next", StringComparison.Ordinal) >= 0, PeDecls(typeSource)
+}

@@ -15,6 +15,7 @@ This guide covers the type system in N#, including classes, structs, records, di
 - [Classes](#classes)
 - [Structs](#structs)
 - [Records](#records)
+- [Anonymous Objects](#anonymous-objects)
 - [Discriminated Unions](#discriminated-unions)
 - [Duck Interfaces](#duck-interfaces)
 - [Enums](#enums)
@@ -48,6 +49,26 @@ names: string[] = ["Alice", "Bob", "Charlie"]
 ```
 
 ## Numeric Operators
+
+### Unsuffixed integer literal types
+
+An unsuffixed nonnegative integer literal takes the first integral type that can hold its value:
+`int`, `uint`, `long`, then `ulong`. For example, `4294967295` is a `uint` and `5000000000` is a
+`long`. The compiler then applies the ordinary implicit or constant conversion rules at the use site,
+so this is valid:
+
+```n#
+mask: long = 4294967295
+```
+
+A suffix fixes the literal's type, as in `4294967295L` or `4294967295UL`.
+
+Unary minus has two C# boundary cases. When an integer token with the corresponding magnitude
+immediately follows `-`, `-2147483648` is an `int` with the value `int.MinValue`, and
+`-9223372036854775808` is a `long` with the value `long.MinValue`. The long minimum may also be
+written with an `L` suffix. The same rule applies to radix spellings such as `-0x80000000`. The
+positive magnitudes by themselves still follow the first-fitting rule: `2147483648` is `uint`, and
+`9223372036854775808` is `ulong`.
 
 ### Binary numeric promotion
 
@@ -146,6 +167,14 @@ one; `new T[](n)` builds an empty one of a given size.
 names: string[] = ["Alice", "Bob"]
 empty := new int[](3)
 first := names[0]
+```
+
+Arrays can also hold supported CLR structs, such as `Guid`:
+
+```n#
+import System
+
+ids: Guid[] = [Guid.NewGuid(), Guid.Empty]
 ```
 
 ### Array covariance
@@ -310,8 +339,10 @@ class Product {
     // Expression-bodied property
     DisplayName: string => $"{Name} (${Price})"
 
-    // Full property with getter and setter
+    // A camelCase member is a field: the storage behind the full property below
     stock: int
+
+    // Full property with getter and setter
     Stock: int {
         get { return stock }
         set {
@@ -323,6 +354,184 @@ class Product {
     }
 }
 ```
+
+### Fields and properties
+
+N# has one spelling for a value member — `Name: T`, with or without `= initializer` — and the CLR has
+two shapes it can take. N# picks the shape for you, by one rule: **the members other code is meant to
+see are properties, and a type's own storage is a field.**
+
+A bare member is an **auto-property** — exactly C#'s `public T Name { get; set; }` — when all of these
+hold:
+
+- it is declared in a **`class` or `record`** (not a `struct`, `record struct` or union case);
+- it is an **instance** member (not `static`);
+- it is not **`readonly`** or **`const`**, which are field words;
+- it is **exported**: PascalCase with no visibility word, or written `public`, `protected` or
+  `internal`.
+
+Everything else is a **field**: a camelCase member or a `private` one, a `static` member, a `readonly`
+or `const` member, and every member of a struct.
+
+```n#
+class Order {
+    Id: int                        // property: public int Id { get; set; }
+    Customer: string = ""          // property, initialized in every constructor
+    protected Notes: string = ""   // property, protected accessors
+    lines: List<string> = []       // field: the type's own storage
+    private Total: decimal = 0.0   // field: written private
+    static Count: int = 0          // field: static state
+    readonly Created: DateTime = DateTime.UtcNow   // field: initonly
+}
+
+struct Point {
+    X: double                      // field: struct members are storage
+    Y: double
+}
+```
+
+**Why it matters.** EF Core maps properties, System.Text.Json serializes properties, and ASP.NET model
+binding binds properties — none of them see a field by default. A `DbContext` written
+`People: DbSet<Person>`, a DTO written `Name: string`, and a `[FromBody]` request record all work
+because those members are properties:
+
+```n#
+import Microsoft.EntityFrameworkCore
+
+class AppDb: DbContext {
+    People: DbSet<Person>          // a property, so EF Core populates it
+}
+
+record CreatePerson(Name: string, Age: int)   // positional members are properties too
+```
+
+A primary constructor's parameter declares a member of its own name, and that member follows the same
+rule: `record Person(Name: string)` declares the property `Name`, while `class Service(logger:
+ILogger)` keeps the camelCase capture `logger` a field.
+
+**The emitted shape is C#'s.** The property row carries the member's attributes, its nullability and
+its tuple element names; the storage is a `<Name>k__BackingField` stamped `[CompilerGenerated]` and
+`[DebuggerBrowsable(Never)]`, and both accessors are `[CompilerGenerated]`. Reflection shows the
+property and no public field:
+
+```n#
+typeof(Order).GetProperty("Customer")   // the property
+typeof(Order).GetField("Customer")      // null
+```
+
+Code in the **same assembly** reads and writes the backing field directly — the instruction a JIT
+makes of a trivial accessor once it inlines it — so an auto-property costs nothing over a field in
+your own hot paths. (That is why the backing field is `internal` rather than C#'s `private`: nothing
+outside the assembly can name it either way.) Code in another assembly goes through the accessors.
+The one exception is a `virtual`, `abstract` or `override` member, below.
+
+**Attributes.** An attribute written on an auto-property goes on the **property** when its
+`[AttributeUsage]` allows properties — where serializers, ORMs and validators read it — and on the
+**backing field** when it allows only fields, as C#'s `[field: NonSerialized]` does. An attribute that
+allows neither is [NL933](./errors/NL933.md).
+
+**A property is a value, not storage.** Two rules follow, and both are C#'s:
+
+- `ref` and `out` cannot name a property. `Interlocked.Increment(ref Count)` on an auto-property is an
+  error that says so; keep state you pass by reference in a camelCase, `private` or `static` member.
+- Reading a struct-typed property yields a **copy**. `holder.Position.X = 1` is
+  [NL322](./errors/NL322.md), and a method call that mutates the struct (`holder.Counter.Bump()`)
+  mutates the copy. Keep a mutable struct you want to change in place in a camelCase field.
+
+Compound assignment and `++`/`--` work on properties as they do on fields: `order.Id += 1` reads
+through the getter and stores through the setter, evaluating `order` once.
+
+`init Name: T` is always a property (`{ get; init; }`, see below), and a member with an explicit
+accessor block or `=> expression` is always a property.
+
+#### `virtual`, `abstract` and `override` auto-properties
+
+Because an exported bare member of a class is an auto-property, it can take part in inheritance the
+way C#'s can. Each word gives the C# shape:
+
+| N# | C# |
+|----|----|
+| `virtual Name: T` | `public virtual T Name { get; set; }` |
+| `abstract Name: T` | `public abstract T Name { get; set; }` |
+| `override Name: T` | `public override T Name { get; set; }` |
+| `sealed override Name: T` | `public sealed override T Name { get; set; }` |
+
+The case this exists for is **EF Core's lazy-loading proxies**, which generate a subclass of your
+entity at run time and override each navigation property to load it on first read. They require
+every navigation to be virtual:
+
+```n#
+import System.Collections.Generic
+import Microsoft.EntityFrameworkCore
+
+class Author {
+    Id: int
+    Name: string = ""
+    virtual Books: ICollection<Book> = new List<Book>()
+}
+
+class Book {
+    Id: int
+    Title: string = ""
+    virtual Author: Author?          // loaded on first read through the proxy
+}
+
+class Library: DbContext {
+    Authors: DbSet<Author>
+    Books: DbSet<Book>
+
+    protected override func OnConfiguring(options: DbContextOptionsBuilder) {
+        options.UseLazyLoadingProxies().UseSqlite("Data Source=library.db")
+    }
+}
+```
+
+The same works between your own classes:
+
+```n#
+class Gauge {
+    virtual Label: string = "gauge"
+
+    func Describe(): string => "[" + Label + "]"   // dispatches: an override's value is read
+}
+
+class LoudGauge: Gauge {
+    override Label: string = "LOUD"
+}
+
+abstract class Shape {
+    abstract Name: string                          // a slot, no storage
+    func Show(): string => "shape " + Name
+}
+
+class Square: Shape {
+    override Name: string = "square"
+}
+```
+
+What changes when a member is a slot:
+
+- **Every access dispatches, including your own.** An override replaces both accessors, so the
+  declaring type's methods, closures, `+=`, `++`, object initializers and `with` all go through
+  them — `new LoudGauge().Describe()` is `"[LOUD]"`. That is the price C# pays for a virtual
+  property too: a virtual call where a plain auto-property is a direct field access.
+- **An initializer stores the backing field**, as C#'s does: it runs before the base constructor,
+  so it never calls a setter an override has replaced on an object that is not constructed yet.
+- **An override owns its own storage**, exactly like C#'s overriding `{ get; set; }`.
+  `base.Label` reads the base's.
+- **An abstract member has no storage**, so it takes no initializer, and only an abstract class may
+  declare one. A concrete class that inherits it must override it ([NL324](./errors/NL324.md)).
+- **`override` needs a base property with a setter.** A bare member overrides both accessors, so a
+  get-only base (`Exception.Message`) cannot be overridden this way.
+- **An `override` with no accessibility word takes the slot's**, as a method override does: a
+  `protected virtual` member's override is `protected`.
+- **A `record` may declare `virtual` members.** No N# type derives from a record, but its CLR type is
+  not sealed, so a runtime proxy can override them; equality and `with` keep working.
+
+Only an auto-property has slots. A member that is a **field** — camelCase or `private`, `static`,
+`readonly`, `const`, a struct's or record struct's — and an `init` member (whose declaring type
+writes its storage directly) cannot carry the words: [NL311](./errors/NL311.md) says which rule made
+the member storage and what to change.
 
 ### Init-only Properties
 
@@ -368,6 +577,8 @@ The same rule applies through generics and assembly boundaries. A closed generic
 `new Box<string> { Value: "ready" }` calls the marked setter, and a derived constructor may assign an
 inherited `init` member declared by a referenced `Box<T>`. The emitted call preserves the setter's
 `IsExternalInit` required modifier, so the CLR binds it to the same method the declaration exposes.
+The same behavior applies in an `async` function, including when initialized values remain live across
+an `await`.
 
 `init` may also be written in front of an explicit accessor pair, which puts the same marker on the
 declared setter:
@@ -647,11 +858,13 @@ lifts it. Measured on an emitted assembly:
 | `func unexported()` (camelCase) | `assembly` |
 | an `enum`, `struct`, `record` or `union`, by its own casing | `public` / `assembly` |
 | a field, whatever its casing | `public` |
+| an auto-property (`Name: T` in a class or record) | its accessors by the method rule: `public`, or the written word |
 
 So an `internalsVisibleTo:` grant admits a library's **camelCase types, functions and methods**. A
 FIELD is still emitted `public`, so a grant exposes nothing extra at one — reaching a camelCase field
 from another namespace is refused by the compiler's package rule, which every assembly enforces and
-which a friend grant does not lift. Write the grant when a consumer needs the unexported surface (a
+which a friend grant does not lift. (See [Fields and properties](#fields-and-properties) for which
+bare members are fields.) Write the grant when a consumer needs the unexported surface (a
 test project is the usual case); a consumer that only needs exported names never needs one.
 
 Those `protected virtual` members are extension points, so you may **override** them, and the same
@@ -908,7 +1121,28 @@ holder.Inner.Value = 7                 // a struct field of a struct variable: t
 `new T { ... }` over a struct starts from its public parameterless constructor when it declares one
 and from the zeroed value otherwise; over a class, from the constructor callable with no arguments,
 including one whose parameters are all optional. That is C#'s rule, so a type means the same thing
-on either side of an assembly boundary.
+on either side of an assembly boundary. The initialized value can be passed directly as a call
+argument, returned, or used inside another initializer:
+
+```n#
+func Sum(point: Point): double {
+    return point.X + point.Y
+}
+
+func Origin(): Point {
+    return new Point { X: 0.0, Y: 0.0 }
+}
+
+sum := Sum(new Point { X: 1.0, Y: 2.0 })
+```
+
+The same expression form works for a struct from a CLR library:
+
+```n#
+import System.Text.Json
+
+doc := JsonDocument.Parse("{}", new JsonDocumentOptions { AllowTrailingCommas: true })
+```
 
 ### Readonly Structs
 
@@ -948,6 +1182,16 @@ person := new Person {
 older := person with { Age: 31 }
 ```
 
+A `with` member is written like an object-initializer member, so `null`, a plain value for a `T?`
+member, `a ?? b` over nullable values and `flag ? v : null` are all valid replacements. `with` also
+works on a record declared in another N# project (a `project:` dependency), including a closed generic
+N# record: a reference record is copied through its public `<Clone>$` method, while a record struct is
+copied by value. A reference record may inherit from another reference record; an ordinary class and a
+record class cannot inherit from each other. The named members are written through public setters
+(including `init` setters) or public fields. A class without a public `<Clone>$` method gets a positioned NL202 diagnostic such as
+`'Plain' is not a record: it has no '<Clone>$' copy method for 'with' to call`.
+The repository has no C#-compiled record fixture, so C# record interoperability has not been verified.
+
 ### Record Structs
 
 ```n#
@@ -981,6 +1225,198 @@ Console.WriteLine(person.FirstName)  // "Alice"
 //
 //   (first, last, age) := person
 ```
+
+## Anonymous Objects
+
+An anonymous object is a value whose type is described by its properties instead of by a name.
+Write `new` followed by `Name: value` pairs, and N# gives the object one read-only property per
+pair, typed by the value:
+
+```n#
+func main() {
+    person := new { Name: "Alice", Age: 30 }
+    print person.Name           // Alice
+    print person.Age + 1        // 31
+    print person                // { Name = Alice, Age = 30 }
+}
+```
+
+They are for values that only need a shape for a moment: a LINQ projection, a payload for a
+serializer, a group key, a row of a quick report. When a shape is passed between functions or
+stored in a field, declare a [record](#records) instead, because an anonymous type has no name to
+write in a signature.
+
+### Reading properties
+
+Every property is typed by its value, and the compiler checks every read. A misspelled name is
+[NL303](./errors/NL303.md) with a suggestion, hover shows `property Name: string`, and
+go-to-definition lands on the name inside the `new { ... }`:
+
+```n#
+func main() {
+    order := new { Id: 42, Lines: ["tea", "cake"], Customer: new { Name: "Bea" } }
+    print order.Lines.Length          // 2
+    print order.Customer.Name         // Bea
+}
+```
+
+### Anonymous objects are read-only
+
+The properties are fixed when the object is created. Assigning one is
+[NL309](./errors/NL309.md). To change a value, make a copy with `with`, which keeps every other
+property:
+
+```n#
+func main() {
+    alice := new { Name: "Alice", Age: 30 }
+    older := alice with { Age: 31 }
+    print older                 // { Name = Alice, Age = 31 }
+    print alice                 // { Name = Alice, Age = 30 }
+}
+```
+
+### Equality, hashing and `ToString`
+
+Anonymous objects compare by value, so they work as dictionary keys, with `Distinct`, `Contains`
+and `GroupBy`, and in tests. Two objects are equal when every property is equal:
+
+```n#
+import System.Linq
+
+func main() {
+    a := new { Name: "Alice", Age: 30 }
+    b := new { Name: "Alice", Age: 30 }
+    print a.Equals(b)                               // True
+    print a.GetHashCode() == b.GetHashCode()        // True
+    print [a, b, new { Name: "Bob", Age: 4 }].Distinct().Count()   // 2
+    print a == b                                    // False: `==` compares references
+}
+```
+
+`==` on two anonymous objects compares references, as it does in C#. Use `Equals` to compare
+values.
+
+`ToString()` lists the properties in written order: `{ Name = Alice, Age = 30 }`, the same text
+C# prints. `print person` and `$"{person}"` show it too, and an object with no properties,
+`new { }`, prints `{ }`.
+
+### When two anonymous objects have the same type
+
+Two anonymous objects have the same type when they list the same property names, in the same
+order, with the same property types. That is what lets them share an array, the two arms of a
+conditional, or a type parameter:
+
+```n#
+func main() {
+    people := [new { Name: "Alice" }, new { Name: "Bob" }]
+    for person in people {
+        print person.Name
+    }
+
+    adult := true
+    label := adult ? new { Text: "adult" } : new { Text: "minor" }
+    print label.Text
+}
+```
+
+`new { Age: 30, Name: "Alice" }` is a different type from `new { Name: "Alice", Age: 30 }`,
+and so is `new { Name: "Alice", Age: 30.5 }`.
+
+### Passing anonymous objects around
+
+An anonymous object can go anywhere an `object` or a type parameter can, and a generic call infers
+the anonymous type, so nothing is lost:
+
+```n#
+import Newtonsoft.Json
+
+func Echo<T>(value: T): T {
+    return value
+}
+
+func main() {
+    person := new { Name: "Alice", Age: 30 }
+    same := Echo(person)
+    print same.Name                                 // Alice
+    print JsonConvert.SerializeObject(person)       // {"Name":"Alice","Age":30}
+}
+```
+
+LINQ projections are the most common use. The element type flows through every later operator:
+
+```n#
+import System.Linq
+
+func main() {
+    words := ["apple", "avocado", "banana"]
+    counts := words.GroupBy(w => w[0]).Select(g => new { Letter: g.Key, Count: g.Count() })
+    for item in counts {
+        print $"{item.Letter}: {item.Count}"        // a: 2, then b: 1
+    }
+}
+```
+
+Property patterns read anonymous objects too:
+
+```n#
+func Describe(age: int): string {
+    person := new { Name: "Bea", Age: age }
+    return match person {
+        { Age: 30, Name: n } => n + " is thirty",
+        _ => "someone else"
+    }
+}
+```
+
+### What a property value can be
+
+A property takes its type from its value, so the value must have one. `null`, a lambda, a bare
+function name and a call that returns nothing have no type of their own, and each is
+[NL203](./errors/NL203.md). Give the value a type first:
+
+```n#
+func main() {
+    nickname: string? = null
+    person := new { Name: "Alice", Nickname: nickname }
+    print person.Nickname ?? "(none)"
+}
+```
+
+Each name can appear once. A repeated name is [NL306](./errors/NL306.md).
+
+### `new { ... }` always creates an anonymous object
+
+The braces alone never mean "the type this slot wants". To create a declared type, name it:
+
+```n#
+class Point {
+    X: int
+}
+
+func main() {
+    p := new Point { X: 1 }     // a Point
+    q := new { X: 1 }           // an anonymous object with an X property
+    print p.X + q.X
+}
+```
+
+Writing `p: Point = new { X: 1 }` is [NL202](./errors/NL202.md), and the hint suggests
+`new Point { ... }`.
+
+### How anonymous objects compile
+
+N# emits anonymous types the way C# does, so .NET libraries see the same shape. Each ordered list
+of property names becomes one sealed, internal, generic class (`<>f__AnonymousType0<...>`), with
+one read-only property per name over a read-only field and a constructor that takes every property.
+Each creation closes that class over its value types, which is how a property can hold a value of a
+type parameter. `Equals`, `GetHashCode` and `ToString` are overridden as described above, and the
+type is marked `[CompilerGenerated]` with a `[DebuggerDisplay]` so debuggers show
+`{ Name = Alice, Age = 30 }`. Serializers and other reflection-based libraries read the public
+getters.
+
+Current limits: a generator (`func*`) body cannot create an anonymous object yet, and neither can an
+`IQueryable` query, because N# does not compile lambdas to expression trees yet. Both decline at
+build time with [NL103](./errors/NL103.md). The browser playground does not run anonymous objects.
 
 ## Discriminated Unions
 
@@ -1093,6 +1529,9 @@ union Result<T> {
 ```
 
 The emitted shape is an abstract union base with sealed case types and public fields for exported payload members.
+Union payloads stay fields even though a class's exported members are properties (see
+[Fields and properties](#fields-and-properties)): a case is a pattern-matched value whose payload the
+case constructor sets, not an object a serializer or ORM fills in.
 
 ## Duck Interfaces
 
@@ -1369,6 +1808,17 @@ The closure is searched depth-first in written order, and the first declaration 
 member is still declared exactly once — on the interface that opened it — so the call dispatches
 through that interface's slot, which is what `typeof(IIdentified).GetProperty("Key")` shows and
 `typeof(IDocumentRecord).GetProperty("Key")` (declared-only) does not.
+
+An interface-typed value also has every member `object` gives every type, as in C#: `list.ToString()`,
+`list.GetHashCode()`, `list.Equals(other)` and `list.GetType()` compile on an `IList<int>` (or an
+`IFormattable`, where `object.ToString()` sits beside the interface's `ToString(format, provider)`)
+without casting to `object` first. This holds for interfaces from referenced assemblies, for interfaces
+you declare, and for a type parameter constrained to an interface.
+
+An interface's own overload hides an `object` member only when their parameter signatures match. For
+example, `interface IPrintable { func ToString(format: string): string }` still allows
+`value.ToString()` through `object.ToString()` as well as `value.ToString("hex")` through the
+interface slot.
 
 ### Generic Interfaces
 
@@ -1999,6 +2449,32 @@ struct Outcome<TOk, TErr>: IEquatable<Outcome<TOk, TErr>> {
 
     func GetHashCode(): int {
         return HashCode.Combine(state, ok)
+    }
+}
+```
+
+Three separate places in that declaration name an external generic over its own parameters, and each
+is ordinary:
+
+- **A static receiver.** `EqualityComparer<TOk>.Default` reads the closed type's own `Default`
+  property, and `.Equals(a, b)` on the result is an ordinary instance call — the substituted member
+  types come out of the closed type's metadata, not out of a table.
+- **A base list.** `IEquatable<Outcome<TOk, TErr>>` names the type's own constructed self. The
+  interface lands in the emitted metadata as the CONSTRUCTED interface (`GetInterfaces()` reports
+  `IEquatable<Outcome<int, string>>` for `Outcome<int, string>`), and `func Equals(other: Outcome<TOk,
+  TErr>)` satisfies it: the BCL's own `EqualityComparer<Outcome<int, string>>.Default` picks the
+  `IEquatable<T>` comparer and calls straight into it. `class Node<T>: IComparable<Node<T>>` works
+  the same way, including through `Comparer<Node<string>>.Default`.
+- **Fields, parameters and returns.** `List<T>`, `Dictionary<string, T>`, `IEnumerable<T>`,
+  `KeyValuePair<TKey, TValue>`, `Func<T, bool>?`, `Action<T>?` and `T[]` are all ordinary member
+  types on a generic class or struct, and each instantiation carries its own closed field types.
+
+Any external generic definition works here, not a fixed set of BCL heads: the head resolves through
+ordinary scoped type resolution at the arity you wrote, and the arguments are closed with the CLR's
+own construction. A wrong arity is reported as an ordinary [NL207](/docs/errors/NL207), and an
+interface member you do not implement is reported as an ordinary [NL325](/docs/errors/NL325) naming
+the constructed interface.
+
 
 ### Over your own complete types
 
@@ -2101,28 +2577,6 @@ class Plain {
     }
 }
 ```
-
-Three separate places in that declaration name an external generic over its own parameters, and each
-is ordinary:
-
-- **A static receiver.** `EqualityComparer<TOk>.Default` reads the closed type's own `Default`
-  property, and `.Equals(a, b)` on the result is an ordinary instance call — the substituted member
-  types come out of the closed type's metadata, not out of a table.
-- **A base list.** `IEquatable<Outcome<TOk, TErr>>` names the type's own constructed self. The
-  interface lands in the emitted metadata as the CONSTRUCTED interface (`GetInterfaces()` reports
-  `IEquatable<Outcome<int, string>>` for `Outcome<int, string>`), and `func Equals(other: Outcome<TOk,
-  TErr>)` satisfies it: the BCL's own `EqualityComparer<Outcome<int, string>>.Default` picks the
-  `IEquatable<T>` comparer and calls straight into it. `class Node<T>: IComparable<Node<T>>` works
-  the same way, including through `Comparer<Node<string>>.Default`.
-- **Fields, parameters and returns.** `List<T>`, `Dictionary<string, T>`, `IEnumerable<T>`,
-  `KeyValuePair<TKey, TValue>`, `Func<T, bool>?`, `Action<T>?` and `T[]` are all ordinary member
-  types on a generic class or struct, and each instantiation carries its own closed field types.
-
-Any external generic definition works here, not a fixed set of BCL heads: the head resolves through
-ordinary scoped type resolution at the arity you wrote, and the arguments are closed with the CLR's
-own construction. A wrong arity is reported as an ordinary [NL207](/docs/errors/NL207), and an
-interface member you do not implement is reported as an ordinary [NL325](/docs/errors/NL325) naming
-the constructed interface.
 
 Call one with its type arguments written or inferred, on either kind of owner:
 
@@ -2227,16 +2681,23 @@ Two rules the compiler enforces about the type-argument list itself:
   declarations `[assembly: InternalsVisibleTo(...)]` writes are the `internalsVisibleTo:` key (see
   [Making another assembly your friend](#making-another-assembly-your-friend)). Generic
   attributes (`class Mark<T>: Attribute`) are not supported either.
-- A **catch clause's exception type must be a simple name**: `catch ex: System.InvalidOperationException`
-  does not parse, `import System` plus `catch ex: InvalidOperationException` does. (A type used only
-  as a catch type, only inside a `Func<…>` in a signature, only in an attribute or only as a type
-  argument DOES now count as a use of its import; `NL010` no longer reports those.)
+- A catch clause accepts a simple or namespace-qualified exception type, such as
+  `catch ex: InvalidOperationException` or `catch ex: System.IO.IOException`. Qualified names use
+  the same type-resolution rules as other type references; importing `System` still allows the
+  unqualified spelling. A type used only as a catch type, only inside a `Func<…>` in a signature,
+  only in an attribute or only as a type argument counts as a use of its import, so `NL010` does
+  not report those.
 - **Omitting a defaulted parameter** works for a function, method or constructor declared in the SAME
   project — including a call from another file — and for an external instance, static, extension or
   CONSTRUCTOR parameter, whose default the call site reads out of the callee's metadata and writes
   as a literal (`new Conn("h")` for `constructor(host: string, port: int = 8080)`; `connect("h")`;
   `c.Url()` for `func Url(scheme: string = "http")`; named arguments such as `total(1, c: 20)`
-  skip the ones in between). Every constant default is filled, in your own project and from a
+  skip the ones in between). A call written with a BARE name inside the declaring type fills its
+  defaults exactly as the qualified spelling does: `Show(a)` for `static func Show(a: string,
+  b: string = "-")` from a sibling method, an instance `Tag(a)` for `func Tag(a: string, suffix:
+  string = ".")`, and `Many(a, c: 9)` skipping the middle default. A bare call to a method declared
+  on a BASE class with an omitted default is not filled yet; write `this.` or the owner's name.
+  Every constant default is filled, in your own project and from a
   referenced assembly alike: the null reference, `default`, a `Nullable<T>` with no value or with a
   constant, every integral, floating, `char`, `bool`, `string`, `decimal` and enum constant, and a
   constant expression over them (see [Optional Parameters](./functions.md#optional-parameters)). What remains:
@@ -2381,6 +2842,32 @@ displayAge := age ?? 0
 `DateTime`, `Guid`, a tuple, and an enum, a struct or a struct record **you declare yourself**. A
 `T?` is `System.Nullable<T>` in metadata whatever `T` is, so a C# caller sees exactly the type it
 expects.
+
+A value converts into a `T?` the way it does in C# (the implicit nullable conversions), wherever a
+`T?` is expected — a typed local, an argument, a return, an assignment, an object-initializer or `with`
+member:
+
+```n#
+n := 5
+len: long? = n                      // int widens to long, then wraps
+flag := true
+when: DateTime? = flag ? DateTime.UtcNow : null   // the null arm takes the DateTime? type
+```
+
+`a ?? b` follows C#'s conversion order. With a `T?` left side, a right value convertible to `T` makes
+the result `T` (`int? ?? 0`); otherwise a right value convertible to `T?` keeps the result `T?`
+(`long? ?? int?` is `long?`); otherwise, when `T` converts to the right side, the result has the
+right side's type (`int? ?? long` is `long`, and `int? ?? long?` is `long?`). A `null` right side
+keeps the left side nullable. Reference operands use the corresponding conversions with reference
+nullability erased for the present value (`Base? ?? Derived` is `Base`, `Derived? ?? Base` is `Base`).
+Integer constants use value-sensitive conversion: `byte? ?? 1` is `byte` when the value fits, while
+`byte? ?? 256` is `int`.
+Lifted `decimal` conversion cases are outside this backend path's verified conversion matrix.
+
+A `(string, int)` tuple converts to `(string?, int?)` element by element; tuple element conversions
+that change representation are limited to a nullable wrap and numeric widening under it (`(int, int)`
+converts to `(long?, int?)`, but still does not convert to `(long, long)`). The emitter rebuilds up to
+seven top-level tuple elements; tuples with eight or more top-level elements remain unsupported.
 
 `Nullable<T>`'s own surface comes with it, also whatever `T` is — `HasValue`, `Value` and both
 `GetValueOrDefault` overloads:
@@ -2850,15 +3337,6 @@ func firstNumber(values: int[]): int {
     return found.Value
 }
 
-Inside such a declaration the parameter's own `T?` has `Nullable<T>`'s full surface, because the
-`where` clause is what says it is one:
-
-```n#
-func presenceOf<T>(a: T?): bool where T : struct {
-    return a.HasValue                    // and `a.GetValueOrDefault()`, and `a.Value` past a guard
-}
-```
-
 func Count(values: int[]): int {
     return FirstOrDefaultOf(values)      // int — the annotation erased
 }
@@ -2870,6 +3348,15 @@ func Name(names: string[]): string {
 
 Passing `null` to an unconstrained `T?` parameter that a value argument has closed is an error, for
 the same reason: the parameter is an `int`, and `null` is not one.
+
+Inside such a declaration the parameter's own `T?` has `Nullable<T>`'s full surface, because the
+`where` clause is what says it is one:
+
+```n#
+func presenceOf<T>(a: T?): bool where T : struct {
+    return a.HasValue                    // and `a.GetValueOrDefault()`, and `a.Value` past a guard
+}
+```
 
 ## Type Aliases
 

@@ -119,7 +119,7 @@ test "the language and systems sections carry their own defaults" {
     language := new LanguageConfig()
     assert language.Profile == "default"
     assert language.AsyncDefaultType == "ValueTask"
-    assert language.PooledAsync == false
+    assert language.RemovedPooledAsync == null
     assert language.Systems.Mode == "strict"
     assert language.Systems.UnknownExternalCalls == "warn"
     assert language.Systems.AotTarget == "nativeaot"

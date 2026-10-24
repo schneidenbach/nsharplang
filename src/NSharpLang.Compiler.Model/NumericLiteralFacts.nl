@@ -202,6 +202,32 @@ class NumericLiteralFacts {
         return new NumericLiteralIntegerSuffix(hasUnsigned, hasLong)
     }
 
+    // C# binds two integer magnitudes specially when the token is the immediate operand of unary
+    // minus. The token is still positive when ordinary literal typing runs (`2147483648` is `uint`),
+    // but the containing expression is the corresponding signed minimum. Keep the lexical rule with
+    // the other integer-literal facts so semantic analysis and IL planning agree about the boundary.
+    static func IsNegatedIntMinimumLiteral(text: string): bool {
+        suffix := GetIntegerSuffix(text)
+        magnitude := 0UL
+        return !suffix.HasUnsigned && !suffix.HasLong && TryParseUnsignedIntegerMagnitude(text, out magnitude) && magnitude == 2147483648UL
+    }
+
+    // C# also accepts an optional `L`/`l` suffix on the long minimum token. Unsigned suffixes are
+    // excluded. The magnitude parser also handles the radix forms accepted by the unary planner.
+    static func IsNegatedLongMinimumLiteral(text: string): bool {
+        suffix := GetIntegerSuffix(text)
+        if suffix.HasUnsigned {
+            return false
+        }
+
+        if suffix.HasLong && (text.Length == 0 || (text[^1] != 'L' && text[^1] != 'l') || (text.Length > 1 && (text[^2] == 'L' || text[^2] == 'l' || text[^2] == 'U' || text[^2] == 'u'))) {
+            return false
+        }
+
+        magnitude := 0UL
+        return TryParseUnsignedIntegerMagnitude(text, out magnitude) && magnitude == 9223372036854775808UL
+    }
+
     // kind 0 = unsuffixed Int32, 1 = signed Int64 (L), 2 = UInt64 (UL/LU), 3 = UInt32 (U).
     //
     // KIND 3 IS DECIDED AFTER THE BODY IS PARSED, BECAUSE C# DECIDES IT BY MAGNITUDE.

@@ -71,7 +71,9 @@ test "Execute synchronizes a successful output before its final message and repo
         syncFailureOutput := syncFailure.Stdout + syncFailure.Stderr
         assert syncFailure.ExitCode != 0, syncFailureOutput
         assert File.Exists(syncFailureTarget)
-        assert syncFailureOutput.Contains("Access to the path '" + scratch + "' is denied."), syncFailureOutput
+        // The reference output is replaced atomically, so a directory in its place is refused by the
+        // rename (the message names the path) instead of by the copy's open for writing.
+        assert syncFailureOutput.Contains("'" + scratch + "'"), syncFailureOutput
         assert !syncFailureOutput.Contains("Emitted N# IL assembly to "), syncFailureOutput
 
         missingProjectFile := Path.Combine(scratch, "missing-project.yml")

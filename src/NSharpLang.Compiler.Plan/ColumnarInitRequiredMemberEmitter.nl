@@ -26,7 +26,8 @@ import NSharpLang.Compiler
 //     the constructor rather than silently skipping the members the type demands.
 //
 // Both attribute sets are read back by the analyzer, on N#'s own types and on C#'s alike, which is
-// why they are metadata and not a side table.
+// why they are metadata and not a side table. The property itself — backing field, accessors and
+// row — is `ColumnarAutoPropertyEmitter`'s, which writes the init shape and the get/set shape alike.
 class ColumnarInitRequiredMemberEmitter {
 
     // The marker whose presence on a setter's return type MAKES the setter an init accessor. It is a
@@ -135,114 +136,5 @@ class ColumnarInitRequiredMemberEmitter {
         }
 
         return false
-    }
-
-    // THE BACKING FIELD'S NAME. C#'s own spelling, and deliberately unspellable in N# source: the
-    // storage behind an init-only property is not a member the author wrote, and nothing but the two
-    // accessors this class emits may reach it.
-    static func BackingFieldName(propertyName: string): string {
-        return "<" + propertyName + ">k__BackingField"
-    }
-
-    // DEFINE THE WHOLE MEMBER — backing field, both accessors, both bodies, and the `PropertyInfo` —
-    // as one operation, so no caller can register half an init-only property.
-    //
-    // `labeledCanonical` is the property's type AS WRITTEN. An init-only property is a PUBLIC signature
-    // position like any other, so its `?`s have to reach metadata or a consumer in another assembly
-    // reads the whole thing back as non-null; the backing field is private and carries the same
-    // annotation for the reader that walks it.
-    static func Define(owner: ColumnarStructDef, propertyName: string, propertyType: Type, isStatic: bool, visibilityWord: int, isRequired: bool, implementsInterfaceValueSlot: bool, labeledCanonical: string? = null): ColumnarPropertyDef {
-        if owner == null || propertyName == null || propertyType == null {
-            throw new InvalidOperationException("Init-only property definition inputs cannot be null.")
-        }
-
-        builder := owner.Builder
-        backingFieldAttributes := 1
-        // FieldAttributes.Private
-        if isStatic {
-            backingFieldAttributes = backingFieldAttributes | 16
-        }
-        // FieldAttributes.Static
-        backingField := ColumnarFieldMetadataEmitter.Define(builder, BackingFieldName(propertyName), propertyType, backingFieldAttributes, false, false, 0)
-        backingField.SetCustomAttribute(CompilerGeneratedAttributeConstructor(), ColumnarAttributeBlobs.NoArgument())
-        ColumnarSignatureMetadataEmitter.ApplyToField(backingField, propertyType, labeledCanonical)
-
-        // HideBySig 0x0080, SpecialName 0x0800, Static 0x0010 — the same word an ordinary accessor
-        // carries. An init-only property that fills an interface's read slot takes that slot the way
-        // any other value member does: Virtual|Final|NewSlot on the GETTER only, because an
-        // interface's value member is a read slot and nothing asks its setter to be virtual.
-        getterWord := visibilityWord | 0x0080 | 0x0800
-        setterWord := getterWord
-        if isStatic {
-            getterWord = getterWord | 0x0010
-            setterWord = setterWord | 0x0010
-        } else if implementsInterfaceValueSlot {
-            getterWord = getterWord | 0x0040 | 0x0100 | 0x0020
-        }
-
-        getter := builder.DefineMethod("get_" + propertyName, (MethodAttributes)getterWord, propertyType, new Type[](0))
-        EmitGetterBody(getter.GetILGenerator(), backingField, isStatic)
-
-        setterParameters := new Type[](1)
-        setterParameters[0] = propertyType
-        setter := builder.DefineMethod(
-            "set_" + propertyName,
-            (MethodAttributes)setterWord,
-            CallingConventions.Standard,
-            ColumnarTypeOfPlanner.RequiredVoidType(),
-            InitOnlySetterReturnModifiers(),
-            null,
-            setterParameters,
-            null,
-            null
-        )
-        setter.DefineParameter(1, ParameterAttributes.None, "value")
-        EmitSetterBody(setter.GetILGenerator(), backingField, isStatic)
-
-        property := builder.DefineProperty(propertyName, PropertyAttributes.None, propertyType, Type.EmptyTypes)
-        ColumnarSignatureMetadataEmitter.ApplyToProperty(property, propertyType, labeledCanonical)
-        property.SetGetMethod(getter)
-        property.SetSetMethod(setter)
-        if isRequired {
-            ApplyRequiredMemberToProperty(property)
-        }
-
-        definition := new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken(), true)
-        owner.AutoPropertyBackingFields.Add(BackingFieldName(propertyName))
-        if isStatic {
-            owner.StaticProperties[propertyName] = definition
-            owner.StaticFields[BackingFieldName(propertyName)] = backingField
-        } else {
-            owner.Properties[propertyName] = definition
-            owner.Fields[BackingFieldName(propertyName)] = backingField
-        }
-
-        return definition
-    }
-
-    static func EmitGetterBody(il: ILGenerator, backingField: FieldBuilder, isStatic: bool) {
-        if isStatic {
-            il.Emit(OpCodes.Ldsfld, backingField)
-            il.Emit(OpCodes.Ret)
-            return
-        }
-
-        il.Emit(OpCodes.Ldarg_0)
-        il.Emit(OpCodes.Ldfld, backingField)
-        il.Emit(OpCodes.Ret)
-    }
-
-    static func EmitSetterBody(il: ILGenerator, backingField: FieldBuilder, isStatic: bool) {
-        if isStatic {
-            il.Emit(OpCodes.Ldarg_0)
-            il.Emit(OpCodes.Stsfld, backingField)
-            il.Emit(OpCodes.Ret)
-            return
-        }
-
-        il.Emit(OpCodes.Ldarg_0)
-        il.Emit(OpCodes.Ldarg_1)
-        il.Emit(OpCodes.Stfld, backingField)
-        il.Emit(OpCodes.Ret)
     }
 }

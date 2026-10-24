@@ -1329,6 +1329,29 @@ test "nlc check text errors preserve diagnostics, the blank separator, and the f
     }
 }
 
+test "nlc check lists extension overloads after every instance overload rejects the call" {
+    directory := NewTempDirectory("nlc-check-extension-overloads")
+    try {
+        WriteCheckProject(
+            directory,
+            "CheckExtensionOverloads",
+            "import System.Collections.Generic\nimport System.Linq\n\nfunc Invalid(values: List<int>): bool => values.Contains(20, EqualityComparer<string>.Default)\n"
+        )
+
+        run := NlcIn(directory, "check --text")
+
+        assert run.ExitCode == 1
+        assert run.Stdout.Trim().Length == 0
+        assert run.Stderr.Contains("NL402")
+        assert run.Stderr.Contains("Available overloads:")
+        assert run.Stderr.Contains("Contains(int item): bool")
+        assert run.Stderr.Contains("IEqualityComparer<TSource")
+        assert run.Stderr.EndsWith(Environment.NewLine)
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 test "nlc check accepts an empty project and the positional project argument" {
     emptyDirectory := NewTempDirectory("nlc-check-empty")
     try {
@@ -2891,6 +2914,69 @@ test "nlc add rejects a duplicate project reference, and that arm offers NO reme
     Directory.Delete(directory, true)
 }
 
+test "nlc add --path with a directory writes the project.yml inside it, and that entry builds" {
+    // `nlc add --path ../MathLib` is the example `nlc add --help` prints, and it used to write
+    // `project: ../MathLib` verbatim -- an entry every later `nlc build` refused with "Project file
+    // not found". The written entry is the file now, and the proof is that the consumer builds.
+    root := NewTempDirectory("nlc-add-path-directory")
+    library := Path.Combine(root, "MathLib")
+    app := Path.Combine(root, "App")
+    Directory.CreateDirectory(library)
+    Directory.CreateDirectory(app)
+    WriteProjectYml(library, "name: MathLib\nversion: 1.0.0\ntargetFramework: net10.0\noutputType: library\n")
+    File.WriteAllText(Path.Combine(library, "Calc.nl"), "namespace MathLib\n\nclass Calc {\n    static func Add(a: int, b: int): int {\n        return a + b\n    }\n}\n")
+    WriteProjectYml(app, "name: App\nversion: 1.0.0\ntargetFramework: net10.0\nentry: main.nl\noutputType: exe\n")
+    File.WriteAllText(Path.Combine(app, "main.nl"), "import MathLib\n\nfunc main() {\n    print Calc.Add(2, 3).ToString()\n}\n")
+
+    added := NlcIn(app, "add --path ../MathLib/")
+
+    assert added.ExitCode == 0, added.Stderr
+    assert added.Stdout.Contains("Added project reference '../MathLib/project.yml' to project.yml")
+    assert File.ReadAllText(Path.Combine(app, "project.yml")).Contains("  - project: ../MathLib/project.yml\n")
+
+    // The same project in three other spellings is one reference, decided by its full path.
+    for spelling in ["../MathLib", "../MathLib/./project.yml", "\"" + Path.Combine(library, "project.yml") + "\""] {
+        again := NlcIn(app, "add --path " + spelling)
+        assert again.ExitCode == 1, spelling + ": " + again.Stdout
+        assert again.Stderr.Contains("is already in dependencies."), spelling + ": " + again.Stderr
+    }
+
+    run := NlcIn(app, "run")
+    assert run.ExitCode == 0, run.Stdout + run.Stderr
+    assert run.Stdout.Contains("5")
+
+    Directory.Delete(root, true)
+}
+
+test "nlc add --path refuses a missing path, a directory with no project.yml and a csproj, and writes nothing" {
+    root := NewTempDirectory("nlc-add-path-refused")
+    app := Path.Combine(root, "App")
+    Directory.CreateDirectory(app)
+    Directory.CreateDirectory(Path.Combine(root, "Empty"))
+    WriteProjectYml(app, "name: App\nversion: 1.0.0\ntargetFramework: net10.0\noutputType: exe\n")
+    before := File.ReadAllText(Path.Combine(app, "project.yml"))
+
+    missing := NlcIn(app, "add --path ../Missing")
+    assert missing.ExitCode == 1
+    assert missing.Stdout.Trim().Length == 0
+    assert missing.Stderr.Contains("Project reference '../Missing' not found (resolved to ")
+    assert missing.Stderr.Contains("Pass a project.yml file or a directory that contains one.")
+
+    empty := NlcIn(app, "add --path ../Empty")
+    assert empty.ExitCode == 1
+    assert empty.Stderr.Contains("'../Empty' is a directory with no project.yml in it.")
+
+    // A .csproj is not an N# project: `nlc build` could not build the entry, so it is not written.
+    File.WriteAllText(Path.Combine(Path.Combine(root, "Empty"), "Lib.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />\n")
+    csproj := NlcIn(app, "add --path ../Empty/Lib.csproj")
+    assert csproj.ExitCode == 1
+    assert csproj.Stderr.Contains("'../Empty/Lib.csproj' is not an N# project.")
+
+    assert File.ReadAllText(Path.Combine(app, "project.yml")) == before
+
+    Directory.Delete(root, true)
+}
+
 // ═══ THE TWO CROSS-COMMAND SENTENCES ══════════════════════════════════════════════════════════
 
 test "nlc update and nlc remove share their missing-package sentence WORD FOR WORD" {
@@ -4242,6 +4328,34 @@ func ResultNamed(root: JsonElement, displayName: string): JsonElement {
 test "the reflection runner loads the emitted assembly into a private collectible context" {
     suite := "namespace ReflectionRunnerFixture\n" + "\n" + "import System\n" + "import System.Runtime.Loader\n" + "\n" + "class NSharpTests {\n" + "    func RunsInACollectibleNonDefaultContext() {\n" + "        context := AssemblyLoadContext.GetLoadContext(typeof(NSharpTests).Assembly)\n" + "        if context == null {\n" + "            throw new InvalidOperationException(\"no load context\")\n" + "        }\n" + "        if !(must context).IsCollectible {\n" + "            throw new InvalidOperationException(\"context is not collectible\")\n" + "        }\n" + "        if Object.ReferenceEquals(context, AssemblyLoadContext.Default) {\n" + "            throw new InvalidOperationException(\"context is the default one\")\n" + "        }\n" + "        if (must context).Name != \"NativeTestLoadContext\" {\n" + "            throw new InvalidOperationException(\"unexpected context name: \" + ((must context).Name ?? \"<null>\"))\n" + "        }\n" + "    }\n" + "}\n"
     directory := ReflectionRunnerProject("nlc-test-reflection-alc", suite)
+    try {
+        run := NlcIn(directory, "test --no-cache --json")
+
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("summary").GetProperty("total").GetInt32() == 1, run.Stdout
+        assert root.GetProperty("summary").GetProperty("passed").GetInt32() == 1, run.Stdout
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// A `framework:` REFERENCE RESOLVES INSIDE THE PRIVATE CONTEXT TOO. The build references
+// `shared/Microsoft.AspNetCore.App/<version>/` but never copies it, and the CLI's own host bound
+// only `Microsoft.NETCore.App`, so before `NativeTestLoadContext` probed the project's framework
+// directories this run died with `Could not load file or assembly 'Microsoft.Extensions.Hosting.
+// Abstractions'`. The framework assembly lands in the SAME collectible context as the emitted one,
+// so it is unloaded with the run. The xunit route is `tests/native/aspnetcore-hosted-services`.
+test "the reflection runner runs a BackgroundService from a framework reference in its private context" {
+    directory := NewTempDirectory("nlc-test-reflection-framework")
+    WriteProjectYml(
+        directory,
+        "name: ReflectionRunnerFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ntestFramework: nunit\n\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n"
+    )
+    File.WriteAllText(Path.Combine(directory, "Worker.nl"), "namespace ReflectionRunnerFixture\n" + "\n" + "import System.Threading\n" + "import System.Threading.Tasks\n" + "import Microsoft.Extensions.Hosting\n" + "\n" + "class SignallingWorker: BackgroundService {\n" + "    Ran: TaskCompletionSource<bool>\n" + "\n" + "    constructor() {\n" + "        Ran = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)\n" + "    }\n" + "\n" + "    protected override async func ExecuteAsync(stoppingToken: CancellationToken): Task {\n" + "        Ran.TrySetResult(!stoppingToken.IsCancellationRequested)\n" + "        await Task.CompletedTask\n" + "    }\n" + "}\n")
+    File.WriteAllText(Path.Combine(directory, "Suite.tests.nl"), "namespace ReflectionRunnerFixture\n" + "\n" + "import System\n" + "import System.Runtime.Loader\n" + "import System.Threading\n" + "import System.Threading.Tasks\n" + "import Microsoft.Extensions.Hosting\n" + "\n" + "class NSharpTests {\n" + "    async func RunsABackgroundServiceFromThePrivateContext(): Task {\n" + "        worker := new SignallingWorker()\n" + "        await worker.StartAsync(CancellationToken.None)\n" + "        ran := await worker.Ran.Task.WaitAsync(TimeSpan.FromSeconds(10))\n" + "        await worker.StopAsync(CancellationToken.None)\n" + "        if !ran {\n" + "            throw new InvalidOperationException(\"the worker ran after its stop\")\n" + "        }\n" + "        frameworkContext := AssemblyLoadContext.GetLoadContext(typeof(BackgroundService).Assembly)\n" + "        testContext := AssemblyLoadContext.GetLoadContext(typeof(NSharpTests).Assembly)\n" + "        if !Object.ReferenceEquals(frameworkContext, testContext) {\n" + "            throw new InvalidOperationException(\"the framework assembly is not in the run's own context\")\n" + "        }\n" + "    }\n" + "}\n")
     try {
         run := NlcIn(directory, "test --no-cache --json")
 

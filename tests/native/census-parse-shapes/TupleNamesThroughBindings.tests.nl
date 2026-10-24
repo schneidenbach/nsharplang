@@ -224,13 +224,15 @@ func ArgumentIdentity(): int {
 
 // ---------------------------------------------------------------- reading the metadata back
 
-func HolderFieldType(name: string): Type {
-    found := typeof(GroupHolder).GetField(name)
+// `GroupHolder`'s bare members are auto-properties, so their declared types and their tuple names are
+// read off the PROPERTY rows.
+func HolderMemberType(name: string): Type {
+    found := typeof(GroupHolder).GetProperty(name)
     if found == null {
         throw new InvalidOperationException("'" + name + "' was not found.")
     }
 
-    return found.FieldType
+    return found.PropertyType
 }
 
 func BindingNameAt(declared: TupleElementNamesAttribute, index: int): string {
@@ -276,15 +278,6 @@ func BindingNameRowOf(attributes: object[]): string {
     return row
 }
 
-func HolderFieldNameRow(name: string): string {
-    found := typeof(GroupHolder).GetField(name)
-    if found == null {
-        throw new InvalidOperationException("'" + name + "' was not found.")
-    }
-
-    return BindingNameRowOf(found.GetCustomAttributes(typeof(TupleElementNamesAttribute), false))
-}
-
 func HolderPropertyNameRow(name: string): string {
     found := typeof(GroupHolder).GetProperty(name)
     if found == null {
@@ -328,8 +321,8 @@ test "a tuple may be an array's element type" {
     assert TotalOfRows(rows) == 5
 
     // The array IS an array of the bare `ValueTuple`, which is why the names need an attribute at all.
-    assert HolderFieldType("Rows") == typeof(ValueTuple<string, int>[])
-    assert HolderFieldNameRow("Rows") == "Item/Count"
+    assert HolderMemberType("Rows") == typeof(ValueTuple<string, int>[])
+    assert HolderPropertyNameRow("Rows") == "Item/Count"
     assert HolderPropertyNameRow("Bounds") == "Min/Max"
 }
 

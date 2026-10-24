@@ -118,6 +118,26 @@ class TypeInfoIdentityFacts {
             return true
         }
 
+        // TWO ANONYMOUS OBJECTS ARE ONE TYPE when they list the same names in the same order over
+        // identical property types — where each was written does not enter into it.
+        leftAnonymous := left as AnonymousObjectTypeInfo
+        rightAnonymous := right as AnonymousObjectTypeInfo
+        if leftAnonymous != null || rightAnonymous != null {
+            if leftAnonymous == null || rightAnonymous == null || leftAnonymous.Properties.Count != rightAnonymous.Properties.Count {
+                return false
+            }
+            propertyIndex := 0
+            while propertyIndex < leftAnonymous.Properties.Count {
+                leftProperty := leftAnonymous.Properties[propertyIndex]
+                rightProperty := rightAnonymous.Properties[propertyIndex]
+                if !string.Equals(leftProperty.Name, rightProperty.Name, StringComparison.Ordinal) || !AreEqual(leftProperty.Type, rightProperty.Type) {
+                    return false
+                }
+                propertyIndex = propertyIndex + 1
+            }
+            return true
+        }
+
         leftFunction := left as FunctionTypeInfo
         rightFunction := right as FunctionTypeInfo
         if leftFunction != null && rightFunction != null {

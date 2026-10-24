@@ -107,7 +107,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL318`](./NL318.md) | An event subscription that is not a legal one. |
 | [`NL319`](./NL319.md) | Control leaving a `finally` block. |
 | [`NL320`](./NL320.md) | A `lock` on a value type. |
-| [`NL321`](./NL321.md) | A sized-array constructor with the wrong arguments. |
+| [`NL321`](./NL321.md) | An array allocation with constructor arguments or a C#-style initializer. |
 | [`NL322`](./NL322.md) | A member write through a copy of a value, which would be discarded. |
 | [`NL323`](./NL323.md) | A feature that parses but is deliberately not available in production builds. |
 | [`NL324`](./NL324.md) | An inherited `abstract` member with no implementation. |
@@ -206,6 +206,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL933`](./NL933.md) | An attribute applied to a declaration its `[AttributeUsage]` excludes. |
 | [`NL934`](./NL934.md) | An attribute applied twice where its `[AttributeUsage]` allows only one. |
 | [`NL935`](./NL935.md) | An attribute written at a position N# has none — a target prefix. |
+| [`NL936`](./NL936.md) | `nlc build` found no source file to compile — the project has only test files, or no `.nl` files at all. |
 
 ## Systems policy — `NSYSxxx`
 

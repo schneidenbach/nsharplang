@@ -83,16 +83,19 @@ test "a readonly-initialized instance persists through a local and reads back it
 
 // --- Reflection: the initonly attribute is emitted for readonly fields, not mutable ones ------------
 
-test "readonly fields carry the initonly attribute and mutable fields do not" {
+// `readonly Ro` stays a FIELD; the bare `Mut` of a class is an AUTO-PROPERTY, and its storage is an
+// ordinary, writable backing field.
+test "readonly fields carry the initonly attribute and mutable members do not" {
     roField := typeof(Mixed).GetField("Ro")
-    mutField := typeof(Mixed).GetField("Mut")
+    mutStorage := typeof(Mixed).GetField("<Mut>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
     assert roField != null, "the readonly field Ro must be present"
-    assert mutField != null, "the mutable field Mut must be present"
+    assert typeof(Mixed).GetProperty("Mut") != null, "the mutable member Mut must be a property"
+    assert mutStorage != null, "the auto-property Mut must have its backing field"
     if roField != null {
         assert roField.get_IsInitOnly(), "a readonly field must be emitted initonly"
     }
-    if mutField != null {
-        assert !mutField.get_IsInitOnly(), "a mutable field must not be emitted initonly"
+    if mutStorage != null {
+        assert !mutStorage.get_IsInitOnly(), "an auto-property's storage must not be emitted initonly"
     }
 }
 

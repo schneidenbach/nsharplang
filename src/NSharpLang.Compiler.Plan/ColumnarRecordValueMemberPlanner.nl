@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 
 
 // PASS 0e — the synthesized record value members: `Equals(object)`, `GetHashCode()` and `<Clone>$`.
@@ -17,14 +18,10 @@ import System.Reflection
 // The bodies are SYNTHESIZED rather than parsed, so coverage is total by construction: there is no user
 // syntax to decline and the planner claims a whole body or nothing.
 //
-// TWO UPSTREAM GUARDS MAKE THE TYPE POOL LEGAL, and both are re-verified by this owner's synthesis
-// driver.
-// A generic record never reaches synthesis, so the record's `TypeBuilder` is never a generic type
-// definition — which is the one shape `ValidateStorableType` refuses among the three that could apply.
-// And `Equals`/`GetHashCode` are synthesized only when no field type is builder-bound, so every
-// `EqualityComparer<T>` instantiation below closes over a runtime type. `<Clone>$` is reached on BOTH
-// paths, including the builder-bound one, and it is sound there precisely because it touches no field
-// type at all.
+// Equals/GetHashCode enter a plan type pool only when no field type is builder-bound, so each
+// EqualityComparer<T> instantiation closes over a runtime type. `<Clone>$` touches no field type and
+// is synthesized for generic records too; its small generic body is emitted directly because the
+// plan type pool deliberately refuses an open generic record TypeBuilder.
 class ColumnarRecordValueMemberPlanner {
 
     // PASS 0e owns the complete record value-member decision and emission sequence. The input row
@@ -66,21 +63,41 @@ class ColumnarRecordValueMemberPlanner {
                             ColumnarCodePlanExecutor.Execute(hashPlan, hashIl)
                         }
                     }
+                }
 
-                    // Only a reference record carries the public clone wrapper used by `with`.
-                    if def.IsReference && def.RecordClone == null {
-                        recordType := def.Builder
-                        clone := recordType.DefineMethod(
-                            "<Clone>$",
-                            MethodAttributes.Public | MethodAttributes.HideBySig,
-                            recordType,
-                            System.Type.EmptyTypes
-                        )
+                // Only a reference record carries the public clone wrapper used by `with`. Generic
+                // records need it as well: the body copies the runtime object and casts to this
+                // record, without reading any field whose type is still a builder.
+                if def.IsReference && def.RecordClone == null {
+                    recordType := def.Builder
+                    cloneReturnType: System.Type = recordType
+                    if def.GenericParameters != null {
+                        genericArguments := new Type[def.GenericParameterNames.Length]
+                        for i := 0; i < genericArguments.Length; i++ {
+                            genericArguments[i] = def.GenericParameters[def.GenericParameterNames[i]]
+                        }
+                        // A member on Box<T> has the constructed self type Box<!0> in its signature;
+                        // the open TypeBuilder itself is only the generic definition.
+                        cloneReturnType = recordType.MakeGenericType(genericArguments)
+                    }
+                    clone := recordType.DefineMethod(
+                        "<Clone>$",
+                        MethodAttributes.Public | MethodAttributes.HideBySig,
+                        cloneReturnType,
+                        System.Type.EmptyTypes
+                    )
+                    if def.GenericParameters == null {
                         clonePlan := BuildClonePlan(def, table)
                         cloneIl := clone.GetILGenerator()
                         ColumnarCodePlanExecutor.Execute(clonePlan, cloneIl)
-                        def.RecordClone = clone
+                    } else {
+                        cloneIl := clone.GetILGenerator()
+                        cloneIl.Emit(OpCodes.Ldarg_0)
+                        cloneIl.Emit(OpCodes.Call, MemberwiseCloneMethod())
+                        cloneIl.Emit(OpCodes.Castclass, cloneReturnType)
+                        cloneIl.Emit(OpCodes.Ret)
                     }
+                    def.RecordClone = clone
                 }
             }
             s = s + 1
@@ -191,8 +208,8 @@ class ColumnarRecordValueMemberPlanner {
     //
     // Only a record CLASS gets a `<Clone>$`: it is the copy source for the ReferenceClone strategy of a
     // record-class `with`. A record STRUCT is copied by plain value assignment and, exactly like a C#
-    // record struct, carries none — a value-type clone virtual would be called through `callvirt` on a
-    // value, which is unverifiable.
+    // record struct, carries none — calling an instance clone method through `callvirt` on a value is
+    // unverifiable.
     static func BuildClonePlan(def: ColumnarStructDef, table: ColumnarStructuralTypeReferenceTable): ColumnarCodePlan {
         RequireRecordDef(def)
         recordType := def.Builder
@@ -213,10 +230,9 @@ class ColumnarRecordValueMemberPlanner {
         if def == null {
             throw new InvalidOperationException("A record value-member plan needs its record definition.")
         }
-        // The synthesis driver's own guard (a generic record never reaches synthesis) is what keeps every
-        // TypeBuilder operand below a storable plan type, so it is re-asserted here rather than assumed:
-        // ValidateStorableType refuses a generic type definition, and this is the shape that would
-        // produce one.
+        // The synthesis driver's guard keeps every TypeBuilder operand below a storable plan type, so
+        // it is re-asserted here rather than assumed: ValidateStorableType refuses a generic type
+        // definition. Generic records use the direct `<Clone>$` body and never enter these plans.
         if def.GenericParameters != null {
             throw new InvalidOperationException("A generic record definition never reaches record value-member synthesis.")
         }

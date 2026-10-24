@@ -99,13 +99,13 @@ class TaskStore {
     // Parse string back to Status union
     static func ParseStatus(s: string): Status {
         if s == "InProgress" {
-            return new Status.InProgress {  }
+            return new Status.InProgress { }
         }
 
         if s == "Done" {
-            return new Status.Done {  }
+            return new Status.Done { }
         }
 
-        return new Status.Todo {  }
+        return new Status.Todo { }
     }
 }

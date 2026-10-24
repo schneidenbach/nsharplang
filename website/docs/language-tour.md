@@ -240,6 +240,23 @@ abstract class Rounded: Shape {
 Source order does not matter: a subclass may be written above its base in the same file, or in a
 different file of the same project.
 
+A value member takes the same three words when it is an auto-property — an exported bare member of a
+class. `virtual Label: string` is C#'s `public virtual string Label { get; set; }`, the shape EF Core's
+lazy-loading proxies override, and every access to it dispatches, including the declaring class's own:
+
+```n#
+class Gauge {
+    virtual Label: string = "gauge"
+    func Describe(): string => "[" + Label + "]"
+}
+
+class LoudGauge: Gauge {
+    override Label: string = "LOUD"     // new LoudGauge().Describe() is "[LOUD]"
+}
+```
+
+See [`virtual`, `abstract` and `override` auto-properties](./types.md#virtual-abstract-and-override-auto-properties).
+
 Generic classes take part in all of this. A generic class may derive from a non-generic base, a generic
 class may close a generic base over a concrete type, and a generic class may pass its own type parameter
 through to a generic base:
@@ -609,7 +626,7 @@ interface IDocumentState {
 }
 
 class DocumentState: IDocumentState {
-    Uri: string          // a field — and the reader the slot needs is synthesized over it
+    Uri: string          // an auto-property: its getter fills the slot
     touches: int
 
     constructor(uri: string) {
@@ -629,8 +646,8 @@ func describe(state: IDocumentState): string {
 ```
 
 **Either spelling fills the slot.** A class writes its value members bare, so the commonest filler is
-a plain field of that name; an accessor block works just as well, and the caller cannot tell them
-apart:
+the auto-property a bare `Uri: string` declares; an accessor block works just as well, and the caller
+cannot tell them apart:
 
 ```n#
 class ComputedState: IDocumentState {
@@ -657,7 +674,8 @@ taken.
 
 **The slot is get-only, on purpose.** N# has no body-less accessor to write, so a bare
 `Name: Type` is the only spelling an interface has for a value member — and a read slot is one that
-*everything* can fill, a plain field and a computed get-only property alike. A slot that also
+*everything* can fill: a bare member (an auto-property in a class, a field in a struct) and a computed
+get-only property alike. A slot that also
 demanded a setter would refuse implementers that every reader of the interface is satisfied by. Write
 a `func` when an interface needs to hand the caller a way to change the value.
 
@@ -1208,8 +1226,8 @@ func pick(scale: bool): int {
 }
 ```
 
-**A binding declared inside a loop is a new binding each time round**, so a delegate collected in the
-loop closes over its own copy — the same rule C# has:
+**A local declared in the body is new each time round**, so a delegate collected in the loop closes
+over that iteration's copy — the same rule C# has:
 
 ```n#
 adders := new List<Func<int>>()
@@ -1218,6 +1236,20 @@ for i := 0; i < 3; i++ {
     adders.Add(() => step)
 }
 print adders[0]()   // 0, not 20
+```
+
+The loop forms have different counters. A `for-in` loop creates a fresh loop variable for each item,
+so closures collected in its body keep their own item. A classic `for` loop has one initializer
+variable shared by its condition, body and update; closures collected there all see its final value
+after the loop. Writes through a closure, including `++`, `--`, compound assignment and `ref`/`out`,
+change that same counter.
+
+```n#
+readers := new List<Func<int>>()
+for i := 0; i < 3; i++ {
+    readers.Add(() => i)
+}
+print readers[0]()   // 3
 ```
 
 **An argument list after anything that produces a delegate invokes it.** A curried chain reads left to
@@ -1403,6 +1435,26 @@ func FirstMatch<T>(items: List<T>, accept: Func<T, bool>, fallback: T): T {
 }
 ```
 
+### Method groups as delegates
+
+A method name can stand for a delegate when its signature gives N# one clear target shape:
+
+```n#
+import System
+
+func Double(value: int): int => value * 2
+
+transform: Func<int, int> = Double
+handler: Delegate = Double
+```
+
+`Delegate` and `MulticastDelegate` do not declare an `Invoke` signature. For either type, N# can use a
+method group only when exactly one supported method supplies its natural `Func<...>` or `Action<...>`
+shape. An overloaded group, a generic method, a method with `ref`/`out`/`in`, or one with more than
+16 parameters has no such shape; give it a concrete delegate type instead. At a call whose parameter
+is `Delegate`, write every lambda parameter type because the broad target provides no signature to
+infer from.
+
 ### Calling a delegate
 
 `d(args)` and `d.Invoke(args)` are the same call — `Invoke` is an ordinary instance method of the
@@ -1502,6 +1554,12 @@ a `long` parameter.
 A generic method infers its type argument from the by-ref position like any other:
 `Interlocked.Exchange(ref remove, null)` binds `T` to the field's own type, and the `null` — which
 carries no type of its own — converts to it.
+
+**A property is not storage.** In a class or record, an exported bare member (`Count: int`) is an
+auto-property, not a field — see [Fields and properties](types.md#fields-and-properties) — so
+`ref Count` and `Interlocked.Increment(ref holder.Count)` are refused with a sentence that names the
+member as a property. Keep state that callers take the address of in a camelCase or `private`
+member, as `Counter` does above, or in a `static` one.
 
 **Not yet supported:** a `ref` argument that names a `static` field, or a composed target such as an
 array element or a nested member chain. Copy to a local, pass `ref` to that, and write it back.
@@ -2933,6 +2991,14 @@ test "should throw on divide by zero" {
 }
 ```
 
+The type is written as a plain name that resolves to an exception: a framework type, a type from a
+referenced assembly (add the `import` it needs), or one declared in your project or test file. Qualified
+names (`Outer.Nested`) and nested types are not accepted yet. Like a `catch` clause, `assert throws T`
+passes when the body throws `T` or a type derived from `T`. If the body completes without throwing, the
+assertion fails with `Expected exception of type T was not thrown`; a different exception type
+propagates unchanged, with its original stack trace. A type that does not derive from `Exception` is
+refused at the type.
+
 ### Table-Driven Tests
 
 Run the same test body with multiple sets of inputs (Go-style). Each parameter is declared
@@ -3535,8 +3601,9 @@ internalsVisibleTo:
 
 Each entry becomes an `[assembly: InternalsVisibleTo("…")]` row on the assembly you build. What a
 grant admits out of an N# library is everything the library did not export — its **camelCase types**,
-functions and methods, which are the ones emitted as CLR `internal`. (Fields are still emitted
-`public`, so a grant exposes nothing extra at a field.) See
+functions and methods, which are the ones emitted as CLR `internal`. (A field is still emitted
+`public`, so a grant exposes nothing extra at one; an auto-property's accessors take the member's
+own visibility.) See
 [Reaching a reference's internals](types.md#reaching-a-references-internals) in the types guide for
 the full table.
 

@@ -68,7 +68,9 @@ class DoctorCommand {
             checks.Add(Warn("nlc-command", DoctorCommandKernels.GetNlcCommandMissingMessage()))
         }
 
-        packageCache := Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nsharp"), "packages")
+        // The same install root `nlc new` writes into a project's feed: `NSHARP_INSTALL_DIR` when
+        // set, else a detected custom toolset layout, else `~/.nsharp`.
+        packageCache := NSharpInstallRoot.PackagesDirectory()
         if PackageCacheHasSdk(packageCache) {
             checks.Add(Pass("nsharp-packages", packageCache))
         } else {

@@ -6,6 +6,8 @@ targetFramework: net10.0
 # `-p:NSharpExcludeTests=false` is product-only, which is what the projects above it reference.
 excludeTests: true
 dependencies:
+  # `DependencyManifestWriter` reads PE file versions through this shared-framework API.
+  - framework: Microsoft.NETCore.App
   - project: ../NSharpLang.Compiler.Tooling/project.yml
   - nuget: Microsoft.Build.Framework
     version: 18.0.2

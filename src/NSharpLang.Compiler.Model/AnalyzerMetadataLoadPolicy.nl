@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import System.Xml.Linq
 
 
 // EVERY DECISION THE ANALYZER'S METADATA-LOADING SURFACE MAKES, and none of the mechanics that
@@ -31,6 +32,9 @@ class AnalyzerMetadataLoadPolicy {
 
     // ── WHICH ASSEMBLIES THE ANALYZER PRE-LOADS ──────────────────────────────────────────────────
     //
+    // PRE-LOADS, not "sees": the rest of `Microsoft.NETCore.App` arrives on demand, per namespace a
+    // file names (`AnalyzerMetadataLoadSurface.LoadFrameworkNamespace`).
+    //
     // THE ONE TABLE, SHARED WITH THE COLUMNAR SCAN. The analyzer used to carry its own copy of this
     // list, and the copy had DRIFTED: it held twenty-six of the scan's twenty-seven names, in the
     // same order, missing only `System.Private.Xml.Linq`. Nothing decided that the analyzer should
@@ -48,15 +52,102 @@ class AnalyzerMetadataLoadPolicy {
         return "System.Runtime"
     }
 
-    // A WEB PROJECT NEEDS MORE THAN THE COMMON TABLE, and the trigger is the project's SDK spelling
-    // containing `Web` — the same substring `Microsoft.NET.Sdk.Web` carries. This is a contains test
-    // rather than an equality test on purpose: the SDK id a user writes is not a closed set.
+    // A WEB PROJECT NEEDS MORE THAN THE COMMON TABLE, and it is a web project exactly when MSBuild
+    // would reference `Microsoft.AspNetCore.App` for it: `sdk: Microsoft.NET.Sdk.Web`, compared the
+    // way `CompilationReferenceResolverKernels.IsMsBuildImplicitFramework` compares it. This used to
+    // be a substring test for `Web`, which also matched `Microsoft.NET.Sdk.BlazorWebAssembly` and
+    // `Microsoft.NET.Sdk.WebAssembly` -- SDKs `dotnet build` gives no ASP.NET Core framework -- so the
+    // editor and `nlc` accepted ASP.NET Core types a `dotnet build` of the same project refused.
     static func RequiresAspNetCoreAssemblies(sdk: string?): bool {
         if sdk == null {
             return false
         }
 
-        return sdk.Contains("Web")
+        return CompilationReferenceResolverKernels.IsMsBuildImplicitFramework(sdk, "Microsoft.AspNetCore.App")
+    }
+
+    // A REFERENCE SET THAT ALREADY CARRIES THE FRAMEWORK'S COMPILE SURFACE SUPPLIES IT ITSELF.
+    // `dotnet build` hands the compiler every assembly of the `Microsoft.NETCore.App` reference pack
+    // as a reference; when the project's references hold that pack, the framework is already loaded
+    // from them and the on-demand loads (`FrameworkNamespaceIndex`) stand down rather than load a
+    // second, runtime copy of what the pack declares.
+    //
+    // THE PACK IS RECOGNISED BY WHAT IT SAYS IT IS, NOT BY A FILE NAME. A file named
+    // `System.Runtime.dll` is not enough: an old NuGet package graph (`System.IO 4.1.0` pulls
+    // `system.runtime/4.1.0/ref/netstandard1.5/System.Runtime.dll`) carries one too, and treating it
+    // as the framework switched every on-demand load off. A reference pack -- installed under
+    // `packs/Microsoft.NETCore.App.Ref/<version>/` or restored as the `microsoft.netcore.app.ref`
+    // package -- has `ref/<tfm>/System.Runtime.dll` with `data/FrameworkList.xml` two levels up
+    // naming `FrameworkName="Microsoft.NETCore.App"`, the file MSBuild itself resolves the pack from.
+    // That self-description is the test, so no SDK-to-compiler signal is needed and any caller that
+    // passes a real pack gets the same answer.
+    static func ReferencesSupplyFrameworkSurface(referencePaths: IEnumerable<string>?): bool {
+        if referencePaths == null {
+            return false
+        }
+
+        for referencePath in referencePaths {
+            if referencePath != null && string.Equals(Path.GetFileName(referencePath), "System.Runtime.dll", StringComparison.OrdinalIgnoreCase) {
+                frameworkList := ReferencePackFrameworkListFor(referencePath)
+                if frameworkList != null && File.Exists(frameworkList) && IsBaseFrameworkList(File.ReadAllText(frameworkList)) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    // `<pack>/ref/<tfm>/System.Runtime.dll` -> `<pack>/data/FrameworkList.xml`; null when the path is
+    // not that deep.
+    static func ReferencePackFrameworkListFor(systemRuntimePath: string): string? {
+        tfmDirectory := Path.GetDirectoryName(Path.GetFullPath(systemRuntimePath))
+        if tfmDirectory == null {
+            return null
+        }
+
+        refDirectory := Path.GetDirectoryName(tfmDirectory)
+        if refDirectory == null || !string.Equals(Path.GetFileName(refDirectory), "ref", StringComparison.OrdinalIgnoreCase) {
+            return null
+        }
+
+        packDirectory := Path.GetDirectoryName(refDirectory)
+        if packDirectory == null {
+            return null
+        }
+
+        return Path.Combine(Path.Combine(packDirectory, "data"), "FrameworkList.xml")
+    }
+
+    // Whether a `FrameworkList.xml` describes `Microsoft.NETCore.App` (its root's `FrameworkName`).
+    static func IsBaseFrameworkList(xmlText: string): bool {
+        try {
+            root := XDocument.Parse(xmlText).Root
+            if root == null {
+                return false
+            }
+
+            name := root.Attribute(XName.Get("FrameworkName"))
+            return name != null && string.Equals(name.Value, "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
+        } catch {
+            return false
+        }
+    }
+
+    // Whether a project references `Microsoft.AspNetCore.App` at all: implied by its SDK, or named
+    // in a `framework:` entry.
+    static func ReferencesAspNetCore(sdk: string?, dependencies: IEnumerable<Reference>): bool {
+        if RequiresAspNetCoreAssemblies(sdk) {
+            return true
+        }
+
+        for dependency in dependencies {
+            if dependency.Type == ReferenceType.Framework && string.Equals(dependency.Framework ?? "", "Microsoft.AspNetCore.App", StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+        }
+
+        return false
     }
 
     static func AspNetCoreAssemblyNames(): string[] {

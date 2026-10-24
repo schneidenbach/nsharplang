@@ -72,6 +72,16 @@ class ProjectFileParser {
             throw new InvalidOperationException("Invalid language.asyncDefaultType: '" + config.Language.AsyncDefaultType + "'. Must be 'Task' or 'ValueTask'.")
         }
 
+        // `pooledAsync` WAS NEVER WIRED TO ANYTHING, AND A SILENT NO-OP IS NOT SHIPPABLE. Pooling
+        // recycles the builder state behind an async method that suspends; an N# `async func`
+        // completes before it returns, so its `ValueTask` is built straight from the result and
+        // allocates nothing (the `async-task-like` native project pins that). There is nothing to pool,
+        // so the key is refused whatever its value, with the reason, rather than accepted and ignored.
+        removedPooledAsync := config.Language.RemovedPooledAsync
+        if removedPooledAsync != null {
+            throw new InvalidOperationException("Invalid language.pooledAsync: '" + removedPooledAsync + "'. N# has no pooled-async setting: an async func that returns ValueTask already completes without allocating, so there is nothing to pool. Remove 'pooledAsync' from the language section.")
+        }
+
         if config.Language.Profile != "default" && config.Language.Profile != "systems" {
             throw new InvalidOperationException("Invalid language.profile: '" + config.Language.Profile + "'. Must be 'default' or 'systems'.")
         }
@@ -115,6 +125,11 @@ class ProjectFileParser {
             }
         }
 
+        // A MALFORMED ROW IS REFUSED BEFORE EMPTY ROWS ARE DROPPED: an entry whose only key is a typo
+        // (`- nugget: Serilog`) carries no value, and filtering first would make it vanish silently.
+        RejectMalformedReferences("dependencies", config.Dependencies)
+        RejectMalformedReferences("testDependencies", config.TestDependencies)
+
         config.Dependencies = FilterReferences(config.Dependencies)
         config.TestDependencies = FilterReferences(config.TestDependencies)
 
@@ -123,6 +138,23 @@ class ProjectFileParser {
             if referenceType == ReferenceType.Dll || referenceType == ReferenceType.Project {
                 reference.Validate(projectDirectory)
             }
+        }
+    }
+
+    static func RejectMalformedReferences(section: string, references: List<Reference>) {
+        index := 0
+        while index < references.Count {
+            reference := references[index]
+            problem: string? = null
+            if reference != null {
+                problem = reference.Problem
+            }
+
+            if problem != null {
+                throw new InvalidOperationException("Invalid " + section + " entry " + (index + 1).ToString() + ": " + problem + ". Each entry names exactly one of nuget, framework, project or dll, and a nuget entry may also give a version.")
+            }
+
+            index = index + 1
         }
     }
 

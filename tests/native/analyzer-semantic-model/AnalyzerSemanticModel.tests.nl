@@ -2029,7 +2029,7 @@ test "020 s26 analyzer semantic model: a wrapped `int?[]` annotation records ONE
 // EMPTY interface list and an EMPTY type-parameter list, `IsStruct` is the ONLY field that differs
 // between them, and `BaseClass` / `IsSealed` / `IsDuckInterface` / `HasParameterlessConstructor` are
 // `<absent>` on a record rather than null — the member is not declared on `RecordTypeInfo` at all.
-test "020 s27 analyzer semantic model: `record struct` and `record` are the SAME `RecordTypeInfo` runtime type distinguished by one flag — and both record their single field into `DeclaredMembers`, `TypeMembers` AND the flat `Fields` table at once (was AnalyzerSemanticModelTests.Analyzer_RecordTypes_RecordStructFlagInSemanticModel)" {
+test "020 s27 analyzer semantic model: `record struct` and `record` are the SAME `RecordTypeInfo` runtime type distinguished by one flag — and both record their single member into `DeclaredMembers` (the record's as an auto-property, the record struct's as a field), `TypeMembers` AND the flat `Fields` table at once (was AnalyzerSemanticModelTests.Analyzer_RecordTypes_RecordStructFlagInSemanticModel)" {
     source := "\nrecord struct Point {\n    X: int\n}\n\nrecord Address {\n    City: string\n}"
     assert source.Length == 72
     assert SmParseCensus(source) == ""
@@ -2053,7 +2053,7 @@ test "020 s27 analyzer semantic model: `record struct` and `record` are the SAME
     assert SmTypeFacts(model, "Address") == "runtime=RecordTypeInfo;Name=Address;Line=6;Column=1;IsSealed=<absent>;IsStruct=False;IsDuckInterface=<absent>;BaseClass=<absent>;Interfaces=[];BaseInterfaces=<absent>;TypeParameters=[];PrimaryConstructorParameters=[];NestedTypes=[];HasParameterlessConstructor=<absent>;Members=1;"
     assert SmTypeMemberNames(model, "Address") == "City;"
     assert SmTypeMemberCount(model, "Address", "City") == 1
-    assert SmTypeMember(model, "Address", "City", 0) == "Name=City;ContainingType=Address;Kind=Field;KindName=field;Type=SimpleTypeReference(string);IsStatic=False;IsReadonly=False;HasSetter=False;IsExported=True;ParameterCount=-1;ParameterNames=[];ParameterTypes=[];ParameterModifiers=[];RequiredParameterCount=-1;HasParamsParameter=False;HasReceiverParameter=False;ReturnType=<null>;TypeParameterCount=0;TypeParameters=[];GenericConstraints=[];AttributeCount=0;HasMustUseAttribute=False;IsAsync=False;IsGenerator=False;IsOperatorOverload=False;OperatorSymbol=;IsConversionOperator=False;IsImplicitConversion=False;Line=7;Column=5;"
+    assert SmTypeMember(model, "Address", "City", 0) == "Name=City;ContainingType=Address;Kind=Property;KindName=property;Type=SimpleTypeReference(string);IsStatic=False;IsReadonly=False;HasSetter=True;IsExported=True;ParameterCount=-1;ParameterNames=[];ParameterTypes=[];ParameterModifiers=[];RequiredParameterCount=-1;HasParamsParameter=False;HasReceiverParameter=False;ReturnType=<null>;TypeParameterCount=0;TypeParameters=[];GenericConstraints=[];AttributeCount=0;HasMustUseAttribute=False;IsAsync=False;IsGenerator=False;IsOperatorOverload=False;OperatorSymbol=;IsConversionOperator=False;IsImplicitConversion=False;Line=7;Column=5;"
     assert SmTypeFacts(model, "Point") == "runtime=RecordTypeInfo;Name=Point;Line=2;Column=1;IsSealed=<absent>;IsStruct=True;IsDuckInterface=<absent>;BaseClass=<absent>;Interfaces=[];BaseInterfaces=<absent>;TypeParameters=[];PrimaryConstructorParameters=[];NestedTypes=[];HasParameterlessConstructor=<absent>;Members=1;"
     assert SmTypeMemberNames(model, "Point") == "X;"
     assert SmTypeMemberCount(model, "Point", "X") == 1
@@ -2137,7 +2137,7 @@ test "020 s27 analyzer semantic model: the nominal source facts of TWENTY types,
     assert SmTypeMemberCount(model, "MemberBox", "Name") == 1
     assert SmTypeMember(model, "MemberBox", "Name", 0) == "Name=Name;ContainingType=MemberBox;Kind=Property;KindName=property;Type=SimpleTypeReference(string);IsStatic=False;IsReadonly=False;HasSetter=False;IsExported=True;ParameterCount=-1;ParameterNames=[];ParameterTypes=[];ParameterModifiers=[];RequiredParameterCount=-1;HasParamsParameter=False;HasReceiverParameter=False;ReturnType=<null>;TypeParameterCount=0;TypeParameters=[];GenericConstraints=[];AttributeCount=0;HasMustUseAttribute=False;IsAsync=False;IsGenerator=False;IsOperatorOverload=False;OperatorSymbol=;IsConversionOperator=False;IsImplicitConversion=False;Line=31;Column=5;"
     assert SmTypeMemberCount(model, "MemberBox", "Value") == 1
-    assert SmTypeMember(model, "MemberBox", "Value", 0) == "Name=Value;ContainingType=MemberBox;Kind=Field;KindName=field;Type=SimpleTypeReference(int);IsStatic=False;IsReadonly=False;HasSetter=False;IsExported=True;ParameterCount=-1;ParameterNames=[];ParameterTypes=[];ParameterModifiers=[];RequiredParameterCount=-1;HasParamsParameter=False;HasReceiverParameter=False;ReturnType=<null>;TypeParameterCount=0;TypeParameters=[];GenericConstraints=[];AttributeCount=0;HasMustUseAttribute=False;IsAsync=False;IsGenerator=False;IsOperatorOverload=False;OperatorSymbol=;IsConversionOperator=False;IsImplicitConversion=False;Line=30;Column=5;"
+    assert SmTypeMember(model, "MemberBox", "Value", 0) == "Name=Value;ContainingType=MemberBox;Kind=Property;KindName=property;Type=SimpleTypeReference(int);IsStatic=False;IsReadonly=False;HasSetter=True;IsExported=True;ParameterCount=-1;ParameterNames=[];ParameterTypes=[];ParameterModifiers=[];RequiredParameterCount=-1;HasParamsParameter=False;HasReceiverParameter=False;ReturnType=<null>;TypeParameterCount=0;TypeParameters=[];GenericConstraints=[];AttributeCount=0;HasMustUseAttribute=False;IsAsync=False;IsGenerator=False;IsOperatorOverload=False;OperatorSymbol=;IsConversionOperator=False;IsImplicitConversion=False;Line=30;Column=5;"
     assert SmTypeFacts(model, "Named") == "runtime=InterfaceTypeInfo;Name=Named;Line=116;Column=1;IsSealed=<absent>;IsStruct=<absent>;IsDuckInterface=False;BaseClass=<absent>;Interfaces=<absent>;BaseInterfaces=[];TypeParameters=[];PrimaryConstructorParameters=<absent>;NestedTypes=[];HasParameterlessConstructor=<absent>;Members=1;"
     assert SmTypeMemberNames(model, "Named") == "Name;"
     assert SmTypeMemberCount(model, "Named", "Name") == 1
@@ -2311,7 +2311,7 @@ test "020 s27 analyzer semantic model: a `ref` argument naming a static PROPERTY
     assert SmCensus(analysis) == "NL103:InvalidSyntax@15:14+15;"
     assert SmHasErrors(analysis) == "True"
     assert SmErrorCount(analysis) == 1
-    assert SmRow(analysis, 0) == "InvalidSyntax|The 'ref' argument needs an assignable target|Use a variable, field, or indexed array/SoA column element as the ref argument.|Error"
+    assert SmRow(analysis, 0) == "InvalidSyntax|'Current' is a property, so it has no storage to pass as the 'ref' argument|Copy it into a local, pass the local, and assign the result back to 'Current'.|Error"
     assert SmCodeCount(analysis, "InvalidSyntax") == 1
     assert SmModelIsNull(analysis) == "no"
     model := SmModel(analysis)

@@ -321,9 +321,49 @@ test "a Web SDK asks for the ASP.NET assemblies and a plain one does not" {
     assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("")
 }
 
-test "the trigger is a CONTAINS test, because the SDK id a user writes is not a closed set" {
-    assert AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Contoso.Web.Sdk")
-    assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Microsoft.NET.Sdk.web")
+test "the trigger is MSBuild's own rule: exactly Microsoft.NET.Sdk.Web, compared case-insensitively" {
+    assert AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("microsoft.net.sdk.web")
+    // SDKs whose ids merely CONTAIN `Web` get no ASP.NET Core framework from `dotnet build`.
+    assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Microsoft.NET.Sdk.BlazorWebAssembly")
+    assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Microsoft.NET.Sdk.WebAssembly")
+    assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Contoso.Web.Sdk")
+}
+
+test "a reference set holding the base reference pack carries the framework's compile surface itself" {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-ref-pack-" + Guid.NewGuid().ToString("N"))
+    try {
+        pack := Path.Combine(Path.Combine(root, "packs"), "Microsoft.NETCore.App.Ref")
+        refDirectory := Path.Combine(Path.Combine(Path.Combine(pack, "10.0.7"), "ref"), "net10.0")
+        dataDirectory := Path.Combine(Path.Combine(pack, "10.0.7"), "data")
+        Directory.CreateDirectory(refDirectory)
+        Directory.CreateDirectory(dataDirectory)
+        File.WriteAllText(Path.Combine(dataDirectory, "FrameworkList.xml"), "<FileList FrameworkName=\"Microsoft.NETCore.App\" />")
+        referencePack := new List<string>()
+        referencePack.Add(Path.Combine(refDirectory, "System.Collections.dll"))
+        referencePack.Add(Path.Combine(refDirectory, "System.Runtime.dll"))
+        assert AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface(referencePack)
+
+        // AN OLD PACKAGE'S `System.Runtime.dll` IS NOT THE FRAMEWORK: `system.runtime/4.1.0` has a
+        // `ref/netstandard1.5/` folder but no `data/FrameworkList.xml` naming Microsoft.NETCore.App.
+        packageRef := Path.Combine(Path.Combine(Path.Combine(Path.Combine(root, "system.runtime"), "4.1.0"), "ref"), "netstandard1.5")
+        Directory.CreateDirectory(packageRef)
+        oldGraph := new List<string>()
+        oldGraph.Add(Path.Combine(packageRef, "System.Runtime.dll"))
+        assert !AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface(oldGraph)
+
+        packages := new List<string>()
+        packages.Add("/home/me/.nuget/packages/serilog/3.1.1/lib/net7.0/Serilog.dll")
+        assert !AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface(packages)
+        assert !AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface(null)
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "only a FrameworkList naming Microsoft.NETCore.App is the base framework's pack" {
+    assert AnalyzerMetadataLoadPolicy.IsBaseFrameworkList("<FileList FrameworkName=\"Microsoft.NETCore.App\" />")
+    assert !AnalyzerMetadataLoadPolicy.IsBaseFrameworkList("<FileList FrameworkName=\"Microsoft.AspNetCore.App\" />")
+    assert !AnalyzerMetadataLoadPolicy.IsBaseFrameworkList("not xml")
 }
 
 test "the ASP.NET table names framework and extension assemblies by NAME, not by path" {

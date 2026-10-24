@@ -329,6 +329,8 @@ class ColumnarStructInput {
     // setter to put it on.
     FieldRequiredFlags: bool[]
     FieldInitOnlyFlags: bool[]
+    // `sealed` as written on each row; only an `override` auto-property acts on it.
+    FieldSealedFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
     // The synthesized `.cctor` body: `Name = <expression>` statements, in textual order, for every
@@ -350,7 +352,7 @@ class ColumnarStructInput {
     // stop at the namespace boundary for types alone while it held for every member and free function.
     TopLevelVisibilityAttributes: int
 
-    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null, fieldVirtualFlags: bool[]? = null, fieldAbstractFlags: bool[]? = null, fieldOverrideFlags: bool[]? = null, fieldRequiredFlags: bool[]? = null, fieldInitOnlyFlags: bool[]? = null) {
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null, fieldVirtualFlags: bool[]? = null, fieldAbstractFlags: bool[]? = null, fieldOverrideFlags: bool[]? = null, fieldRequiredFlags: bool[]? = null, fieldInitOnlyFlags: bool[]? = null, fieldSealedFlags: bool[]? = null) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -395,6 +397,7 @@ class ColumnarStructInput {
         FieldOverrideFlags = fieldOverrideFlags ?? new bool[](fieldNames.Length)
         FieldRequiredFlags = fieldRequiredFlags ?? new bool[](fieldNames.Length)
         FieldInitOnlyFlags = fieldInitOnlyFlags ?? new bool[](fieldNames.Length)
+        FieldSealedFlags = fieldSealedFlags ?? new bool[](fieldNames.Length)
     }
 
     // The attributes written on the field at `index`, or none. Every field column is indexed the
@@ -579,6 +582,10 @@ class ColumnarProgramInput {
     // analyzer's). The external type scan reads them instead of opening the reference set again
     // (`ExternalAssemblyScan.OpenWithReferences`); null opens a context of the scan's own.
     ReferenceMetadata: SharedReferenceMetadata?
+    // THE PROJECT'S `language.asyncDefaultType` — the task an unannotated `async` body is wrapped
+    // in when no slot it fills says otherwise. The caller that read `project.yml` sets it; a program
+    // built without one wraps in the documented `ValueTask` default, as the analyzer does.
+    AsyncDefaultFamily: AsyncTaskFamily
 
     static func CreateSingleSource(source: string, functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
         return new ColumnarProgramInput(source, functions, enums, structs, unions, interfaces, BuildSingleSourceFiles(source), tests, null)
@@ -641,6 +648,7 @@ class ColumnarProgramInput {
         Tests = tests
         SemanticModelsByFileId = new Dictionary<int, SemanticModel>()
         ReferenceMetadata = null
+        AsyncDefaultFamily = AsyncTaskFamily.ValueTask
         bindingScope = ColumnarBindingScopeFacts.Create(Sources, Enums, Structs, Unions, Interfaces, ProjectRoot)
 
         StampBindingContexts(bindingScope)

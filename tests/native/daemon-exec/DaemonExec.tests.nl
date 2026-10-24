@@ -32,6 +32,18 @@ func OutputOrderingProbe(index: int): string {
     return source + "}\n"
 }
 
+func WebProject(): string {
+    return "name: DaemonExecProbe\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n"
+}
+
+func HostedWorker(): string {
+    return "namespace DaemonExecProbe\n" + "\n" + "import System.Threading\n" + "import System.Threading.Tasks\n" + "import Microsoft.Extensions.Hosting\n" + "\n" + "class SignallingWorker: BackgroundService {\n" + "    Ran: TaskCompletionSource<bool>\n" + "\n" + "    constructor() {\n" + "        Ran = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)\n" + "    }\n" + "\n" + "    protected override async func ExecuteAsync(stoppingToken: CancellationToken): Task {\n" + "        Ran.TrySetResult(!stoppingToken.IsCancellationRequested)\n" + "        await Task.CompletedTask\n" + "    }\n" + "}\n"
+}
+
+func HostedWorkerTests(): string {
+    return "namespace DaemonExecProbe\n" + "\n" + "import System\n" + "import System.Threading\n" + "\n" + "test \"a background service runs in the test worker\" {\n" + "    worker := new SignallingWorker()\n" + "    await worker.StartAsync(CancellationToken.None)\n" + "    ran := await worker.Ran.Task.WaitAsync(TimeSpan.FromSeconds(10))\n" + "    await worker.StopAsync(CancellationToken.None)\n" + "    assert ran\n" + "}\n"
+}
+
 func UnformattedSource(): string {
     return "namespace DaemonExecProbe\n\nfunc   Messy( a:int ):int{\nreturn a+1\n}\n"
 }
@@ -54,6 +66,33 @@ test "the first routed command runs in-process and starts a server, and the next
         assert second.ExitCode == 0
         assert RoutedThroughServer(second.Stderr)
         assert second.Stdout == first.Stdout
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
+test "the workspace server directory ignores itself so a repository stays clean" {
+    workspace := NewWorkspace()
+    try {
+        File.WriteAllText(Path.Combine(workspace, ".gitignore"), "bin/\nobj/\n")
+        WriteSource(workspace, "Program.nl", CleanProgram())
+        initialized := Git(["init", "--quiet"], workspace)
+        assert initialized.ExitCode == 0, initialized.Stdout + initialized.Stderr
+        staged := Git(["add", ".gitignore", "project.yml", "Program.nl"], workspace)
+        assert staged.ExitCode == 0, staged.Stdout + staged.Stderr
+        before := Git(["status", "--short"], workspace)
+        assert before.ExitCode == 0, before.Stdout + before.Stderr
+
+        first := NlcWith(["check"], workspace, NoEnvironment(), null)
+        assert first.ExitCode == 0
+
+        ignorePath := Path.Combine(Path.Combine(workspace, ".nlc"), ".gitignore")
+        assert WaitUntil(() => File.Exists(ignorePath), 60000)
+        assert File.ReadAllText(ignorePath).Contains("\n*\n")
+
+        after := Git(["status", "--short"], workspace)
+        assert after.ExitCode == 0, after.Stdout + after.Stderr
+        assert after.Stdout == before.Stdout, after.Stdout
     } finally {
         DeleteWorkspace(workspace)
     }
@@ -162,6 +201,29 @@ test "test runs answer identically, failing tests, prints and JSON envelope incl
         assert run.ExitCode == 1
         assert run.Stdout.Contains("hello from a passing test")
         assert run.Stderr.Contains("stderr from a failing test")
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
+// The test worker is a separate process that receives the run over a private request format, so
+// the project's shared-framework directories have to travel in that request: a worker that only knew
+// the test output directory would fail to load `Microsoft.Extensions.Hosting.Abstractions` where the
+// in-process run succeeds.
+test "a web project's tests bind its shared framework in the test worker exactly as in-process" {
+    workspace := NewWorkspace()
+    try {
+        File.WriteAllText(Path.Combine(workspace, "project.yml"), WebProject())
+        WriteSource(workspace, "Worker.nl", HostedWorker())
+        WriteSource(workspace, "Worker.tests.nl", HostedWorkerTests())
+        StartServer(workspace)
+
+        assert RoutedThroughServer(AssertParity(workspace, ["test"], null))
+        assert RoutedThroughServer(AssertParity(workspace, ["test", "--json"], null))
+
+        run := Nlc(["test"], workspace)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout.Contains("Passed: 1, Failed: 0, Skipped: 0, Total: 1"), run.Stdout
     } finally {
         DeleteWorkspace(workspace)
     }
@@ -305,6 +367,27 @@ test "stdin reaches a command that reads it, and run starts the program on the c
         assert run.Stdout.Contains("twice: 42")
         assert run.Stdout.Contains("read: typed by the user")
         assert run.Stderr.Contains("to stderr")
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
+test "program arguments after -- reach the program exactly the same in-process and through the server" {
+    workspace := NewWorkspace()
+    try {
+        WriteSource(workspace, "Program.nl", "import System\n\nfunc main(args: string[]) {\n    Console.WriteLine(\"count=\" + args.Length.ToString())\n    for argument in args {\n        Console.WriteLine(\"[\" + argument + \"]\")\n    }\n}\n")
+        StartServer(workspace)
+
+        arguments := ["run", "--", "a\"b", "C:\\dir\\", "", "two words", "--help"]
+        expected := "count=5" + Environment.NewLine + "[a\"b]" + Environment.NewLine + "[C:\\dir\\]" + Environment.NewLine + "[]" + Environment.NewLine + "[two words]" + Environment.NewLine + "[--help]" + Environment.NewLine
+        inProcess := NlcWith(arguments, workspace, InProcess(), null)
+        assert inProcess.ExitCode == 0, inProcess.Stdout + inProcess.Stderr
+        assert inProcess.Stdout.EndsWith(expected), inProcess.Stdout
+
+        routed := NlcWith(arguments, workspace, Traced(), null)
+        assert RoutedThroughServer(routed.Stderr)
+        assert routed.ExitCode == 0, routed.Stdout + routed.Stderr
+        assert routed.Stdout.EndsWith(expected), routed.Stdout
     } finally {
         DeleteWorkspace(workspace)
     }

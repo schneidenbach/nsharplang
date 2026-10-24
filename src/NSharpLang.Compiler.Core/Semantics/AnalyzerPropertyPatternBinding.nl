@@ -191,6 +191,16 @@ class AnalyzerPropertyPatternBinding {
     // The declared shape first, the reflected metadata second; `null` is "this scrutinee has no such
     // property", which is the only thing that reports.
     func FindPropertyType(state: PropertyPatternBindingState, name: string): TypeInfo? {
+        anonymousValue := declarationContextValue.ResolveDeclaredAlias(state.ValueType) as AnonymousObjectTypeInfo
+        if anonymousValue != null {
+            anonymousProperty := anonymousValue.FindProperty(name)
+            if anonymousProperty != null {
+                return anonymousProperty.Type
+            }
+
+            return null
+        }
+
         sourceShape := new AnalyzerSourceMemberShape()
         if declarationContextValue.TryGetSourceMemberShape(state.DeclarationOwner, state.Substitution, out sourceShape) {
             declaredMember: TypeInfo = BuiltInTypes.Unknown
@@ -201,7 +211,7 @@ class AnalyzerPropertyPatternBinding {
 
         reflectionType := state.ValueType as ReflectionTypeInfo
         if reflectionType != null {
-            property := reflectionType.Type.GetProperty(name)
+            property := ReflectedMemberLookup.FindProperty(reflectionType.Type, name)
             if property != null {
                 return NullabilityMetadataReflection.ConvertProperty(property)
             }

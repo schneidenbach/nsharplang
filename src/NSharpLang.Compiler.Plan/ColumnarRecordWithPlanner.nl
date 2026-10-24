@@ -8,14 +8,15 @@ import System.Reflection.Emit
 // receiver and replaces the named members. The CLR shape of that copy is a semantic decision that turns
 // entirely on whether the record is a reference type or a value type, and N# owns it here:
 //
-//   * ReferenceClone — a record CLASS. The fresh instance is produced by the synthesized `<Clone>$`
-//     virtual (a MemberwiseClone downcast) called on the receiver object reference. Each replacement
+//   * ReferenceClone — a record CLASS. The fresh instance is produced by the synthesized public
+//     `<Clone>$` method (a MemberwiseClone downcast) called on the receiver object reference. Each replacement
 //     targets the cloned reference directly (ldloc; <value>; stfld), and the modified reference is the
-//     result.
+//     result. A `virtual` auto-property is replaced through its SETTER (ldloc; <value>; callvirt), as
+//     C#'s `with` does: the clone has the receiver's runtime type, and an override — a runtime proxy's
+//     included — owns that member's storage.
 //   * ValueCopy — a record STRUCT. A value type is copied by plain assignment, so the fresh instance is
-//     just a local initialised to the receiver value (stloc). There is NO clone virtual: `callvirt` on a
-//     value type is unverifiable, and a value receiver is not an object reference, so an instance call
-//     would need the value's ADDRESS, not the value. Each replacement instead targets the copy's address
+//     just a local initialised to the receiver value (stloc). There is NO clone method: an instance call
+//     needs the value's ADDRESS, and `callvirt` on the value is unverifiable. Each replacement instead targets the copy's address
 //     (ldloca; <value>; stfld), and the modified copy value is the result.
 //
 // The host emitter evaluates the receiver and each replacement value through its recursive sub-emitter and
@@ -33,23 +34,30 @@ enum ColumnarRecordWithStrategy {
 // expression leaves on the stack.
 class ColumnarRecordWithPlan {
     Strategy: ColumnarRecordWithStrategy
-    // The synthesized `<Clone>$` virtual for a reference record; null for a value record, which is copied
+    // The synthesized `<Clone>$` method for a reference record; null for a value record, which is copied
     // by assignment and has no clone method.
     CloneMethod: MethodBuilder?
     // The record type the expression produces — the receiver's own type.
     ResultType: Type
-    // The replacement target fields, resolved in source order and aligned with the host's replacement value
-    // nodes.
-    Fields: FieldBuilder[]
+    // The replacement targets, resolved in source order and aligned with the host's replacement value
+    // nodes: at each position exactly one of `Fields` (a stored member) and `Setters` (a dispatched
+    // property) is set, and `MemberTypes` is the value's type either way.
+    Fields: FieldBuilder?[]
+    Setters: MethodBuilder?[]
+    MemberTypes: Type[]
+    MemberNames: string[]
 
-    constructor(strategy: ColumnarRecordWithStrategy, cloneMethod: MethodBuilder?, resultType: Type, fields: FieldBuilder[]) {
-        if resultType == null || fields == null {
-            throw new InvalidOperationException("A record-with plan requires a result type and its resolved replacement fields.")
+    constructor(strategy: ColumnarRecordWithStrategy, cloneMethod: MethodBuilder?, resultType: Type, fields: FieldBuilder?[], setters: MethodBuilder?[], memberTypes: Type[], memberNames: string[]) {
+        if resultType == null || fields == null || setters == null || memberTypes == null || memberNames == null || fields.Length != setters.Length || fields.Length != memberTypes.Length || fields.Length != memberNames.Length {
+            throw new InvalidOperationException("A record-with plan requires a result type and its resolved replacement targets.")
         }
         Strategy = strategy
         CloneMethod = cloneMethod
         ResultType = resultType
         Fields = fields
+        Setters = setters
+        MemberTypes = memberTypes
+        MemberNames = memberNames
     }
 }
 
@@ -58,8 +66,8 @@ class ColumnarRecordWithPlanner {
     // Select the clone/copy strategy, receiver shape, ordered replacement set, and result type for one
     // record `with` expression. Returns null to decline — so the mechanical host reports the standard
     // with-expression decline — when the receiver is not a modelled record, when a reference record is
-    // missing its `<Clone>$` synthesis, when a named member is not a field of the receiver, or when a
-    // target field is initonly (a readonly member cannot be rewritten by stfld outside its declaring
+    // missing its `<Clone>$` synthesis, when a named member is neither a field of the receiver nor a
+    // settable property of a reference record, or when a target field is initonly (a readonly member cannot be rewritten by stfld outside its declaring
     // constructor, so that shape routes to the residual). fieldNames are the replacement member names in
     // source order, already validated as syntactic identifiers by the host.
     static func PlanRecordWith(receiverDef: ColumnarStructDef?, fieldNames: string[]): ColumnarRecordWithPlan? {
@@ -73,7 +81,7 @@ class ColumnarRecordWithPlanner {
         strategy := ColumnarRecordWithStrategy.ValueCopy
         cloneMethod: MethodBuilder? = null
         if receiverDef.IsReference {
-            // A reference record clones through its synthesized `<Clone>$` virtual; without that synthesis
+            // A reference record clones through its synthesized `<Clone>$` method; without that synthesis
             // there is no verifiable reference copy, so decline.
             if receiverDef.RecordClone == null {
                 return null
@@ -82,7 +90,9 @@ class ColumnarRecordWithPlanner {
             cloneMethod = receiverDef.RecordClone
         }
 
-        fields := new FieldBuilder[](fieldNames.Length)
+        fields := new FieldBuilder?[](fieldNames.Length)
+        setters := new MethodBuilder?[](fieldNames.Length)
+        memberTypes := new Type[](fieldNames.Length)
         index := 0
         while index < fieldNames.Length {
             name := fieldNames[index]
@@ -90,16 +100,22 @@ class ColumnarRecordWithPlanner {
                 return null
             }
             field: FieldBuilder? = null
-            if !receiverDef.Fields.TryGetValue(name, out field) || field == null {
+            property: ColumnarPropertyDef? = null
+            if receiverDef.Fields.TryGetValue(name, out field) && field != null {
+                if field.IsInitOnly {
+                    return null
+                }
+                fields[index] = field
+                memberTypes[index] = field.FieldType
+            } else if receiverDef.IsReference && receiverDef.Properties.TryGetValue(name, out property) && property != null && property.Setter != null && !property.IsInitOnly {
+                setters[index] = property.Setter
+                memberTypes[index] = property.PropertyType
+            } else {
                 return null
             }
-            if field.IsInitOnly {
-                return null
-            }
-            fields[index] = field
             index = index + 1
         }
 
-        return new ColumnarRecordWithPlan(strategy, cloneMethod, receiverDef.Builder, fields)
+        return new ColumnarRecordWithPlan(strategy, cloneMethod, receiverDef.Builder, fields, setters, memberTypes, fieldNames)
     }
 }

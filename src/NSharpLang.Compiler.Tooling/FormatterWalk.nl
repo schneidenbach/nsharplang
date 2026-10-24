@@ -1867,9 +1867,11 @@ class FormatterWalk {
                 builder.Append("[")
                 FormatExpression(newExpression.ArrayLengthExpression, builder)
                 builder.Append("]")
-            } else if newExpression.ConstructorArguments.Count > 0 || newExpression.Initializer == null {
+            } else if newExpression.ConstructorArguments.Count > 0 || newExpression.Initializer == null || (newType == null && newExpression.HasArgumentList) {
                 // An empty argument list is written unless an object initializer follows, because
                 // `new Foo { … }` and `new Foo() { … }` are both valid and the first is canonical.
+                // With NO type name the parentheses are the meaning: `new() { X: 1 }` is target-typed
+                // and `new { X: 1 }` is an anonymous object, so a written `()` is always kept.
                 //
                 // A `new`'s own span is its CONSTRUCTOR ARGUMENT LIST's span and not the whole
                 // expression's: `new Foo(a) { X: 1 }` has a flat argument list and a wrapped
@@ -2302,6 +2304,14 @@ class FormatterWalk {
     func FormatObjectInitializer(initializer: ObjectInitializerExpression, builder: StringBuilder) {
         properties := initializer.Properties
         wrapped := ShouldWrapList(initializer.Line, initializer.EndLine, properties.Count, MaxPropertyLine(properties), LastPropertySpansLines(properties))
+
+        // AN EMPTY ONE-LINE INITIALIZER IS `{ }` — one space, as the empty anonymous object `new { }` is
+        // written. The inline arm below would otherwise pad both sides of nothing and print `{  }`. A
+        // multi-line empty one keeps the wrapped arm, which carries any comment written inside it.
+        if !wrapped && properties.Count == 0 {
+            builder.Append(" { }")
+            return
+        }
 
         if !wrapped {
             builder.Append(" { ")

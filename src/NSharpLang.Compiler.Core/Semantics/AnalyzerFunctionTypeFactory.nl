@@ -20,8 +20,10 @@ import NSharpLang.Compiler.Ast
 // TWO INVARIANTS WORTH STATING. First, a function's OWN type parameters always shadow: each one is
 // bound to a `SimpleTypeInfo` of its own name before any reference is resolved, so `func F<T>(x: T)`
 // resolves `T` to the parameter rather than to some `T` in scope. Second, an ASYNC function's call
-// return type is not its declared return type — `ResolveFunctionCallReturnType` wraps it in the task
-// family, and `main` gets `Task`/`Task<T>` while everything else gets `ValueTask`/`ValueTask<T>`.
+// return type is not its declared return type — `ResolveFunctionCallReturnType` wraps it in a task
+// family, and `AnalyzerAsyncReturnFamily` chooses which: `main` gets `Task`/`Task<T>`, an override
+// or interface implementation gets the family of the slot it fills, and everything else gets the
+// project's `language.asyncDefaultType` (`ValueTask` unless the project says `Task`).
 // A declared type that is ALREADY task-like is left alone, which is what lets a function declare
 // `Task<int>` explicitly.
 //
@@ -41,10 +43,12 @@ class AnalyzerFunctionTypeFactory {
     // first. Cleared at the start of every `Analyzer.Analyze`, so a call reaches the provenance of a
     // callee in its OWN file whose body was analysed before it, and never another file's.
     bodyReturnTypes: Dictionary<FunctionDeclaration, TypeInfo>
+    asyncReturnFamily: AnalyzerAsyncReturnFamily
 
     constructor(context: AnalyzerDeclarationContext, substitution: AnalyzerTypeSubstitution) {
         declarationContext = context
         typeSubstitution = substitution
+        asyncReturnFamily = new AnalyzerAsyncReturnFamily(context)
         bodyReturnTypes = new Dictionary<FunctionDeclaration, TypeInfo>(ReferenceEqualityComparer.Instance)
     }
 
@@ -424,7 +428,7 @@ class AnalyzerFunctionTypeFactory {
         signature.GenericConstraints = declaration.Constraints
         signature.ResolvedGenericConstraintTypes = ResolveDeclarationConstraints(declaration.Constraints, methodSubstitution, declarationFile)
         signature.HasMustUseAttribute = HasMustUseAttribute(declaration.Attributes)
-        signature.ReturnType = ResolveFunctionCallReturnType(declaration.Name, isAsync, isGenerator, sourceReturnType)
+        signature.ReturnType = AsyncCallReturnType(declaration, declaration.Name, isAsync, isGenerator, sourceReturnType)
         bodyReturnType := BodyReturnTypeOf(declaration)
         if bodyReturnType != null {
             NullabilityMetadataCore.TransferReferencedNullabilityOrigins(bodyReturnType, signature.ReturnType)
@@ -490,7 +494,7 @@ class AnalyzerFunctionTypeFactory {
         if member.MemberNullabilityPostconditions.Length > 0 {
             signature.MemberNullabilityPostconditions = member.MemberNullabilityPostconditions
         }
-        signature.ReturnType = ResolveFunctionCallReturnType(member.Name, member.IsAsync, member.IsGenerator, sourceReturnType)
+        signature.ReturnType = AsyncCallReturnType(member.SourceDeclaration, member.Name, member.IsAsync, member.IsGenerator, sourceReturnType)
         sourceDeclaration := member.SourceDeclaration
         if sourceDeclaration != null {
             sourceBodyReturnType := BodyReturnTypeOf(sourceDeclaration)
@@ -530,23 +534,57 @@ class AnalyzerFunctionTypeFactory {
         return result
     }
 
-    // The type a CALL to this function answers with. Only an async non-generator differs from its
-    // declared return type, and a declared type that is already task-like is left exactly as written.
-    static func ResolveFunctionCallReturnType(functionName: string, isAsync: bool, isGenerator: bool, sourceReturnType: TypeInfo): TypeInfo {
-        if !isAsync || isGenerator {
+    // The call type of a source declaration: the family is asked for only when there is something
+    // to wrap, so a synchronous function never walks a base chain. A member with no source
+    // declaration behind it fills no slot this owner can see and takes the project rule.
+    func AsyncCallReturnType(declaration: FunctionDeclaration?, functionName: string, isAsync: bool, isGenerator: bool, sourceReturnType: TypeInfo): TypeInfo {
+        if !WrapsAsyncReturn(isAsync, isGenerator, sourceReturnType) {
             return sourceReturnType
+        }
+
+        family := AsyncTaskFamilyFacts.EffectiveFamily(functionName, declarationContext.AsyncDefaultFamily)
+        if declaration != null {
+            family = asyncReturnFamily.FamilyFor(declaration)
+        }
+
+        return ResolveFunctionCallReturnType(isAsync, isGenerator, sourceReturnType, family)
+    }
+
+    // The family an async declaration's body is wrapped in — the same answer its call signature
+    // carries, for the owners that report against a declaration rather than a call.
+    func AsyncFamilyFor(declaration: FunctionDeclaration): AsyncTaskFamily {
+        return asyncReturnFamily.FamilyFor(declaration)
+    }
+
+    // The base or interface member this declaration fills, as the async rule reads it.
+    func AsyncSlotFor(declaration: FunctionDeclaration): AnalyzerAsyncSlot? {
+        return asyncReturnFamily.SlotFor(declaration)
+    }
+
+    // Whether a call's type differs from the declared return at all: only an async non-generator
+    // whose declared return is not already task-like is wrapped.
+    static func WrapsAsyncReturn(isAsync: bool, isGenerator: bool, sourceReturnType: TypeInfo): bool {
+        if !isAsync || isGenerator {
+            return false
         }
 
         if IsUnitTaskLikeTypeInfo(sourceReturnType) {
-            return sourceReturnType
+            return false
         }
 
         taskResult: TypeInfo = BuiltInTypes.Unknown
-        if TryGetTaskLikeResultTypeInfo(sourceReturnType, out taskResult) {
+        return !TryGetTaskLikeResultTypeInfo(sourceReturnType, out taskResult)
+    }
+
+    // The type a CALL to this function answers with, in the family the caller chose. Only an async
+    // non-generator differs from its declared return type, and a declared type that is already
+    // task-like is left exactly as written.
+    static func ResolveFunctionCallReturnType(isAsync: bool, isGenerator: bool, sourceReturnType: TypeInfo, family: AsyncTaskFamily): TypeInfo {
+        if !WrapsAsyncReturn(isAsync, isGenerator, sourceReturnType) {
             return sourceReturnType
         }
 
-        usesTaskFamily := String.Equals(functionName, "main", StringComparison.OrdinalIgnoreCase)
+        usesTaskFamily := family == AsyncTaskFamily.Task
         if BuiltInTypes.Is(sourceReturnType, BuiltInTypes.Void) {
             if usesTaskFamily {
                 unitTask: TypeInfo = new ReflectionTypeInfo(RequiredCoreType("System.Threading.Tasks.Task"))
@@ -647,6 +685,7 @@ class AnalyzerFunctionTypeFactory {
         }
 
         parameterTypes := new List<TypeInfo>()
+        parameterNames := new List<string>()
         parameterModifiers := new List<Ast.ParameterModifier>()
         for parameter in parameters {
             // A FUNCTION TYPE CANNOT CARRY A DIRECTION, so a member with one is not convertible to
@@ -670,12 +709,14 @@ class AnalyzerFunctionTypeFactory {
             }
 
             parameterTypes.Add(converted)
+            parameterNames.Add(parameter.Name ?? "")
             parameterModifiers.Add(Ast.ParameterModifier.None)
         }
 
         signature := new FunctionTypeInfo()
         signature.SyntheticName = method.Name
         signature.SourceName = method.Name
+        signature.ParameterNames = parameterNames
         signature.ParameterTypes = parameterTypes
         signature.ParameterModifiers = parameterModifiers
         signature.ReturnType = returnType

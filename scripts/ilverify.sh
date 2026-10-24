@@ -121,10 +121,20 @@ if [ -z "${DOTNET_ROOT:-}" ]; then
 fi
 export DOTNET_ROOT
 
-# Resolve the ilverify command: prefer the global tool, fall back to the
-# user tools dir which may not be on PATH in minimal shells.
+# Resolve the ilverify command: an explicit NSHARP_ILVERIFY first (the local
+# gate resolves it before isolating HOME), then PATH, then the user tools dir
+# which may not be on PATH in minimal shells. An explicit path that is not an
+# executable is an error, never a silent fall-through to another verifier.
 ILVERIFY_BIN=""
-if command -v ilverify >/dev/null 2>&1; then
+if [ -n "${NSHARP_ILVERIFY:-}" ]; then
+    if [ ! -x "$NSHARP_ILVERIFY" ] || [ -d "$NSHARP_ILVERIFY" ]; then
+        fail "NSHARP_ILVERIFY is not an executable file: $NSHARP_ILVERIFY"
+        echo "    Point it at the ilverify tool, or unset it to search PATH and ~/.dotnet/tools."
+        echo "    Install the tool with: dotnet tool install --global dotnet-ilverify"
+        exit 2
+    fi
+    ILVERIFY_BIN="$NSHARP_ILVERIFY"
+elif command -v ilverify >/dev/null 2>&1; then
     ILVERIFY_BIN="ilverify"
 elif [ -x "$HOME/.dotnet/tools/ilverify" ]; then
     ILVERIFY_BIN="$HOME/.dotnet/tools/ilverify"
@@ -255,6 +265,8 @@ if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
     build_native_test "erased-enum identity" "$REPO_ROOT/tests/native/erased-enum-identity" "$REPO_ROOT/tests/native/erased-enum-identity/bin/Debug/net10.0/tests/NSharpLang.ErasedEnumIdentity.Tests.dll" || BUILD_FAILED=1
     build_native_test "lambda placement" "$REPO_ROOT/tests/native/lambda-placement" "$REPO_ROOT/tests/native/lambda-placement/bin/Debug/net10.0/tests/NSharpLang.LambdaPlacement.Tests.dll" || BUILD_FAILED=1
     build_native_test "record with" "$REPO_ROOT/tests/native/record-with" "$REPO_ROOT/tests/native/record-with/bin/Debug/net10.0/tests/NSharpLang.RecordWith.Tests.dll" || BUILD_FAILED=1
+    build_native_test "record with external" "$REPO_ROOT/tests/native/record-with-external" "$REPO_ROOT/tests/native/record-with-external/bin/Debug/net10.0/tests/NSharpLang.RecordWithExternal.Tests.dll" || BUILD_FAILED=1
+    build_native_test "nullable conversions" "$REPO_ROOT/tests/native/nullable-conversions" "$REPO_ROOT/tests/native/nullable-conversions/bin/Debug/net10.0/tests/NSharpLang.NullableConversions.Tests.dll" || BUILD_FAILED=1
     build_native_test "readonly init" "$REPO_ROOT/tests/native/readonly-init" "$REPO_ROOT/tests/native/readonly-init/bin/Debug/net10.0/tests/NSharpLang.ReadonlyInit.Tests.dll" || BUILD_FAILED=1
     build_native_test "iterator" "$REPO_ROOT/tests/native/iterators" "$REPO_ROOT/tests/native/iterators/bin/Debug/net10.0/tests/NSharpLang.Iterators.Tests.dll" || BUILD_FAILED=1
     build_native_test "pattern foreach" "$REPO_ROOT/tests/native/census-pattern-foreach" "$REPO_ROOT/tests/native/census-pattern-foreach/bin/Debug/net10.0/tests/NSharpLang.PatternForeach.Tests.dll" || BUILD_FAILED=1

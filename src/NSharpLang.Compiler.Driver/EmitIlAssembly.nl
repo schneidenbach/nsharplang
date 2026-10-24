@@ -267,7 +267,7 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
             }
         }
 
-        File.Copy(sourcePath, destinationPath, true)
+        AtomicFile.Copy(sourcePath, destinationPath)
     }
 
     private func LogCompilerDiagnostics(errors: IEnumerable<CompilerError>) {

@@ -123,6 +123,21 @@ func NlcWith(args: string[], workingDirectory: string, environment: Dictionary<s
     return Finish(process, stdin, 180000)
 }
 
+func Git(args: string[], workingDirectory: string): ProcessRun {
+    startInfo := new ProcessStartInfo { FileName: "git", WorkingDirectory: workingDirectory }
+    for argument in args {
+        startInfo.ArgumentList.Add(argument)
+    }
+
+    startInfo.RedirectStandardInput = true
+    startInfo.RedirectStandardOutput = true
+    startInfo.RedirectStandardError = true
+    startInfo.UseShellExecute = false
+    process := new Process { StartInfo: startInfo }
+    process.Start()
+    return Finish(process, null, 30000)
+}
+
 func NoEnvironment(): Dictionary<string, string?> {
     return new Dictionary<string, string?>()
 }

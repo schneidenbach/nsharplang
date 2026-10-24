@@ -8035,7 +8035,7 @@ test "020 s31 analyzer error codes: a `checked`/`unchecked` operand as a `ref` o
 
 test "020 s31 analyzer error codes: non-addressable CLR targets as `ref`/`out` arguments are `NL103`, three rows, and one of them splits the routes one column against two (was AnalyzerTests.RefOutArgument_NonAddressableClrTargets_Error, all 3 [InlineData] rows)" with (statement: string, modifier: string, census: string, row0: string, codeAnchorInvalidSyntax: string, richCensus: string, richCodeAnchorInvalidSyntax: string) [
     ("if Int32.TryParse(\"42\", out checked(result)) { }", "out", "NL103:InvalidSyntax@12:45+6;", "InvalidSyntax|The 'out' argument needs an assignable target|Use a variable, field, or indexed array/SoA column element as the out argument.|Error", "NL103@12:45+6", "NL103:InvalidSyntax@12:45+6;", "NL103@12:45+6"),
-    ("Int32.TryParse(\"42\", out text.Length)", "out", "NL103:InvalidSyntax@12:34+11;", "InvalidSyntax|The 'out' argument needs an assignable target|Use a variable, field, or indexed array/SoA column element as the out argument.|Error", "NL103@12:34+11", "NL103:InvalidSyntax@12:34+11;", "NL103@12:34+11"),
+    ("Int32.TryParse(\"42\", out text.Length)", "out", "NL103:InvalidSyntax@12:34+11;", "InvalidSyntax|'Length' is a property, so it has no storage to pass as the 'out' argument|Copy it into a local, pass the local, and assign the result back to 'Length'.|Error", "NL103@12:34+11", "NL103:InvalidSyntax@12:34+11;", "NL103@12:34+11"),
     ("update(ref items[0])", "ref", "NL103:InvalidSyntax@12:25+1;", "InvalidSyntax|The 'ref' argument needs an assignable target|Use a variable, field, or indexed array/SoA column element as the ref argument.|Error", "NL103@12:25+1", "NL103:InvalidSyntax@12:25+2;", "NL103@12:25+2")
 ] {
     source := "    import System\n    import System.Collections.Generic\n\n    func update(ref value: int) {\n        value += 1\n    }\n\n    func Main() {\n        result := 0\n        text := \"abc\"\n        items := new List<int>()\n        " + statement + "\n    }"
@@ -8065,8 +8065,9 @@ test "020 s31 analyzer error codes: non-addressable CLR targets as `ref`/`out` a
     assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
     assert AcCodeRow(rich, "InvalidSyntax") == row0
     assert AcCodeAnchor(rich, "InvalidSyntax") == richCodeAnchorInvalidSyntax
-    assert AcRow(rich, 0).Contains("'" + modifier + "' argument needs an assignable target")
-    assert AcRow(rich, 0).Contains("as the " + modifier + " argument")
+    // A PROPERTY TARGET IS NAMED AS ONE (`'Length' is a property, so it has no storage to pass as the
+    // 'out' argument`); the other two rows keep the general sentence. Both name the modifier.
+    assert AcRow(rich, 0).Contains("'" + modifier + "' argument")
 }
 
 test "020 s31 analyzer error codes: an array RANGE SLICE as a `ref` argument is its own `NL103` sentence, one column plain against five rich (was AnalyzerTests.RefOutArgument_ArrayRangeSlice_Error)" {
@@ -15459,10 +15460,10 @@ test "020 s33 analyzer clean source: `ReadonlyField_IncrementCurrentInstanceInCo
 }
 
 test "020 s33 analyzer clean source: `InstanceField_InheritedRefOutArgument_Valid` — both `ref` and `out` through an INHERITED field are accepted in silence; the fixture parses to 3 functions + 2 classes and BOTH routes report an EMPTY census (was AnalyzerTests.InstanceField_InheritedRefOutArgument_Valid, both [InlineData] rows)" with (statement: string) [
-    ("bump(ref derived.Value)"),
-    ("reset(out derived.Value)")
+    ("bump(ref derived.count)"),
+    ("reset(out derived.count)")
 ] {
-    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        Value: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        " + statement + "\n    }"
+    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        count: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        " + statement + "\n    }"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=0;FunctionDeclaration:bump;FunctionDeclaration:reset;ClassDeclaration:Base;ClassDeclaration:Derived;FunctionDeclaration:Mutate;"
@@ -15730,8 +15731,8 @@ test "020 s33 analyzer clean source: V-CONTROL for `ReadonlyField_SetInConstruct
     assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@6:21+2"
 }
 
-test "020 s33 analyzer clean source: V-CONTROL for `InstanceField_InheritedRefOutArgument_Valid`: point the `ref` argument at a field the base class does not declare and the inherited-member lookup reports `NL303` — so the silent row really did resolve `Value` THROUGH the base" {
-    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        Value: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        bump(ref derived.Missing)\n    }"
+test "020 s33 analyzer clean source: V-CONTROL for `InstanceField_InheritedRefOutArgument_Valid`: point the `ref` argument at a field the base class does not declare and the inherited-member lookup reports `NL303` — so the silent row really did resolve `count` THROUGH the base" {
+    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        count: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        bump(ref derived.Missing)\n    }"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=0;FunctionDeclaration:bump;FunctionDeclaration:reset;ClassDeclaration:Base;ClassDeclaration:Derived;FunctionDeclaration:Mutate;"
@@ -17680,34 +17681,30 @@ test "020 s34 analyzer clean source: S-CONTROL, the DEFAULTING GETTERS: an untou
     assert AcConfigShape("<unset>", "<unset>") == "Sdk=Microsoft.NET.Sdk;TargetFramework=net10.0;Dependencies=0;TestDependencies=0;"
 }
 
-test "020 s34 analyzer clean source: S-CONTROL, the WHOLE TRIGGER IS THE SUBSTRING: `Sdk = Web` alone makes `AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup` clean, exactly as the twenty-character `Microsoft.NET.Sdk.Web` does — production tests `Sdk.Contains(Web)` and nothing else" {
+test "020 s34 analyzer clean source: S-CONTROL, the TRIGGER IS MSBUILD'S EXACT SDK ID: `Sdk = Web` alone is NOT the Web SDK, so the project does not reference ASP.NET Core and `AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup`'s ASP.NET Core imports are `NL704` — production asks `IsMsBuildImplicitFramework`, which only the whole `Microsoft.NET.Sdk.Web` satisfies, as `dotnet build` does" {
     source := "\n            import System.Threading.Tasks\n            import Microsoft.AspNetCore.Builder\n            import Microsoft.AspNetCore.Http\n\n            class Routes {\n                func Map(app: WebApplication) {\n                    app.MapGet(\"/api/issues\", HandleList)\n                }\n\n                func HandleList(context: HttpContext): Task {\n                    return context.Response.WriteAsync(\"ok\")\n                }\n            }\n        "
     assert AcParseCensus(source) == ""
     analysis := AcAnalyzeWithConfig(source, "Web", "<unset>")
-    assert AcCensus(analysis) == ""
-    assert AcHasErrors(analysis) == "False"
-    assert AcErrorCount(analysis) == 0
-    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCensus(analysis).Contains("NL704:NamespaceNotFound"), AcCensus(analysis)
+    assert AcHasErrors(analysis) == "True"
 }
 
-test "020 s34 analyzer clean source: S-CONTROL, `TargetFramework` IS DEAD: setting only `TargetFramework` leaves `AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup` reporting the same `NL411` it reports with no config at all — the field is consumed only by `LoadProjectReference`, which an empty `Dependencies` list can never reach" {
+test "020 s34 analyzer clean source: S-CONTROL, A CONFIG WITH ONLY `TargetFramework` IS A NON-WEB PROJECT: it does not reference ASP.NET Core, so `AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup`'s ASP.NET Core imports are `NL704`, as under `dotnet build`" {
     source := "\n            import System.Threading.Tasks\n            import Microsoft.AspNetCore.Builder\n            import Microsoft.AspNetCore.Http\n\n            class Routes {\n                func Map(app: WebApplication) {\n                    app.MapGet(\"/api/issues\", HandleList)\n                }\n\n                func HandleList(context: HttpContext): Task {\n                    return context.Response.WriteAsync(\"ok\")\n                }\n            }\n        "
     assert AcParseCensus(source) == ""
     analysis := AcAnalyzeWithConfig(source, "<unset>", "net10.0")
-    assert AcCensus(analysis) == "NL411:MethodGroupUsedAsValue@8:47+10;"
+    // A PROJECT THAT DOES NOT REFERENCE ASP.NET CORE CANNOT IMPORT IT, as under `dotnet build`.
+    assert AcCensus(analysis).Contains("NL704:NamespaceNotFound"), AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "MethodGroupUsedAsValue|Method 'HandleList' must be called or passed to a delegate|Call `HandleList(...)`, or pass `HandleList` to a parameter with a delegate type.|Error"
 }
 
-test "020 s34 analyzer clean source: S-CONTROL, THE NON-WEB SDK: `Sdk = Microsoft.NET.Sdk` loads nothing and the fixture still reports — the silence in the seventeen config contracts is bought by the four characters `.Web` and by nothing else" {
+test "020 s34 analyzer clean source: S-CONTROL, THE NON-WEB SDK: `Sdk = Microsoft.NET.Sdk` does not reference ASP.NET Core, so the fixture's ASP.NET Core imports are `NL704` — the silence in the seventeen config contracts is bought by the Web SDK and by nothing else" {
     source := "\n            import System.Threading.Tasks\n            import Microsoft.AspNetCore.Builder\n            import Microsoft.AspNetCore.Http\n\n            class Routes {\n                func Map(app: WebApplication) {\n                    app.MapGet(\"/api/issues\", HandleList)\n                }\n\n                func HandleList(context: HttpContext): Task {\n                    return context.Response.WriteAsync(\"ok\")\n                }\n            }\n        "
     assert AcParseCensus(source) == ""
     analysis := AcAnalyzeWithConfig(source, "Microsoft.NET.Sdk", "<unset>")
-    assert AcCensus(analysis) == "NL411:MethodGroupUsedAsValue@8:47+10;"
+    // A PROJECT THAT DOES NOT REFERENCE ASP.NET CORE CANNOT IMPORT IT, as under `dotnet build`.
+    assert AcCensus(analysis).Contains("NL704:NamespaceNotFound"), AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "MethodGroupUsedAsValue|Method 'HandleList' must be called or passed to a delegate|Call `HandleList(...)`, or pass `HandleList` to a parameter with a delegate type.|Error"
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════

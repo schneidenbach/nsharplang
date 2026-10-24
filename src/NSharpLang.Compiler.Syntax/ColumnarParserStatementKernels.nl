@@ -5,6 +5,8 @@
 // 2,061 lines were fifteen files mechanically concatenated behind `// ---- X.nl ----` markers --
 // a bootstrap artifact of the Dogfood assembly, not a design. Split back by concern; every line
 // below is a verbatim move.
+import NSharpLang.Compiler
+
 func ParseBlockStatementNodeCore(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     blockStart := tokens.Starts[st.Pos]
     st.Pos = st.Pos + 1
@@ -134,6 +136,17 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
 
     kind := tokens.Kinds[start]
 
+    // A reserved word followed by a binding shape is a name here, even when that token normally
+    // dispatches to a statement (`return := 1`, `if: int = 1`). Use the same grammar predicate as
+    // recovery before any keyword-specific statement arm can claim it.
+    followingType := TokenType.Eof
+    if start + 1 < count {
+        followingType = (TokenType)tokens.Kinds[start + 1]
+    }
+    if ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, followingType) {
+        return ParseSimpleStatementNode(tokens, count, st, argStack, nodes, children)
+    }
+
     if kind == 129 {
         return ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth)
     }
@@ -151,9 +164,8 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
     // optional exception FILTER as a kind-84 wrapper. All FOUR
     // production catch forms (Parser.cs:3016-3051): bare `catch {`, parenthesized `catch (e: T) {` /
     // `catch (T) {` / `catch (T e) {`, and paren-less `catch e: T {` -- each optionally followed by
-    // `when <expr>`. The TYPE must be a single Identifier
-    // token (the emitter's BCL exception whitelist needs no more). Zero catches are valid WITH a finally
-    // (`try {} finally {}`); a try with neither refuses. All bodies must be `{ }` BLOCKS.
+    // `when <expr>`. The TYPE must be an Identifier, optionally qualified by `.Identifier` segments.
+    // Zero catches are valid WITH a finally (`try {} finally {}`); a try with neither refuses. All bodies must be `{ }` BLOCKS.
     if kind == 38 {
         tryStart := tokens.Starts[start]
         st.Pos = start + 1
@@ -187,18 +199,20 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
                         return -1
                     }
 
+                    typeEnd := ColumnarCatchTypeEnd(tokens, count, st.Pos)
                     typeStart = tokens.Starts[st.Pos]
-                    typeLen = tokens.ValueLengths[st.Pos]
-                    st.Pos = st.Pos + 1
+                    typeLen = tokens.Starts[typeEnd - 1] + tokens.ValueLengths[typeEnd - 1] - typeStart
+                    st.Pos = typeEnd
                 } else {
                     if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
                         st.ArgStackTop = tryArgBase
                         return -1
                     }
 
+                    typeEnd := ColumnarCatchTypeEnd(tokens, count, st.Pos)
                     typeStart = tokens.Starts[st.Pos]
-                    typeLen = tokens.ValueLengths[st.Pos]
-                    st.Pos = st.Pos + 1
+                    typeLen = tokens.Starts[typeEnd - 1] + tokens.ValueLengths[typeEnd - 1] - typeStart
+                    st.Pos = typeEnd
                     if st.Pos < count && tokens.Kinds[st.Pos] == 0 {
                         nameStart = tokens.Starts[st.Pos]
                         nameLen = tokens.ValueLengths[st.Pos]
@@ -221,9 +235,10 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
                     return -1
                 }
 
+                typeEnd := ColumnarCatchTypeEnd(tokens, count, st.Pos)
                 typeStart = tokens.Starts[st.Pos]
-                typeLen = tokens.ValueLengths[st.Pos]
-                st.Pos = st.Pos + 1
+                typeLen = tokens.Starts[typeEnd - 1] + tokens.ValueLengths[typeEnd - 1] - typeStart
+                st.Pos = typeEnd
             }
 
             // `catch <binding> when <expr> { }` -- the EXCEPTION FILTER. The guard sits between the
@@ -498,13 +513,13 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         // kind 76. The `Identifier :` prefix is shared with a C-style header whose initializer is
         // annotated, so the type span is scanned STRUCTURALLY to a depth-0 `in` (28) and the arm is
         // taken only when one is found; anything else falls through to the C-style parse below.
-        if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 && ParserTypedForeachInIndex(tokens, count, st.Pos + 2) >= 0 {
+        if st.Pos + 1 < count && (tokens.Kinds[st.Pos] == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(tokens.Kinds[st.Pos])) && tokens.Kinds[st.Pos + 1] == 122 && ParserTypedForeachInIndex(tokens, count, st.Pos + 2) >= 0 {
             return ParseTypedForeachTailNode(tokens, count, st, argStack, nodes, children, depth, forStart, st.Pos)
         }
 
         // Production accepts Go-style `for <var> in <collection> { body }` as a foreach spelling. Reuse
         // the existing ForeachStatement node shape so lowering stays shared with the `foreach` keyword.
-        if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 28 {
+        if st.Pos + 1 < count && (tokens.Kinds[st.Pos] == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(tokens.Kinds[st.Pos])) && tokens.Kinds[st.Pos + 1] == 28 {
             forVarStart := tokens.Starts[st.Pos]
             forVarLength := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 2
@@ -695,6 +710,18 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
     return ParseSimpleStatementNode(tokens, count, st, argStack, nodes, children)
 }
 
+// WHERE A CATCH CLAUSE'S (OR `assert throws`) EXCEPTION TYPE ENDS: the token after one identifier and any `.identifier` that
+// follow it, so `System.IO.IOException` is one type and a bare `IOException` is the single token it
+// always was. `start` is the first identifier; the answer is always past it.
+func ColumnarCatchTypeEnd(tokens: ParserTokenTable, count: int, start: int): int {
+    end := start + 1
+    while end + 1 < count && tokens.Kinds[end] == ColumnarTokenKindFacts.DotKind && tokens.Kinds[end + 1] == 0 {
+        end = end + 2
+    }
+
+    return end
+}
+
 // THE INDEX OF THE `in` (28) THAT CLOSES AN ANNOTATED LOOP VARIABLE'S TYPE, or -1 when the tokens
 // from `typeFirst` are not a type followed by one. Balanced angles (`>>` 112 closes two) and ()/[]
 // groups are tracked so a `Dictionary<string, int>` or a `(int, int)` annotation is crossed whole;
@@ -814,6 +841,42 @@ func ScanTupleDeconstructionTargetList(tokens: ParserTokenTable, count: int, ope
 func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable): int {
     start := st.Pos
     kind := tokens.Kinds[start]
+
+    // Reserved tokens that look like bindings must pass through the expression kernel before
+    // keyword-specific statement arms (`return`, `throw`, and similar) can claim them. The unary
+    // kernel materializes the reserved spelling as an identifier; this arm then converts `:=` to
+    // the same local-declaration node as an ordinary identifier, or wraps an assignment as a stmt.
+    followingType := TokenType.Eof
+    if start + 1 < count {
+        followingType = (TokenType)tokens.Kinds[start + 1]
+    }
+    if ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, followingType) {
+        bindingRoot := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+        if bindingRoot < 0 {
+            return -1
+        }
+
+        if st.Pos < count && tokens.Kinds[st.Pos] == 121 && nodes.Kinds[bindingRoot] == 6 {
+            nameStart := tokens.Starts[start]
+            nameLength := tokens.ValueLengths[start]
+            st.Pos = st.Pos + 1
+            initializer := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+            if initializer < 0 {
+                return -1
+            }
+
+            initializerEnd := nodes.SpanStarts[initializer] + nodes.SpanLengths[initializer]
+            childRunStart := st.ChildCursor
+            AppendExpressionChild(st, children, initializer)
+            return EmitExpressionNode(st, nodes, 24, nameStart, nameLength, childRunStart, 1, nameStart, initializerEnd - nameStart)
+        }
+
+        expressionStart := nodes.SpanStarts[bindingRoot]
+        expressionEnd := expressionStart + nodes.SpanLengths[bindingRoot]
+        childRunStart := st.ChildCursor
+        AppendExpressionChild(st, children, bindingRoot)
+        return EmitExpressionNode(st, nodes, 23, -1, 0, childRunStart, 1, expressionStart, expressionEnd - expressionStart)
+    }
 
     // `off <handle>` -- OffStatement kind 80, ONE child [handle]. The handle parses at the assignment
     // level, so `off subs[0]` and `off this.sub` reach the same slot as a bare name.
@@ -951,7 +1014,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
 
     // `assert <cond> [, <msg>]` (Assert 74) -- AssertStatement kind 61, children [condition, message?].
     // `assert throws <TypeName> { body }` -- AssertThrowsStatement kind 62, the exception TYPE name
-    // token in the value span, ONE child [body block]. `throws` is a CONTEXTUAL identifier compared
+    // (an Identifier, optionally qualified by `.Identifier` segments) in the value span, ONE child [body block]. `throws` is a CONTEXTUAL identifier compared
     // via st.Source (Parser.cs ParseAssertStatement checks the identifier text the same way); an
     // entry with no source text cannot match, so the throws form declines there (under-accept).
     if kind == 74 {
@@ -967,9 +1030,10 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
                 return -1
             }
 
+            throwsTypeEnd := ColumnarCatchTypeEnd(tokens, count, st.Pos)
             throwsTypeStart := tokens.Starts[st.Pos]
-            throwsTypeLength := tokens.ValueLengths[st.Pos]
-            st.Pos = st.Pos + 1
+            throwsTypeLength := tokens.Starts[throwsTypeEnd - 1] + tokens.ValueLengths[throwsTypeEnd - 1] - throwsTypeStart
+            st.Pos = throwsTypeEnd
             while st.Pos < count && tokens.Kinds[st.Pos] == 136 {
                 st.Pos = st.Pos + 1
             }
@@ -1209,10 +1273,10 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
     // no initializer never finds a depth-0 `=` and refuses; `let name := init` is unmodeled (-1).
     isTypedLocal := false
     typedNameIndex := start
-    if kind == 19 && start + 2 < count && tokens.Kinds[start + 1] == 0 && tokens.Kinds[start + 2] == 122 {
+    if kind == 19 && start + 2 < count && (tokens.Kinds[start + 1] == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(tokens.Kinds[start + 1])) && tokens.Kinds[start + 2] == 122 {
         isTypedLocal = true
         typedNameIndex = start + 1
-    } else if kind == 0 && start + 1 < count && tokens.Kinds[start + 1] == 122 {
+    } else if (kind == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(kind)) && start + 1 < count && tokens.Kinds[start + 1] == 122 {
         isTypedLocal = true
     }
 
@@ -1308,7 +1372,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         return EmitExpressionNode(st, nodes, 40, typeSpanStart, typeSpanEnd - typeSpanStart, typedChildRunStart, 2, declStart, typedInitEnd - declStart)
     }
 
-    if kind == 0 && start + 1 < count && tokens.Kinds[start + 1] == 121 {
+    if (kind == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(kind)) && start + 1 < count && tokens.Kinds[start + 1] == 121 {
         nameStart := tokens.Starts[start]
         nameLength := tokens.ValueLengths[start]
         st.Pos = start + 2

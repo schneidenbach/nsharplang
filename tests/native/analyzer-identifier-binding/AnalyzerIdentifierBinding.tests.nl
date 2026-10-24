@@ -260,7 +260,7 @@ func BoundMemberCensus(analysis: object, identifier: string): string {
 
 // ---- contracts ----
 
-test "020 s23 analyzer binding: the identifier behind a bare dot binds to the DECLARED class type, whose name, anchor and one-field member list are all stated, and analysis itself reports nothing (was AstNodeFinderTests.ReturnsIncompleteMemberAccessAtDotCursor, analyzer half)" {
+test "020 s23 analyzer binding: the identifier behind a bare dot binds to the DECLARED class type, whose name, anchor and one-property member list are all stated, and analysis itself reports nothing (was AstNodeFinderTests.ReturnsIncompleteMemberAccessAtDotCursor, analyzer half)" {
     source := "\nclass Person {\n    Name: string\n}\n\nfunc main(): void\n    let p = new Person()\n    p."
     analysis := AnalyzeSource(source, "test.nl", null)
 
@@ -268,7 +268,7 @@ test "020 s23 analyzer binding: the identifier behind a bare dot binds to the DE
     assert BoundKind(analysis, "p") == "ClassTypeInfo"
     assert BoundName(analysis, "p") == "Person"
     assert BoundAnchor(analysis, "p") == "2:1"
-    assert BoundMemberCensus(analysis, "p") == "Name:field@3:5;"
+    assert BoundMemberCensus(analysis, "p") == "Name:property@3:5;"
 }
 
 test "020 s23 analyzer binding: the three-member class binds the same way and its member census pins ORDER, KIND and ANCHOR where the deleted assertions asked only whether a name was present (was AstNodeFinderTests.ReturnsIncompleteMemberAccessForCompletionSource, analyzer half)" {
@@ -279,7 +279,7 @@ test "020 s23 analyzer binding: the three-member class binds the same way and it
     assert BoundKind(analysis, "p") == "ClassTypeInfo"
     assert BoundName(analysis, "p") == "Person"
     assert BoundAnchor(analysis, "p") == "2:1"
-    assert BoundMemberCensus(analysis, "p") == "Name:field@3:5;Age:field@4:5;Greet:function@6:5;"
+    assert BoundMemberCensus(analysis, "p") == "Name:property@3:5;Age:property@4:5;Greet:function@6:5;"
 }
 
 test "020 s23 analyzer binding: the file path and project root the deleted methods varied between them do not move the binding — the three-member fixture analysed as an anonymous test file with NO project root answers byte-identically" {

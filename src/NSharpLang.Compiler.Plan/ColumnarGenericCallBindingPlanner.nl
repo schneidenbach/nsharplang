@@ -30,7 +30,11 @@ class ColumnarGenericCallBindingPlanner {
             return false
         }
 
-        if !actual.IsGenericParameter && RuntimeTypeShapeFacts.ContainsBuilderBoundType(actual) && !(actual is TypeBuilder) && !(actual is EnumBuilder) {
+        // A builder-bound argument binds when it is a type this compilation declares — a definition
+        // (`Person`), or a CLOSED instantiation of one (`Box<string>`, an anonymous object's
+        // `<>f__AnonymousType0<string, int>`). An external generic closed over a builder
+        // (`List<Person>`) is still not bound here.
+        if !actual.IsGenericParameter && RuntimeTypeShapeFacts.ContainsBuilderBoundType(actual) && !(actual is TypeBuilder) && !(actual is EnumBuilder) && !ColumnarTypeOfPlanner.IsClosedSourceGeneric(actual) {
             return false
         }
         if !actual.IsGenericParameter && !ColumnarTypeOfPlanner.IsSupportedType(actual) {
@@ -40,7 +44,9 @@ class ColumnarGenericCallBindingPlanner {
             binding[position] = actual
             return true
         }
-        return Object.ReferenceEquals(binding[position], actual) || binding[position] == actual
+        // `MakeGenericType` hands back a fresh instantiation object on every call, so two mentions of
+        // the same closed source generic are compared by SHAPE, not by reference.
+        return Object.ReferenceEquals(binding[position], actual) || binding[position] == actual || RuntimeTypeShapeFacts.ExactTypeShapeMatches(binding[position], actual)
     }
 
     static func TryUnifyGenericCallArgument(

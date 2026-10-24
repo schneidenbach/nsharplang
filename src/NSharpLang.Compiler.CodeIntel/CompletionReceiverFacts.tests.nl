@@ -353,6 +353,26 @@ test "a source declaration answers before metadata, and an empty declaration doe
     assert reflected.Receiver == "\"abc\""
 }
 
+test "an anonymous object offers its properties and object's members, and nothing static" {
+    properties := new List<AnonymousObjectPropertyInfo>()
+    properties.Add(new AnonymousObjectPropertyInfo("Name", BuiltInTypes.String, 2, 18))
+    properties.Add(new AnonymousObjectPropertyInfo("Age", BuiltInTypes.Int, 2, 33))
+    anonymous: TypeInfo = new AnonymousObjectTypeInfo(properties, null, 2, 12)
+
+    answered := CompletionReceiverFacts.ResolveMemberCompletions(anonymous, "person", CrfNoModels(), new Dictionary<string, List<CompletionItem>>(), CompletionMemberFilter.InstanceOnly, CrfNoUnits(), "")
+    assert answered != null
+    assert answered.ReceiverType == "new { Name: string, Age: int }", answered.ReceiverType ?? "<null>"
+    // The completion list is grouped and ordered by name, like every other receiver's.
+    assert CrfItemNames(answered, "properties") == "Age,Name", CrfItemNames(answered, "properties")
+    nameItem := CrfCompletionItem(answered, "properties", "Name")
+    assert nameItem != null
+    assert nameItem?.Type == "string"
+    assert CrfCompletionItem(answered, "methods", "ToString") != null
+    assert CrfCompletionItem(answered, "methods", "Equals") != null
+
+    assert CompletionReceiverFacts.ResolveMemberCompletions(anonymous, "person", CrfNoModels(), new Dictionary<string, List<CompletionItem>>(), CompletionMemberFilter.StaticOnly, CrfNoUnits(), "") == null
+}
+
 test "the three doors are tried in order and an empty answer is still a member-access answer" {
     access: Expression = CrfAccess(CrfName("person", 3, 5), "Name", 3, 5)
     unit := CrfUnitWithExpression(access, 3, 5)

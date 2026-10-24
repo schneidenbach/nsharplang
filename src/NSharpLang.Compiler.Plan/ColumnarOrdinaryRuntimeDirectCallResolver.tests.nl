@@ -181,7 +181,8 @@ test "ordinary runtime direct calls reject incompatible and equal-score ambiguou
     // must reject that tie independent of reflection's method enumeration order.
     mathType := RequiredOrdinaryRuntimeType("System.Math")
     ambiguous := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(mathType, "Abs", OrdinaryRuntimeArgumentTypes1(typeof(char)), true)
-    assert ambiguous.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected
+    assert ambiguous.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous
+    assert ambiguous.IsAmbiguous
     assert ambiguous.IsOwnedRejected
     assert ambiguous.Method == null
 }
@@ -378,7 +379,8 @@ test "ordinary runtime builder-bound candidate seams reject ambiguity and corrup
     duplicate[0] = add
     duplicate[1] = add
     ambiguous := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveFromCandidates(listType, "Add", arguments, false, duplicate)
-    assert ambiguous.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected
+    assert ambiguous.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous
+    assert ambiguous.IsAmbiguous
     assert ambiguous.IsOwnedRejected
     assert ambiguous.Method == null
 

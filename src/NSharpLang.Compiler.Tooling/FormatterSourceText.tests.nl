@@ -511,6 +511,10 @@ test "the gap between the imports and the first comment normalises to one blank 
 // A SINGLE property stays inline however long the line is — wrapping one property buys nothing.
 test "a short initializer stays on one line and its empty constructor parentheses go" {
     assert FstFormat("func Test() {\n    x := new Foo() { A: 1, B: 2 }\n}") == "func Test() {|    x := new Foo { A: 1, B: 2 }|}"
+    // Without a type name the `()` is the difference between a target-typed `new` and an anonymous
+    // object, so it is never dropped — and an empty initializer is `{ }`.
+    assert FstFormat("func Test() {\n    x: Foo = new() { A: 1 }\n}") == "func Test() {|    x: Foo = new() { A: 1 }|}", FstFormat("func Test() {\n    x: Foo = new() { A: 1 }\n}")
+    assert FstFormat("func Test() {\n    x := new { A: 1 }\n    y := new { }\n}") == "func Test() {|    x := new { A: 1 }|    y := new { }|}", FstFormat("func Test() {\n    x := new { A: 1 }\n    y := new { }\n}")
     assert FstFormat("func Test() {\n    x := new SomeVeryLongTypeName() { SomeVeryLongPropertyNameThatExceedsLimit: true }\n}") == "func Test() {|    x := new SomeVeryLongTypeName { SomeVeryLongPropertyNameThatExceedsLimit: true }|}"
 }
 

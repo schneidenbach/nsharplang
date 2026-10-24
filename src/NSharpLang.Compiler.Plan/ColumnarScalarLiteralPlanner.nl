@@ -95,10 +95,20 @@ class ColumnarScalarLiteralPlanner {
             return false
         }
 
-        if literalKind == 0 {
-            if magnitude > 2147483647UL {
-                return false
+        // ECMA-334 §6.4.5.3: an UNSUFFIXED literal is the first of `int`, `uint`, `long`, `ulong` whose
+        // range holds the value, so `4294967295` is `uint` and `5000000000` is `long`. The same
+        // promotion the suffixed arms below already apply by magnitude.
+        if literalKind == 0 && magnitude > 2147483647UL {
+            if magnitude <= 4294967295UL {
+                literalKind = 3
+            } else if magnitude <= 9223372036854775807UL {
+                literalKind = 1
+            } else {
+                literalKind = 2
             }
+        }
+
+        if literalKind == 0 {
             valueIndex := plan.AddInt32((int)magnitude)
             plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
             return true

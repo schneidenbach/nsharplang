@@ -228,9 +228,10 @@ def run_text(command):
 
 def ilverify_versions():
     # The templates-examples-ilverify step promises a same-toolchain skip, so the installed dotnet-ilverify version
-    # salts every step key. Resolve the apphost shim like scripts/ilverify.sh does (PATH first, then the default tool
-    # dir) and read version names from the tool store; invoking ilverify --version would need DOTNET_ROOT wiring we avoid.
-    exe = shutil.which("ilverify")
+    # salts every step key. Resolve the apphost shim like scripts/ilverify.sh does (NSHARP_ILVERIFY, then PATH, then the
+    # default tool dir) and read version names from the tool store; invoking ilverify --version would need DOTNET_ROOT
+    # wiring we avoid.
+    exe = os.environ.get("NSHARP_ILVERIFY") or shutil.which("ilverify")
     if exe is None:
         fallback = os.path.expanduser("~/.dotnet/tools/ilverify")
         exe = fallback if os.access(fallback, os.X_OK) else None
@@ -1594,22 +1595,17 @@ fi
 
 section "Step 10b: IL Verification Gate"
 echo "Running ECMA-335 IL verification over emitted example/fixture and selected native assemblies..."
-echo "(scripts/ilverify.sh is the single source of truth, shared with CI.)"
-if command -v ilverify >/dev/null 2>&1 || [ -x "$HOME/.dotnet/tools/ilverify" ]; then
-    ILVERIFY_OUTPUT=$(mktemp)
-    if "$REPO_ROOT/scripts/ilverify.sh" --built-dirs-file "$ILVERIFY_BUILT_DIRS_FILE" --build-native-tests > "$ILVERIFY_OUTPUT" 2>&1; then
-        tail -1 "$ILVERIFY_OUTPUT"
-        handle_success "IL verification gate"
-    else
-        cat "$ILVERIFY_OUTPUT"
-        handle_error "IL verification gate"
-    fi
-    rm -f "$ILVERIFY_OUTPUT"
+echo "(scripts/ilverify.sh is the single source of truth, shared with CI. It also owns resolving the"
+echo " verifier -- NSHARP_ILVERIFY, then PATH, then ~/.dotnet/tools -- and failing when it is missing.)"
+ILVERIFY_OUTPUT=$(mktemp)
+if "$REPO_ROOT/scripts/ilverify.sh" --built-dirs-file "$ILVERIFY_BUILT_DIRS_FILE" --build-native-tests > "$ILVERIFY_OUTPUT" 2>&1; then
+    tail -1 "$ILVERIFY_OUTPUT"
+    handle_success "IL verification gate"
 else
-    echo -e "${RED}ERROR: dotnet-ilverify is not installed.${NC}"
-    echo "Install it with: dotnet tool install --global dotnet-ilverify"
-    handle_error "IL verification gate (dotnet-ilverify not installed)"
+    cat "$ILVERIFY_OUTPUT"
+    handle_error "IL verification gate"
 fi
+rm -f "$ILVERIFY_OUTPUT"
 
 rm -f "$ILVERIFY_BUILT_DIRS_FILE"
 for temp_dir in "${ILVERIFY_TEMP_DIRS[@]}"; do

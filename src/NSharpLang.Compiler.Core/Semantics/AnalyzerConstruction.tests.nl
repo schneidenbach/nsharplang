@@ -148,6 +148,11 @@ func ConstructionTypeName(candidate: TypeInfo?): string {
         return "class:" + classType.Name
     }
 
+    recordType := candidate as RecordTypeInfo
+    if recordType != null {
+        return "record:" + recordType.Name
+    }
+
     structType := candidate as StructTypeInfo
     if structType != null {
         return "struct:" + structType.Name
@@ -161,6 +166,23 @@ func ConstructionTypeName(candidate: TypeInfo?): string {
     soaType := candidate as SoaRecordTypeInfo
     if soaType != null {
         return "soa:" + soaType.Declaration.Name
+    }
+
+    anonymousType := candidate as AnonymousObjectTypeInfo
+    if anonymousType != null {
+        text := "anonymous{"
+        propertyIndex := 0
+        while propertyIndex < anonymousType.Properties.Count {
+            if propertyIndex > 0 {
+                text = text + ","
+            }
+
+            property := anonymousType.Properties[propertyIndex]
+            text = text + property.Name + ":" + ConstructionTypeName(property.Type)
+            propertyIndex = propertyIndex + 1
+        }
+
+        return text + "}"
     }
 
     return "<other>"
@@ -254,6 +276,14 @@ func ConstructionNewOf(typeName: string?, args: List<Argument>, initializer: Obj
     return new NewExpression(typeReference, args, initializer, 4, 1)
 }
 
+// `new() { ... }` — the parentheses are WRITTEN, which is what makes it target-typed rather than the
+// anonymous object `new { ... }` it would otherwise be.
+func ConstructionTargetTypedNewOf(initializer: ObjectInitializerExpression?): NewExpression {
+    node := new NewExpression(null, ConstructionNoArguments(), initializer, 4, 1)
+    node.HasArgumentList = true
+    return node
+}
+
 func ConstructionSizedArray(typeName: string, length: Expression, args: List<Argument>): NewExpression {
     return new NewExpression(new SimpleTypeReference(typeName, 4, 5), args, null, 4, 1, length)
 }
@@ -323,6 +353,10 @@ func ConstructionPlainClass(name: string): ClassTypeInfo {
     return new ClassTypeInfo(name, 1, 1, false, null, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes(), true)
 }
 
+func ConstructionPlainRecord(name: string): RecordTypeInfo {
+    return new RecordTypeInfo(name, 1, 1, false, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes())
+}
+
 func ConstructionPlainStruct(name: string): StructTypeInfo {
     return new StructTypeInfo(name, 1, 1, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes())
 }
@@ -344,6 +378,21 @@ func ConstructionClosedBox(argument: TypeInfo): TypeInfo {
     arguments := new List<TypeInfo>()
     arguments.Add(argument)
     closed: TypeInfo = new GenericTypeInfo("Box", arguments, ConstructionOpenBox())
+    return closed
+}
+
+func ConstructionOpenRecord(): RecordTypeInfo {
+    typeParameters := new TypeParameter[](1)
+    typeParameters[0] = new TypeParameter("T")
+    membersArray := new DeclaredMemberInfo[](1)
+    membersArray[0] = ConstructionFieldMember("Box", "Item", new SimpleTypeReference("T", 1, 1), false)
+    return new RecordTypeInfo("Box", 1, 1, false, ConstructionEmptyTypeReferences(), typeParameters, ConstructionEmptyParameters(), membersArray, ConstructionEmptyNestedTypes())
+}
+
+func ConstructionClosedRecord(argument: TypeInfo): TypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(argument)
+    closed: TypeInfo = new GenericTypeInfo("Box", arguments, ConstructionOpenRecord())
     return closed
 }
 
@@ -512,6 +561,87 @@ test "an ANONYMOUS object needs no target at all — every entry is named and th
     assert trace.Kinds == "1"
 }
 
+// ---- the anonymous object ------------------------------------------------------------------------
+
+test "an anonymous object ANSWERS the type its entries describe, in written order" {
+    harness := ConstructionArm()
+    entries := ConstructionNoEntries()
+    entries.Add(ConstructionNamedEntry("Name", ConstructionStringLiteral("Alice")))
+    entries.Add(ConstructionNamedEntry("Age", ConstructionIntLiteral("30")))
+    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(entries)))
+    trace := ConstructionDrive(harness, state, ConstructionAnswerPair(BuiltInTypes.String, BuiltInTypes.Int))
+
+    assert trace.Codes == ""
+    assert trace.Kinds == "11"
+    assert trace.Answer == "anonymous{Name:simple:string,Age:simple:int}"
+}
+
+test "an anonymous object is NEVER target-typed, and its values walk with no expected type at all" {
+    harness := ConstructionArm()
+    // `p: Box<Pt> = new { Item: ... }` is an anonymous object written into a slot it does not fit —
+    // the slot's own NL202 says so. The value must not adopt the slot's member type on the way.
+    saved := harness.Ambient.EnterExpectedType(ConstructionClosedBox(ConstructionPlainStruct("Pt")))
+    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(ConstructionOneNamed("Item"))))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.String))
+
+    assert trace.Codes == ""
+    assert trace.ExpectedAtStep == "<null>"
+    assert trace.Answer == "anonymous{Item:simple:string}"
+    assert harness.Ambient.CurrentExpectedType != null
+    harness.Ambient.ExitExpectedType(saved)
+}
+
+test "`new() { ... }` WRITES its parentheses, so it is target-typed and not anonymous" {
+    harness := ConstructionArm()
+    state := harness.Arm.Begin(ConstructionTargetTypedNewOf(ConstructionEntries(ConstructionOneNamed("Name"))))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.String))
+
+    assert trace.Codes == "203"
+    assert trace.Answer == "unknown"
+}
+
+test "an anonymous property cannot take its type from `null` (NL203), and is kept as unknown" {
+    harness := ConstructionArm()
+    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(ConstructionOneNamed("Missing"))))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Null))
+
+    assert trace.Codes == "203"
+    assert harness.Errors[0].Message.Contains("'Missing'")
+    assert harness.Errors[0].Message.Contains("'null'")
+    assert trace.Answer == "anonymous{Missing:unknown}"
+}
+
+test "an anonymous property cannot take its type from a call that returns nothing (NL203)" {
+    harness := ConstructionArm()
+    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(ConstructionOneNamed("Result"))))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Void))
+
+    assert trace.Codes == "203"
+    assert harness.Errors[0].Message.Contains("returns nothing")
+}
+
+test "a property named TWICE in one anonymous object is refused (NL306) and kept once" {
+    harness := ConstructionArm()
+    entries := ConstructionNoEntries()
+    entries.Add(ConstructionNamedEntry("A", ConstructionIntLiteral("1")))
+    entries.Add(ConstructionNamedEntry("A", ConstructionIntLiteral("2")))
+    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(entries)))
+    trace := ConstructionDrive(harness, state, ConstructionAnswerPair(BuiltInTypes.Int, BuiltInTypes.Int))
+
+    assert trace.Codes == "306"
+    assert trace.Answer == "anonymous{A:simple:int}"
+}
+
+test "an anonymous object with no entries is the empty anonymous type" {
+    harness := ConstructionArm()
+    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(ConstructionNoEntries())))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == ""
+    assert trace.Kinds == ""
+    assert trace.Answer == "anonymous{}"
+}
+
 test "a typeless `new` with an INDEXED entry is not anonymous, so it IS refused" {
     harness := ConstructionArm()
     entries := ConstructionNoEntries()
@@ -623,7 +753,7 @@ test "a GENERIC union case ADOPTS a closed expected type of the same name" {
 test "THE FRONT DOOR: a closed-generic initializer value that does not fit its member is REFUSED" {
     harness := ConstructionArm()
     saved := harness.Ambient.EnterExpectedType(ConstructionClosedBox(ConstructionPlainStruct("Pt")))
-    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(ConstructionOneNamed("Item"))))
+    state := harness.Arm.Begin(ConstructionTargetTypedNewOf(ConstructionEntries(ConstructionOneNamed("Item"))))
     trace := ConstructionDrive(harness, state, ConstructionAnswers(ConstructionPlainStruct("Rs")))
     harness.Ambient.ExitExpectedType(saved)
 
@@ -638,7 +768,7 @@ test "THE FRONT DOOR: the matching closed generic passes without a word" {
     // `Pt` built from the same name is a DIFFERENT type and would be refused — which is the point.
     pt := ConstructionPlainStruct("Pt")
     saved := harness.Ambient.EnterExpectedType(ConstructionClosedBox(pt))
-    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(ConstructionOneNamed("Item"))))
+    state := harness.Arm.Begin(ConstructionTargetTypedNewOf(ConstructionEntries(ConstructionOneNamed("Item"))))
     trace := ConstructionDrive(harness, state, ConstructionAnswers(pt))
     harness.Ambient.ExitExpectedType(saved)
 
@@ -649,7 +779,7 @@ test "THE FRONT DOOR brackets the value step with the SUBSTITUTED member type an
     harness := ConstructionArm()
     pt := ConstructionPlainStruct("Pt")
     saved := harness.Ambient.EnterExpectedType(ConstructionClosedBox(pt))
-    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(ConstructionOneNamed("Item"))))
+    state := harness.Arm.Begin(ConstructionTargetTypedNewOf(ConstructionEntries(ConstructionOneNamed("Item"))))
     trace := ConstructionDrive(harness, state, ConstructionAnswers(pt))
     harness.Ambient.ExitExpectedType(saved)
 
@@ -661,7 +791,7 @@ test "THE FRONT DOOR brackets the value step with the SUBSTITUTED member type an
 test "a member the OPEN generic does not declare is reported against the name the developer WROTE" {
     harness := ConstructionArm()
     saved := harness.Ambient.EnterExpectedType(ConstructionClosedBox(ConstructionPlainStruct("Pt")))
-    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(ConstructionOneNamed("Missing"))))
+    state := harness.Arm.Begin(ConstructionTargetTypedNewOf(ConstructionEntries(ConstructionOneNamed("Missing"))))
     trace := ConstructionDrive(harness, state, ConstructionAnswers(ConstructionPlainStruct("Pt")))
     harness.Ambient.ExitExpectedType(saved)
 
@@ -684,7 +814,7 @@ test "an UNRESOLVABLE receiver declines the gate rather than guessing, and the v
     // A target-typed `new` under an `int` annotation: `int` bears no assignable members, so the rule
     // declines before any report and the ambient slot is left exactly as it was.
     saved := harness.Ambient.EnterExpectedType(BuiltInTypes.Int)
-    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), ConstructionEntries(ConstructionOneNamed("Anything"))))
+    state := harness.Arm.Begin(ConstructionTargetTypedNewOf(ConstructionEntries(ConstructionOneNamed("Anything"))))
     trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.String))
     harness.Ambient.ExitExpectedType(saved)
 
@@ -746,17 +876,33 @@ test "EVERY initializer entry is walked, in order" {
 test "a `with` walks its TARGET first and answers the target's type" {
     harness := ConstructionArm()
     state := harness.Arm.BeginWith(ConstructionWithOf(ConstructionNoEntries()))
-    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.String))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(ConstructionPlainRecord("Status")))
 
     assert trace.Kinds == "1"
-    assert trace.Answer == "simple:string"
+    assert trace.Answer == "record:Status"
+}
+
+test "a `with` on a known ordinary class reports the missing record copy contract at its receiver" {
+    harness := ConstructionArm()
+    target := new IdentifierExpression("value", 4, 9)
+    node := new WithExpression(target, ConstructionOneNamed("Item"), 4, 1)
+    state := harness.Arm.BeginWith(node)
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(ConstructionPlainClass("Plain")))
+
+    assert trace.Kinds == "1"
+    assert trace.Answer == "unknown"
+    assert trace.Codes == "202"
+    assert harness.Errors[0].Message == "'Plain' is not a record: it has no '<Clone>$' copy method for 'with' to call"
+    assert harness.Errors[0].Line == 4
+    assert harness.Errors[0].Column == 9
+    assert harness.Errors[0].Length == 5
 }
 
 test "a `with` entry whose member RESOLVED goes through kind 2 — the named-expected-type door" {
     harness := ConstructionArm()
     pt := ConstructionPlainStruct("Pt")
     state := harness.Arm.BeginWith(ConstructionWithOf(ConstructionOneNamed("Item")))
-    answers := ConstructionAnswerPair(ConstructionClosedBox(pt), pt)
+    answers := ConstructionAnswerPair(ConstructionClosedRecord(pt), pt)
     trace := ConstructionDrive(harness, state, answers)
 
     // A `with` value can be a lambda, which the owner cannot simulate by writing the ambient slot.
@@ -767,7 +913,7 @@ test "a `with` entry whose member RESOLVED goes through kind 2 — the named-exp
 test "THE FRONT DOOR, AGAIN: a `with` value that does not fit its member is REFUSED" {
     harness := ConstructionArm()
     state := harness.Arm.BeginWith(ConstructionWithOf(ConstructionOneNamed("Item")))
-    answers := ConstructionAnswerPair(ConstructionClosedBox(ConstructionPlainStruct("Pt")), ConstructionPlainStruct("Rs"))
+    answers := ConstructionAnswerPair(ConstructionClosedRecord(ConstructionPlainStruct("Pt")), ConstructionPlainStruct("Rs"))
     trace := ConstructionDrive(harness, state, answers)
 
     assert trace.Codes == "202"

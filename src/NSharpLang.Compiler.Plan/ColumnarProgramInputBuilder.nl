@@ -1174,7 +1174,8 @@ sealed class ColumnarProgramInputBuilder {
                 fieldColumns.FieldAbstractFlags,
                 fieldColumns.FieldOverrideFlags,
                 fieldColumns.FieldRequiredFlags,
-                fieldColumns.FieldInitOnlyFlags
+                fieldColumns.FieldInitOnlyFlags,
+                fieldColumns.FieldSealedFlags
             )
             structInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, structIndex)
             // A FIELD'S ATTRIBUTES ARE READ FROM ITS OWN DECLARATION POSITION. The member scan records

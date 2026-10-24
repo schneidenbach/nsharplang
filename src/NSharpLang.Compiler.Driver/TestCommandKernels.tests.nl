@@ -3,6 +3,7 @@ namespace NSharpLang.Cli
 import System
 import System.Collections.Generic
 import System.Globalization
+import System.IO
 
 // THE `nlc test` OUTCOME, OPTION, TIMEOUT, MESSAGE AND FILTER KERNELS.
 //
@@ -369,6 +370,51 @@ test "the verbose elapsed number is whole milliseconds, invariant, with no unit"
     assert TestCommandKernels.FormatTestElapsedMilliseconds(1234.6) == "1235"
     assert TestCommandKernels.FormatTestElapsedMilliseconds(0.0) == "0"
     assert !TestCommandKernels.FormatTestElapsedMilliseconds(1234.6).Contains(",")
+}
+
+// ── where a test run finds an assembly ────────────────────────────────────────
+
+func ProbeDirectory(root: string, name: string, assemblies: string[]): string {
+    directory := Path.Combine(root, name)
+    Directory.CreateDirectory(directory)
+    for assembly in assemblies {
+        File.WriteAllText(Path.Combine(directory, assembly + ".dll"), "")
+    }
+
+    return directory
+}
+
+test "the test output directory wins, then the shared frameworks in their declared order" {
+    root := Path.Combine(Path.GetTempPath(), "nlc-test-probe-" + Guid.NewGuid().ToString("N"))
+    try {
+        output := ProbeDirectory(root, "output", ["Fixture", "Shared"])
+        aspNetCore := ProbeDirectory(root, "aspnetcore", ["Shared", "Microsoft.Extensions.Hosting.Abstractions"])
+        windowsDesktop := ProbeDirectory(root, "windowsdesktop", ["Microsoft.Extensions.Hosting.Abstractions", "PresentationCore"])
+        frameworks := new List<string>()
+        frameworks.Add(aspNetCore)
+        frameworks.Add(windowsDesktop)
+
+        assert TestCommandKernels.FindAssemblyCandidatePath(output, frameworks, "Fixture") == Path.Combine(output, "Fixture.dll")
+        assert TestCommandKernels.FindAssemblyCandidatePath(output, frameworks, "Shared") == Path.Combine(output, "Shared.dll")
+        assert TestCommandKernels.FindAssemblyCandidatePath(output, frameworks, "Microsoft.Extensions.Hosting.Abstractions") == Path.Combine(aspNetCore, "Microsoft.Extensions.Hosting.Abstractions.dll")
+        assert TestCommandKernels.FindAssemblyCandidatePath(output, frameworks, "PresentationCore") == Path.Combine(windowsDesktop, "PresentationCore.dll")
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "an assembly no probe directory holds, or a nameless request, is left to the load context" {
+    root := Path.Combine(Path.GetTempPath(), "nlc-test-probe-" + Guid.NewGuid().ToString("N"))
+    try {
+        output := ProbeDirectory(root, "output", ["Fixture"])
+        noFrameworks := new List<string>()
+
+        assert TestCommandKernels.FindAssemblyCandidatePath(output, noFrameworks, "System.Runtime") == null
+        assert TestCommandKernels.FindAssemblyCandidatePath(output, noFrameworks, null) == null
+        assert TestCommandKernels.FindAssemblyCandidatePath(output, noFrameworks, "") == null
+    } finally {
+        Directory.Delete(root, true)
+    }
 }
 
 // ── which verbose sentence prints ─────────────────────────────────────────────

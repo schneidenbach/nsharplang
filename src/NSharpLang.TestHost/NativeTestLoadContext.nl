@@ -1,7 +1,9 @@
 namespace NSharpLang.Cli
 
-import System.IO
+import System
+import System.Collections.Generic
 import System.Reflection
+import System.Runtime.InteropServices
 import System.Runtime.Loader
 
 // THE ONE COLLECTIBLE LOAD CONTEXT `nlc test` OWNS.
@@ -11,19 +13,23 @@ import System.Runtime.Loader
 // assembly would be pinned for the host process's lifetime, which is the leak
 // `tests/native/test-assembly-load-contexts` records the contract for.
 //
-// Resolution order is the same one the C# owner had: the test output directory first, then any
+// Resolution order: the test output directory, then the shared-framework directories the project's
+// `framework:` references resolved to (`TestCommandKernels.FindAssemblyCandidatePath`), then any
 // assembly already present in the DEFAULT context, so the runner's own dependencies (and the BCL)
-// are shared rather than re-loaded into a context that is about to be thrown away.
+// are shared rather than re-loaded into a context that is about to be thrown away. A framework
+// assembly loads HERE, not into the default context, so it is unloaded with the run.
 class NativeTestLoadContext: AssemblyLoadContext {
     assemblyDirectoryValue: string
+    frameworkDirectoriesValue: IReadOnlyList<string>
 
-    constructor(assemblyDirectory: string): base("NativeTestLoadContext", true) {
+    constructor(assemblyDirectory: string, frameworkDirectories: IReadOnlyList<string>): base("NativeTestLoadContext", true) {
         assemblyDirectoryValue = assemblyDirectory
+        frameworkDirectoriesValue = frameworkDirectories
     }
 
     protected override func Load(assemblyName: AssemblyName): Assembly? {
-        candidatePath := TestCommandKernels.GetAssemblyCandidatePath(assemblyDirectoryValue, assemblyName.Name)
-        if File.Exists(candidatePath) {
+        candidatePath := TestCommandKernels.FindAssemblyCandidatePath(assemblyDirectoryValue, frameworkDirectoriesValue, assemblyName.Name)
+        if candidatePath != null {
             return LoadFromAssemblyPath(candidatePath)
         }
 
@@ -34,5 +40,15 @@ class NativeTestLoadContext: AssemblyLoadContext {
         }
 
         return null
+    }
+
+    // A package's `runtimes/<rid>/native/*` library, found by the host's RID fallback order.
+    protected override func LoadUnmanagedDll(unmanagedDllName: string): IntPtr {
+        libraryPath := TestCommandKernels.FindNativeLibraryPath(assemblyDirectoryValue, unmanagedDllName, RuntimeInformation.RuntimeIdentifier)
+        if libraryPath != null {
+            return LoadUnmanagedDllFromPath(libraryPath)
+        }
+
+        return IntPtr.Zero
     }
 }

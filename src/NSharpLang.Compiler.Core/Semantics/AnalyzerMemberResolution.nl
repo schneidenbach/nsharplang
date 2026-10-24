@@ -168,11 +168,11 @@ class AnalyzerMemberResolution {
     // WHAT A MEMBER NAME RESOLVES TO, read as a VALUE. Every caller that is not the callee of a call
     // asks this question.
     func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?): TypeInfo {
-        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, false, false)
+        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, false, false, 0)
     }
 
     func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool): TypeInfo {
-        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, false)
+        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, false, 0)
     }
 
     // WHAT A MEMBER NAME RESOLVES TO. `unknown` is the "no such member" answer; every arm that can
@@ -199,6 +199,13 @@ class AnalyzerMemberResolution {
     // combinations, never `private`, and never `assembly`, because the member lives in another
     // assembly and N# models no `InternalsVisibleTo`.
     func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool, inheritedProtectedAccess: bool): TypeInfo {
+        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, 0)
+    }
+
+    // An explicit generic invocation filters each source type's declared method group by arity before
+    // deciding whether that declaration hides the inherited group. Zero means that no explicit
+    // arity was supplied and keeps the ordinary member read unchanged.
+    func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool, inheritedProtectedAccess: bool, writtenTypeArgumentCount: int): TypeInfo {
         current: TypeInfo = objectType
 
         oblivious := current as ObliviousTypeInfo
@@ -400,7 +407,28 @@ class AnalyzerMemberResolution {
                         // maybe-null in the branch where the BCL guarantees it is present.
                         bindingMethodGroup: TypeInfo = BuiltInTypes.Unknown
                         if TryResolveReflectionMethodGroup(bindingClrType, memberName, includeStaticMembers, true, inheritedProtectedAccess, friendGrants, out bindingMethodGroup) {
+                            // This surrogate path returns before the ordinary reflection member
+                            // path below. Apply the same interface/object signature merge here so
+                            // a method group declared on a surrogate interface does not hide an
+                            // unrelated `object` overload.
+                            surrogateInterfaceGroup := bindingMethodGroup as ReflectionMethodGroupInfo
+                            if surrogateInterfaceGroup != null && bindingClrType.IsInterface && !includeStaticMembers {
+                                joinedSurrogateMethods := JoinInterfaceObjectMethods(memberName, surrogateInterfaceGroup.Methods)
+                                if joinedSurrogateMethods.Length != surrogateInterfaceGroup.Methods.Length {
+                                    return new ReflectionMethodGroupInfo(joinedSurrogateMethods, surrogateInterfaceGroup.Methods[0].Name + "(...)", true)
+                                }
+                            }
+
                             return bindingMethodGroup
+                        }
+
+                        // `object`'s members are an interface-typed value's too, whatever its
+                        // arguments are closed over.
+                        if bindingClrType.IsInterface && !includeStaticMembers {
+                            surrogateObjectMethods := JoinInterfaceObjectMethods(memberName, new MethodInfo[](0))
+                            if surrogateObjectMethods.Length > 0 {
+                                return new ReflectionMethodGroupInfo(surrogateObjectMethods, surrogateObjectMethods[0].Name + "(...)", true)
+                            }
                         }
                     }
                 }
@@ -417,6 +445,14 @@ class AnalyzerMemberResolution {
 
             interfaceMemberType: TypeInfo = BuiltInTypes.Unknown
             if declarationContext.TryResolveRuntimeInterfaceMethodMember(clrType, memberName, includeStaticMembers, out interfaceMemberType) {
+                interfaceGroup := interfaceMemberType as ReflectionMethodGroupInfo
+                if interfaceGroup != null && !includeStaticMembers {
+                    joinedMethods := JoinInterfaceObjectMethods(memberName, interfaceGroup.Methods)
+                    if joinedMethods.Length != interfaceGroup.Methods.Length {
+                        return new ReflectionMethodGroupInfo(joinedMethods, interfaceGroup.Methods[0].Name + "(...)")
+                    }
+                }
+
                 return interfaceMemberType
             }
 
@@ -436,6 +472,16 @@ class AnalyzerMemberResolution {
             if matchingMethods.Count > 0 {
                 firstMatchingMethod := matchingMethods[0]
                 return new ReflectionMethodGroupInfo(matchingMethods.ToArray(), firstMatchingMethod.Name + "(...)")
+            }
+
+            // AN INTERFACE-TYPED VALUE HAS `object`'S MEMBERS TOO (C# §12.5 member lookup: the base
+            // types of an interface are its base interfaces and `object`). Metadata never lists them on
+            // the interface, so `list.ToString()` missed here and was reported as NL303.
+            if clrType.IsInterface && !includeStaticMembers {
+                objectMethods := JoinInterfaceObjectMethods(memberName, new MethodInfo[](0))
+                if objectMethods.Length > 0 {
+                    return new ReflectionMethodGroupInfo(objectMethods, objectMethods[0].Name + "(...)")
+                }
             }
 
             // A NESTED TYPE IS A STATIC MEMBER OF A REFLECTED OWNER, as it is of a declared one below.
@@ -496,8 +542,22 @@ class AnalyzerMemberResolution {
             }
 
             declaredFunctionMember := ResolveDeclaredFunctionMember(sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, sourceShape.Owner)
+            mismatchedDeclaredFunctionMember: TypeInfo? = null
             if declaredFunctionMember != null {
-                return declaredFunctionMember
+                resolvedFunctionMember := declaredFunctionMember
+                if !includeStaticMembers && sourceShape.Owner as InterfaceTypeInfo != null {
+                    resolvedFunctionMember = JoinSourceInterfaceObjectMethods(memberName, declaredFunctionMember)
+                }
+
+                if writtenTypeArgumentCount == 0 || MethodGroupHasArity(resolvedFunctionMember, writtenTypeArgumentCount) {
+                    return resolvedFunctionMember
+                }
+
+                // Keep the unmatched group as the diagnostic fallback. A written type-argument
+                // count filters members while walking the base chain, but if no inherited method
+                // matches, the caller still needs the original group to report NL207 rather than
+                // turning a known method into an uncallable value (NL413).
+                mismatchedDeclaredFunctionMember = declaredFunctionMember
             }
 
             if !includeStaticMembers && sourceShape.SupportsPrimaryParameters {
@@ -516,7 +576,7 @@ class AnalyzerMemberResolution {
 
             declaredBaseType := sourceShape.BaseType
             if declaredBaseType != null {
-                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess)
+                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, writtenTypeArgumentCount)
                 if !BuiltInTypes.IsUnknown(baseMember) {
                     return baseMember
                 }
@@ -528,10 +588,14 @@ class AnalyzerMemberResolution {
             // walk is a full re-resolution per base, in written order, exactly as the base-class walk
             // above is, so generic substitution and the base's OWN bases are carried along.
             for baseInterface2 in sourceShape.BaseInterfaces {
-                baseInterfaceMember := ResolveMember(baseInterface2, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess)
+                baseInterfaceMember := ResolveMember(baseInterface2, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, writtenTypeArgumentCount)
                 if !BuiltInTypes.IsUnknown(baseInterfaceMember) {
                     return baseInterfaceMember
                 }
+            }
+
+            if mismatchedDeclaredFunctionMember != null {
+                return mismatchedDeclaredFunctionMember
             }
 
             if !includeStaticMembers && sourceShape.SupportsObjectMembers {
@@ -554,6 +618,29 @@ class AnalyzerMemberResolution {
                 if TryResolveSourceObjectMember(memberName, out tupleObjectMember) {
                     return tupleObjectMember
                 }
+            }
+        }
+
+        // AN ANONYMOUS OBJECT'S PROPERTIES, then `object`'s instance surface. Its type has no name, so
+        // there is nothing static to reach through it, and no extension can be declared against it
+        // except over `object` or a type parameter — both of which the fall-through below still asks.
+        anonymousObject := current as AnonymousObjectTypeInfo
+        if anonymousObject != null && !includeStaticMembers {
+            anonymousProperty := anonymousObject.FindProperty(memberName)
+            if anonymousProperty != null && AnswersInPosition(anonymousProperty.Type, invocationPosition) {
+                return anonymousProperty.Type
+            }
+
+            // The synthesized `ToString` override renders `{ Name = Alice }` and never answers null,
+            // so it is typed as the `string` it returns rather than as `object.ToString()`'s `string?`
+            // — the same signature shape the nullable members are modelled with.
+            if memberName == "ToString" {
+                return CreateSoaIntrinsic("ToString", BuiltInTypes.String)
+            }
+
+            anonymousObjectMember: TypeInfo = BuiltInTypes.Unknown
+            if TryResolveSourceObjectMember(memberName, out anonymousObjectMember) {
+                return anonymousObjectMember
             }
         }
 
@@ -627,6 +714,55 @@ class AnalyzerMemberResolution {
         return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
     }
 
+    static func MethodGroupHasArity(member: TypeInfo, arity: int): bool {
+        function := member as FunctionTypeInfo
+        if function != null {
+            return FunctionHasArity(function, arity)
+        }
+
+        sourceGroup := member as NSharpMethodGroupInfo
+        if sourceGroup != null {
+            for candidate in NSharpMethodGroupInfoFactory.GetFunctions(sourceGroup) {
+                if FunctionHasArity(candidate, arity) {
+                    return true
+                }
+            }
+        }
+
+        reflectedMethod := member as ReflectionMethodInfo
+        if reflectedMethod != null {
+            return ReflectionMethodHasArity(reflectedMethod.Method, arity)
+        }
+
+        reflectedGroup := member as ReflectionMethodGroupInfo
+        if reflectedGroup != null {
+            for candidate in reflectedGroup.Methods {
+                if ReflectionMethodHasArity(candidate, arity) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    static func FunctionHasArity(function: FunctionTypeInfo, arity: int): bool {
+        if function == null || arity < 0 {
+            return false
+        }
+        return (function.TypeParameters?.Count ?? 0) == arity
+    }
+
+    static func ReflectionMethodHasArity(method: MethodInfo, arity: int): bool {
+        if method == null || arity < 0 {
+            return false
+        }
+        if !method.IsGenericMethodDefinition {
+            return arity == 0
+        }
+        return method.GetGenericArguments().Length == arity
+    }
+
     // THE WORD A DIAGNOSTIC USES FOR A VALUE MEMBER — `field`, `property`, `event`, `constructor
     // parameter` — found where go-to-definition finds it: the source declaration chain first, then the
     // metadata of the first REFERENCED type the chain reaches (`class Bag: List<string>` names `Count`
@@ -634,6 +770,11 @@ class AnalyzerMemberResolution {
     // at all — a method or a nested type — so a caller never tells a developer their method is a field.
     func DescribeValueMemberKind(owner: TypeInfo, memberName: string): string? {
         current := declarationContext.ResolveDeclaredAlias(owner)
+        anonymousOwner := current as AnonymousObjectTypeInfo
+        if anonymousOwner != null && anonymousOwner.FindProperty(memberName) != null {
+            return "property"
+        }
+
         selection := new AnalyzerMemberSelection()
         if declarationContext.TryFindMember(current, memberName, out selection) {
             if selection.KindName == "field" || selection.KindName == "property" || selection.KindName == "event" {
@@ -724,7 +865,7 @@ class AnalyzerMemberResolution {
 
         typeOverride := AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType)
         memberFlags := GetReflectionMemberFlags(includeStaticMembers)
-        property := definition.GetProperty(memberName, memberFlags)
+        property := ReflectedMemberLookup.FindProperty(definition, memberName, memberFlags)
         if property != null {
             memberType = NullabilityMetadataReflection.ConvertPropertyWithOverride(property, typeOverride)
             return true
@@ -812,7 +953,7 @@ class AnalyzerMemberResolution {
         }
 
         memberFlags := GetReflectionMemberFlags(includeStaticMembers)
-        property := definition.GetProperty(memberName, memberFlags)
+        property := ReflectedMemberLookup.FindProperty(definition, memberName, memberFlags)
         if property != null && property.DeclaringType == definition && MentionsTypeParameter(property.PropertyType) {
             memberType = NullabilityMetadataReflection.ConvertPropertyWithOverride(property, AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType))
             return true
@@ -1120,7 +1261,7 @@ class AnalyzerMemberResolution {
     static func TryResolveReflectionMemberOnType(reflectedType: Type, memberName: string, includeStaticMembers: bool, inheritedProtectedAccess: bool, grants: InternalsVisibleToGrants?, out memberType: TypeInfo): bool {
         memberFlags := GetReflectionMemberFlags(includeStaticMembers, inheritedProtectedAccess, FriendAdmits(grants, reflectedType))
 
-        property := reflectedType.GetProperty(memberName, memberFlags)
+        property := ReflectedMemberLookup.FindProperty(reflectedType, memberName, memberFlags)
         if property != null && IsReachableReflectedProperty(property, inheritedProtectedAccess, grants) {
             memberType = NullabilityMetadataReflection.ConvertProperty(property)
             return true
@@ -1186,6 +1327,156 @@ class AnalyzerMemberResolution {
     // required-parameter count is a real prefix of the parameter list.
     static func CanResolveFunctionMemberFromTypeInfo(member: DeclaredMemberInfo): bool {
         return member.TypeParameters.Length == member.TypeParameterCount && member.RequiredParameterCount >= 0 && member.RequiredParameterCount <= member.ParameterCount && member.ParameterNames.Length == member.ParameterCount && member.ParameterTypes.Length == member.ParameterCount && member.ParameterModifiers.Length == member.ParameterCount
+    }
+
+    // `existing` WITH `object`'s PUBLIC INSTANCE METHODS OF THIS NAME JOINED TO IT, for a receiver whose
+    // static type is an interface. Interface members hide a base member only by SIGNATURE, so an
+    // `IFormattable` receiver keeps `object.ToString()` beside `ToString(string, IFormatProvider)`,
+    // and an interface that re-declares `ToString()` keeps its own. The array is returned unchanged
+    // when nothing joins.
+    static func JoinInterfaceObjectMethods(memberName: string, existing: MethodInfo[]): MethodInfo[] {
+        joined := new List<MethodInfo>()
+        for existingMethod in existing {
+            joined.Add(existingMethod)
+        }
+
+        for objectMethod in typeof(object).GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+            if objectMethod.Name != memberName || objectMethod.IsSpecialName {
+                continue
+            }
+
+            hidden := false
+            for existingMethod in existing {
+                if SameParameterTypeNames(existingMethod, objectMethod) {
+                    hidden = true
+                }
+            }
+
+            if !hidden {
+                joined.Add(objectMethod)
+            }
+        }
+
+        return joined.ToArray()
+    }
+
+    // Source interfaces represent their declared overloads as FunctionTypeInfo while reflected
+    // `object` methods are MethodInfo. Project the public object methods of this name into the same
+    // source group unless a declared interface method has the identical parameter signature; the
+    // source overload binder can then compare all applicable candidates together.
+    static func JoinSourceInterfaceObjectMethods(memberName: string, declaredMember: TypeInfo): TypeInfo {
+        functions := new List<FunctionTypeInfo>()
+        single := declaredMember as FunctionTypeInfo
+        if single != null {
+            functions.Add(single)
+        } else {
+            group := declaredMember as NSharpMethodGroupInfo
+            if group == null {
+                return declaredMember
+            }
+
+            for function in NSharpMethodGroupInfoFactory.GetFunctions(group) {
+                functions.Add(function)
+            }
+        }
+
+        originalCount := functions.Count
+        for objectMethod in typeof(object).GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+            if objectMethod.Name != memberName || objectMethod.IsSpecialName {
+                continue
+            }
+
+            hidden := false
+            for declaredFunction in functions {
+                if SourceAndReflectedParameterSignaturesMatch(declaredFunction, objectMethod) {
+                    hidden = true
+                    break
+                }
+            }
+
+            if hidden {
+                continue
+            }
+
+            reflectedFunction := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(objectMethod)
+            if reflectedFunction != null {
+                functions.Add(reflectedFunction)
+            }
+        }
+
+        if functions.Count == originalCount {
+            return declaredMember
+        }
+
+        return NSharpMethodGroupInfoFactory.FromFunctions(functions)
+    }
+
+    // CLR signature identity ignores reference-nullability on object.Equals's parameter. Strip that
+    // top-level annotation only (a nullable value type remains a different signature), then use
+    // semantic TypeInfo identity to compare source aliases and metadata spellings.
+    static func SourceAndReflectedParameterSignaturesMatch(sourceMethod: FunctionTypeInfo, reflectedMethod: MethodInfo): bool {
+        sourceTypes := sourceMethod.ParameterTypes
+        reflectedParameters := reflectedMethod.GetParameters()
+        if sourceTypes == null || sourceTypes.Count != reflectedParameters.Length {
+            return false
+        }
+
+        sourceModifiers := sourceMethod.ParameterModifiers
+        if sourceModifiers == null || sourceModifiers.Count != sourceTypes.Count {
+            return false
+        }
+
+        index := 0
+        while index < sourceTypes.Count {
+            // CLR overload identity includes by-ref shape. An interface declaration such as
+            // `Equals(ref other: object)` is a different signature from object.Equals(object),
+            // even though their element types match.
+            if sourceModifiers[index] != Ast.ParameterModifier.None || reflectedParameters[index].ParameterType.IsByRef {
+                return false
+            }
+
+            reflectedType := NullabilityMetadataReflection.ConvertParameter(reflectedParameters[index])
+            sourceSignatureType := sourceTypes[index]
+            sourceNullable := sourceSignatureType as NullableTypeInfo
+            if sourceNullable != null && NullabilityMetadataCore.CanCarryReferenceNullability(sourceNullable.InnerType) {
+                sourceSignatureType = sourceNullable.InnerType
+            }
+            reflectedNullable := reflectedType as NullableTypeInfo
+            if reflectedNullable != null && NullabilityMetadataCore.CanCarryReferenceNullability(reflectedNullable.InnerType) {
+                reflectedType = reflectedNullable.InnerType
+            }
+
+            if !TypeInfoIdentityFacts.AreEqual(sourceSignatureType, reflectedType) {
+                return false
+            }
+
+            index += 1
+        }
+
+        return true
+    }
+
+    // SAME ARITY AND SAME PARAMETER TYPES BY NAME. By NAME because an interface read through a
+    // `MetadataLoadContext` never shares `typeof(...)` identity with the running `object`.
+    static func SameParameterTypeNames(left: MethodInfo, right: MethodInfo): bool {
+        leftParameters := left.GetParameters()
+        rightParameters := right.GetParameters()
+        if leftParameters.Length != rightParameters.Length {
+            return false
+        }
+
+        index := 0
+        while index < leftParameters.Length {
+            leftType := leftParameters[index].ParameterType
+            rightType := rightParameters[index].ParameterType
+            if (leftType.FullName ?? leftType.Name) != (rightType.FullName ?? rightType.Name) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
     }
 
     // EVERY SOURCE TYPE INHERITS `object`, AND THIS IS THAT SURFACE. A source declaration names no

@@ -10,18 +10,21 @@ Users install NSharpLang through one front door:
 curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
 ```
 
-That installer expects these artifacts to exist for the target version:
+The installer downloads from `https://github.com/schneidenbach/nsharplang/releases/latest/download/`.
+GitHub's latest release is the newest successful `main` build: the `Build` workflow publishes each
+`main` push as a full (non-pre-release) `unofficial-main-*` release and marks it latest, while PR
+builds stay pre-releases that never take latest (see `.github/RELEASES.md`). Every release carries:
 
 - `nsharp-toolset.tar.gz`: package-manager-ready `nlc` and `nsharp-lsp` app payloads plus launchers
-- `SHA256SUMS`: checksums for the downloadable release assets. **Required.** `scripts/install.sh`
-  verifies every URL download against this asset and refuses to install on a missing or
-  mismatched checksum. `scripts/publish-toolset.sh` writes it next to the archive with the
-  toolset entry; append the VSIX entry before uploading:
-  `(cd artifacts && shasum -a 256 vscode/nsharp.vsix | sed 's|vscode/||' >> toolset/SHA256SUMS)`
-- `NSharpLang.Sdk`: MSBuild SDK restored by generated project build files
-- `NSharpLang.Templates`: `dotnet new` templates used by `nlc new`/template consumers
-- `NSharpLang.Compiler`: compiler API library used by SDK/tooling packages
-- `nsharp.nsharp` VS Code extension, either published to the Marketplace/Open VSX path or attached to the latest GitHub Release as `nsharp.vsix`
+- `nsharp.vsix`: the `nsharp.nsharp` VS Code extension. It is not published to the VS Code
+  Marketplace; the installer installs this asset directly when the `code` CLI is available.
+- `SHA256SUMS`: one `<sha256>  <asset name>` line for every other asset. **Required.**
+  `scripts/install.sh` verifies every URL download against this asset and refuses to install on a
+  missing or mismatched checksum. The `Build` workflow's publish step generates it from the exact
+  asset set it uploads.
+- The NuGet packages, including `NSharpLang.Sdk` (MSBuild SDK restored by generated project build
+  files), `NSharpLang.Templates` (`dotnet new` templates used by `nlc new`/template consumers), and
+  `NSharpLang.Compiler` (compiler API library used by SDK/tooling packages)
 
 Internal package names can stay internal to scripts and release automation; public docs should point users at the installer and `nlc doctor`, not manual package-by-package setup.
 
@@ -39,7 +42,7 @@ NuGet package versions are read from each project file's `<Version>` element:
 
 The public installer does not expose exact version pinning while those project-file versions are mixed. `scripts/install.sh --version ...` fails fast with an explanation instead of applying one version to every package and producing a partial install. Re-enable a single public pin only after CLI, SDK, templates, compiler, and language server releases share one unified NSharpLang version, or replace it with explicit package-specific pins.
 
-The VS Code extension version is currently sourced from `editors/vscode/package.json`; publish the generated VSIX alongside the NuGet release or publish it to the extension marketplace before marking the IDE installer path public-green.
+The VS Code extension version is currently sourced from `editors/vscode/package.json`; the generated VSIX ships as the `nsharp.vsix` release asset.
 
 ## Pack Locally
 
@@ -80,10 +83,11 @@ nlc run
 
 Logs are written under `artifacts/smoke-turnkey/<timestamp>/smoke.log`.
 
-For a full workstation/IDE smoke after publishing the VSIX or marketplace entry:
+For a full workstation/IDE smoke from local build outputs (`file://` sources skip the
+`SHA256SUMS` check):
 
 ```bash
-./scripts/install.sh --source ./artifacts/nuget --vsix-url "file://$(pwd)/artifacts/vscode/nsharp.vsix"
+./scripts/install.sh --source ./artifacts/toolset/nsharp-toolset.tar.gz --vsix-url "file://$(pwd)/artifacts/vscode/nsharp.vsix"
 nlc doctor --require-vscode
 code --list-extensions | grep -i '^nsharp\.nsharp$'
 ```
@@ -106,18 +110,18 @@ export GITHUB_TOKEN=your_token_here
 
 ## Publish VS Code Tooling
 
-NuGet cannot install VS Code extensions. Before announcing the installer as public-green, do one of:
-
-1. Publish `nsharp.nsharp` to the VS Code Marketplace/Open VSX, so `code --install-extension nsharp.nsharp --force` works; or
-2. Attach `artifacts/vscode/nsharp.vsix` to the latest GitHub Release. The public installer uses `https://github.com/schneidenbach/nsharplang/releases/latest/download/nsharp.vsix` as its automatic fallback. When attaching a VSIX, its entry MUST also be present in the release's `SHA256SUMS` asset — the installer verifies the VSIX download and aborts if the entry is missing.
-
-If neither exists, block the release and state that the missing external artifact is the VS Code extension publication target.
+NuGet cannot install VS Code extensions, and `nsharp.nsharp` is not published to the VS Code
+Marketplace or Open VSX. The extension ships only as the `nsharp.vsix` release asset, which the
+public installer downloads from `https://github.com/schneidenbach/nsharplang/releases/latest/download/nsharp.vsix`,
+verifies against `SHA256SUMS`, and installs with `code --install-extension`. A release without
+`nsharp.vsix` and its `SHA256SUMS` entry breaks the installer's VS Code step.
 
 ## Release Asset Integrity
 
 Every GitHub Release that carries downloadable assets MUST include a `SHA256SUMS` asset
-listing `nsharp-toolset.tar.gz` (written by `scripts/publish-toolset.sh`) and, when
-attached, `nsharp.vsix`. `scripts/install.sh` downloads `SHA256SUMS` from the same release
+listing every other asset by its release name, including `nsharp-toolset.tar.gz` and
+`nsharp.vsix`. The `Build` workflow generates it for every `main` and PR release.
+`scripts/install.sh` downloads `SHA256SUMS` from the same release
 path as the asset (override with `NSHARP_SUMS_URL`), and hard-fails on a missing sums
 asset, a missing entry, or a hash mismatch. `--no-verify` exists only for custom
 `--source` locations that intentionally have no checksums; never document it as part of
@@ -143,10 +147,10 @@ curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scrip
 
 ### `nlc doctor` reports missing templates or tools
 
-Re-run the installer with the exact source you intended:
+Doctor checks the package cache of the install named by `NSHARP_INSTALL_DIR` (set by `$NSHARP_INSTALL_DIR/env`), falling back to `~/.nsharp`, so source the env file of the install you mean to verify. Re-run the installer with the exact source you intended:
 
 ```bash
-./scripts/install.sh --source ./artifacts/nuget
+./scripts/install.sh --source ./artifacts/toolset/nsharp-toolset.tar.gz
 ```
 
 ### SDK restore fails in a fresh project
@@ -155,10 +159,9 @@ Check `global.json`, `NuGet.config`, and the configured feed. The installer writ
 
 ### VS Code extension install fails
 
-Confirm the external artifact exists:
+Confirm the latest release carries `nsharp.vsix` and a `SHA256SUMS` entry for it, then re-run the
+installer, or install a specific VSIX:
 
 ```bash
-code --install-extension nsharp.nsharp --force
-# or
 NSHARP_VSIX_URL=https://.../nsharp.vsix ./scripts/install.sh
 ```

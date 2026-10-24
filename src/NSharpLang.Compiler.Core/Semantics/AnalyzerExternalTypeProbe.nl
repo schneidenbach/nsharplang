@@ -100,6 +100,9 @@ class AnalyzerExternalTypeProbe {
     scanIndexLastAssembly: Assembly?
     scanIndexGrantName: string
 
+    // Where a miss's framework namespace is loaded from (`SetFrameworkLoads`).
+    frameworkLoads: AnalyzerMetadataLoadSurface?
+
     // A PROBE WITH NO PROJECT BEHIND IT IS THE FRIEND OF NOTHING. The analyzer hands in its own
     // grants; a caller that builds a probe over a bare assembly list has no assembly identity to be
     // named by an `InternalsVisibleTo`, so it gets an unnamed instance and sees exactly the visible
@@ -121,6 +124,7 @@ class AnalyzerExternalTypeProbe {
         scanIndexedAssemblies = 0
         scanIndexLastAssembly = null
         scanIndexGrantName = ""
+        frameworkLoads = null
     }
 
     // One call per analysis: the file's namespace is the start of the lexical chain every bare
@@ -142,7 +146,16 @@ class AnalyzerExternalTypeProbe {
     // THE ONE SWEEP EVERY QUESTION BELOW IS MADE OF: does any loaded assembly declare this exact full
     // name? A hit is cached under the full name and a miss under the assembly count, so the three
     // callers share one memo and cannot disagree about what the metadata says.
+    //
+    // A MISS MAY BE A FRAMEWORK NAMESPACE NOBODY IMPORTED. `System.Numerics.BigInteger` compiles under
+    // `dotnet build` without a `using`, because the whole shared framework is referenced; here its
+    // assemblies are loaded on demand (`FrameworkNamespaceIndex`), so a miss asks the load surface to
+    // load the spelling's framework namespace and sweeps once more when that grew the list.
     func TryResolveFullName(fullName: string, out resolved: Type): bool {
+        return TryResolveFullName(fullName, true, out resolved)
+    }
+
+    func TryResolveFullName(fullName: string, loadFramework: bool, out resolved: Type): bool {
         resolved = typeof(object)
         if typeCache.TryGetValue(fullName, out resolved) {
             return true
@@ -150,9 +163,34 @@ class AnalyzerExternalTypeProbe {
 
         missedAtCount := 0
         if missedFullNames.TryGetValue(fullName, out missedAtCount) && missedAtCount == assemblies.Count {
+            if !loadFramework || !LoadFrameworkNamespaceOf(fullName) {
+                return false
+            }
+        }
+
+        if SweepFullName(fullName, out resolved) {
+            return true
+        }
+
+        if loadFramework && LoadFrameworkNamespaceOf(fullName) && SweepFullName(fullName, out resolved) {
+            return true
+        }
+
+        missedFullNames[fullName] = assemblies.Count
+        return false
+    }
+
+    private func LoadFrameworkNamespaceOf(fullName: string): bool {
+        loads := frameworkLoads
+        if loads == null {
             return false
         }
 
+        return loads.LoadFrameworkNamespaceOfType(fullName)
+    }
+
+    private func SweepFullName(fullName: string, out resolved: Type): bool {
+        resolved = typeof(object)
         for assemblyItem in assemblies {
             candidate := AssemblyTypeNameIndex.GetTypeOrNull(assemblyItem, fullName)
             if candidate == null {
@@ -171,8 +209,13 @@ class AnalyzerExternalTypeProbe {
             }
         }
 
-        missedFullNames[fullName] = assemblies.Count
         return false
+    }
+
+    // The analyzer's load surface, which performs the on-demand framework loads; null for a probe
+    // built over a bare assembly list, which then answers from exactly that list.
+    func SetFrameworkLoads(surface: AnalyzerMetadataLoadSurface?) {
+        frameworkLoads = surface
     }
 
     // WHY A FULLY-QUALIFIED SPELLING FAILED: because the type IS THERE and this compilation may not
@@ -306,6 +349,11 @@ class AnalyzerExternalTypeProbe {
                 scanned := assembly.GetExportedTypes()
                 if grants.GrantsAccess(assembly) {
                     scanned = assembly.GetTypes()
+                }
+                // A FRAMEWORK ASSEMBLY LOADED ON DEMAND ANSWERS NO BARE NAME (`FrameworkOnDemandLoads`):
+                // it is reached through the namespace that loaded it, never through this scan.
+                if FrameworkOnDemandLoads.IsOnDemand(assembly) {
+                    scanned = Type.EmptyTypes
                 }
 
                 exportedIndex := 0
@@ -510,6 +558,18 @@ class AnalyzerExternalTypeProbe {
     func ResolveExactExternalType(fullName: string): Type? {
         resolved := typeof(object)
         if TryResolveFullName(fullName, out resolved) {
+            return resolved
+        }
+
+        return null
+    }
+
+    // The exact probe over what is ALREADY loaded, without loading the spelling's framework
+    // namespace. An import's "is this a type, not a namespace?" check asks this: `System.Security.Claims`
+    // read as a type would otherwise load `System.Security` for a question whose answer is "no".
+    func ResolveExactLoadedExternalType(fullName: string): Type? {
+        resolved := typeof(object)
+        if TryResolveFullName(fullName, false, out resolved) {
             return resolved
         }
 

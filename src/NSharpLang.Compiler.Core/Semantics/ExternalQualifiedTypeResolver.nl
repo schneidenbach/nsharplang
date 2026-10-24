@@ -17,6 +17,10 @@ class ExternalQualifiedTypeResolver {
     // spell. A reference that named this compilation in an `InternalsVisibleTo` widens what it CAN
     // spell, so the test is `InternalsVisibleToGrants.IsNameableType` — the same rule the analyzer's
     // metadata probe applies — and the exported list is what an absent grants object falls back to.
+    //
+    // A QUALIFIED MISS MAY BE A FRAMEWORK NAMESPACE NOBODY IMPORTED: when the list belongs to an
+    // analyzer (`FrameworkOnDemandLoads`), the spelling's `Microsoft.NETCore.App` namespace is loaded
+    // and the sweep runs once more, exactly as `AnalyzerExternalTypeProbe.TryResolveFullName` does.
     static func TryResolve(assemblies: IReadOnlyList<Assembly>, fullName: string, grants: InternalsVisibleToGrants?, out runtimeType: Type): bool {
         runtimeType = typeof(object)
         if assemblies == null || fullName == null || fullName.Length == 0 {
@@ -25,6 +29,15 @@ class ExternalQualifiedTypeResolver {
         if !fullName.Contains(".") {
             return TryResolveBareName(assemblies, fullName, grants, out runtimeType)
         }
+        if TryResolveQualified(assemblies, fullName, grants, out runtimeType) {
+            return true
+        }
+
+        return FrameworkOnDemandLoads.LoadFor(assemblies, fullName) && TryResolveQualified(assemblies, fullName, grants, out runtimeType)
+    }
+
+    static func TryResolveQualified(assemblies: IReadOnlyList<Assembly>, fullName: string, grants: InternalsVisibleToGrants?, out runtimeType: Type): bool {
+        runtimeType = typeof(object)
 
         candidate := fullName
         searchEnd := candidate.Length
@@ -68,6 +81,10 @@ class ExternalQualifiedTypeResolver {
     static func TryResolveBareName(assemblies: IReadOnlyList<Assembly>, name: string, grants: InternalsVisibleToGrants?, out runtimeType: Type): bool {
         runtimeType = typeof(object)
         for assembly in assemblies {
+            // An on-demand framework assembly answers no bare name (`FrameworkOnDemandLoads`).
+            if FrameworkOnDemandLoads.IsOnDemand(assembly) {
+                continue
+            }
             try {
                 scanned := NameableTypes(assembly, grants)
                 typeIndex := 0
@@ -99,7 +116,7 @@ class ExternalQualifiedTypeResolver {
 
     static func IsNameable(candidate: Type, grants: InternalsVisibleToGrants?): bool {
         if grants == null {
-            return candidate.IsVisible
+            return candidate.IsVisible && !FrameworkNamespaceIndex.IsImplementationOnlyType(candidate)
         }
 
         return grants.IsNameableType(candidate)

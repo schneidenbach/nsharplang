@@ -85,6 +85,10 @@ class ConstructionState {
     PendingMemberType: TypeInfo?
     PendingElementType: TypeInfo?
     PendingTargetKind: string
+    // `new { Name: value, ... }`: the walk collects one property per entry and the result is the
+    // anonymous type those properties describe, built once the last value has answered.
+    IsAnonymousObject: bool
+    AnonymousProperties: List<AnonymousObjectPropertyInfo>
 
     constructor(newExpression: NewExpression?, withExpression: WithExpression?) {
         newValue = newExpression
@@ -108,6 +112,8 @@ class ConstructionState {
         PendingMemberType = null
         PendingElementType = null
         PendingTargetKind = "array"
+        IsAnonymousObject = false
+        AnonymousProperties = new List<AnonymousObjectPropertyInfo>()
     }
 }
 
@@ -128,8 +134,9 @@ class ConstructionState {
 // twice in its own voice (a case the union does not declare, a property the case does not declare)
 // and twice more through `AnalyzerMemberAccess`'s published rendering (an absent initializer member,
 // on the open type and on the constructed one), **NL321** (a sized array that also passes
-// constructor arguments), **NL402** twice (a SoA table constructed with the wrong argument count, or
-// with a name that is not `capacity`), **NL309** (a readonly field written by an initializer),
+// constructor arguments, or a C#-style array initializer), **NL402** twice (a SoA table
+// constructed with the wrong argument count, or with a name that is not `capacity`), **NL309**
+// (a readonly field written by an initializer),
 // **NL301** twice for SoA table initializer shapes and once for a SoA table member written directly,
 // and **NL202** four times — a non-`int` array length, an element that does not fit its array or
 // collection target, and the two initializer-value mismatches this owner exists to catch.
@@ -309,18 +316,25 @@ class AnalyzerConstruction {
     // THE `new` HEAD: WHAT TYPE IS BEING CONSTRUCTED.
     // ------------------------------------------------------------------------------------------
 
-    // A target-typed `new` adopts the ambient expected type and is refused when there is none —
-    // except for an anonymous object, which the backend synthesizes from its initializer and which is
-    // therefore intentionally allowed to have no target at all.
+    // A target-typed `new` adopts the ambient expected type and is refused when there is none.
+    //
+    // AN ANONYMOUS OBJECT IS NEVER TARGET-TYPED. `new { Name: value }` always creates the anonymous
+    // type its entries describe, whatever slot it is written into — which is what the backend builds
+    // and what C# means by the same braces. A slot that wants a declared type gets the ordinary NL202
+    // against that anonymous type, with the spelling that names the type in the hint.
     func ResolveConstructedType(state: ConstructionState, node: NewExpression) {
         state.UnionCaseName = null
+        if IsAnonymousObjectCreation(node) {
+            state.IsAnonymousObject = true
+            state.ConstructedType = BuiltInTypes.Unknown
+            state.ResultType = BuiltInTypes.Unknown
+            return
+        }
+
         if node.Type == null {
             expected := ambientValue.CurrentExpectedType
             if expected == null {
-                if !IsAnonymousObjectCreation(node) {
-                    ReportCannotInferTargetTypedNew(node)
-                }
-
+                ReportCannotInferTargetTypedNew(node)
                 state.ConstructedType = BuiltInTypes.Unknown
             } else {
                 state.ConstructedType = expected
@@ -1235,10 +1249,10 @@ class AnalyzerConstruction {
         return unionType
     }
 
-    // AN ANONYMOUS OBJECT IS A TYPELESS `new` WHOSE ENTRIES ARE ALL NAMED. It is the one shape that
-    // needs no target, because the backend synthesizes the concrete shape from the initializer.
+    // AN ANONYMOUS OBJECT IS A TYPELESS `new` WITH NO ARGUMENT LIST WHOSE ENTRIES ARE ALL NAMED —
+    // `new { Name: value }`. `new() { Name: value }` writes the parentheses and is target-typed.
     static func IsAnonymousObjectCreation(node: NewExpression): bool {
-        if node.Type != null || node.ConstructorArguments.Count != 0 || node.Initializer == null {
+        if node.Type != null || node.HasArgumentList || node.ConstructorArguments.Count != 0 || node.Initializer == null {
             return false
         }
 
@@ -1434,6 +1448,7 @@ class AnalyzerConstruction {
     // escape on the length is a MORE useful diagnostic than the generic mismatch, so it suppresses it
     // — and the two escape questions short-circuit exactly as the C#'s `||` did.
     func NextArrayLengthStep(state: ConstructionState, node: NewExpression): ConstructionRequest? {
+        ReportArrayInitializerIfNeeded(node)
         if node.ArrayLengthExpression == null {
             return null
         }
@@ -1449,6 +1464,26 @@ class AnalyzerConstruction {
 
         state.Phase = 2
         return new ConstructionRequest(1, node.ArrayLengthExpression, null)
+    }
+
+    // `new byte[] { 1, 2 }` AND `new byte[2] { 1, 2 }` — C#'s array initializer. N# has no such form: an
+    // array's elements are written as the list literal `[1, 2]`, and `new T[n]` allocates `n` zeroed
+    // ones. The parser accepts the braces as a collection initializer, and the backend then declines
+    // the WHOLE enclosing function without saying which construct it refused, so the refusal is
+    // made here, on the `{` that opens the initializer. A `new` of any other type keeps its braces.
+    func ReportArrayInitializerIfNeeded(node: NewExpression) {
+        initializer := node.Initializer
+        if initializer == null {
+            return
+        }
+
+        arrayType := node.Type as ArrayTypeReference
+        isArrayCreation := node.ArrayLengthExpression != null || arrayType != null
+        if !isArrayCreation {
+            return
+        }
+
+        diagnosticsValue.Report(ErrorCode.InvalidSizedArrayConstructorArguments, "N# has no array initializer syntax; write the elements as a list, '[1, 2]'", initializer.Line, initializer.Column, "'new T[] { ... }' is C# syntax. Write the elements as a list — 'values := [1, 2]' — or use 'new T[n]' for a zero-initialized array of length n.", 1)
     }
 
     func ArrayLengthAnswered(state: ConstructionState, lengthType: TypeInfo) {
@@ -1483,6 +1518,10 @@ class AnalyzerConstruction {
 
         properties := node.Initializer.Properties
         if state.PropIndex >= properties.Count {
+            if state.IsAnonymousObject {
+                state.ResultType = new AnonymousObjectTypeInfo(state.AnonymousProperties, diagnosticsValue.CurrentFilePath, node.Line, node.Column)
+            }
+
             state.Phase = 99
             return null
         }
@@ -1526,6 +1565,14 @@ class AnalyzerConstruction {
         state.PendingMemberType = null
         state.PendingElementType = null
         state.PendingTargetKind = "array"
+
+        // AN ANONYMOUS PROPERTY'S VALUE HAS NO TARGET. Its type is whatever the value produces, so the
+        // slot the whole `new` was written into must not leak into it: `x: Person = new { P: new() }`
+        // gives the inner `new()` nothing to adopt.
+        if state.IsAnonymousObject {
+            state.SavedExpectedType = ambientValue.EnterExpectedType(null)
+            return new ConstructionRequest(1, property.Value, null)
+        }
 
         constructedType := state.ConstructedType
         if property.Name == null || property.IndexExpression != null {
@@ -1585,6 +1632,11 @@ class AnalyzerConstruction {
         state.PropertyStarted = false
         state.Phase = 0
 
+        if state.IsAnonymousObject {
+            AnonymousPropertyAnswered(state, property, valueType)
+            return
+        }
+
         if property.Name == null || property.IndexExpression != null {
             ElementEntryAnswered(state, property, valueType)
             return
@@ -1607,6 +1659,84 @@ class AnalyzerConstruction {
         }
 
         ReportInitializerMemberMismatch(property, memberType, valueType)
+    }
+
+    // ONE ANONYMOUS PROPERTY HAS ANSWERED. Its type is the value's own, so a value that HAS no type of
+    // its own — `null`, a lambda, a bare method name, a call that returns nothing — cannot be a
+    // property (C# CS0828), and a name written twice cannot name two (CS0833). Both are reported here,
+    // because the backend has no way to build either.
+    func AnonymousPropertyAnswered(state: ConstructionState, property: PropertyInitializer, valueType: TypeInfo) {
+        name := property.Name ?? ""
+        nameLine := property.Value.Line
+        nameColumn := property.Value.Column
+        if property.NameLine > 0 {
+            nameLine = property.NameLine
+            nameColumn = property.NameColumn
+        }
+
+        soaEscapeValue.ReportSoaRowEscapeIfNeeded(property.Value, valueType, "stored in an anonymous object")
+        soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(property.Value, "stored in an anonymous object")
+
+        for existing in state.AnonymousProperties {
+            if existing.Name == name {
+                diagnosticsValue.Report(ErrorCode.DuplicateDeclaration, "This anonymous object already has a property named '" + name + "'", nameLine, nameColumn, "Give each property its own name, for example '" + name + "2: ...'.", name.Length)
+                return
+            }
+        }
+
+        propertyType := valueType
+        untypedValue := AnonymousPropertyUntypedValueDescription(property.Value, valueType)
+        if untypedValue != null {
+            span := spansValue.GetExpressionDiagnosticSpan(property.Value)
+            diagnosticsValue.Report(ErrorCode.CannotInferType, "I can't figure out the type of anonymous-object property '" + name + "' from " + untypedValue + " — an anonymous property takes its type from its value", span.Line, span.Column, AnonymousPropertyUntypedValueHint(untypedValue, name), span.Length)
+            propertyType = BuiltInTypes.Unknown
+        }
+
+        state.AnonymousProperties.Add(new AnonymousObjectPropertyInfo(name, propertyType, nameLine, nameColumn))
+        memberAccessValue.RecordAnonymousPropertyDeclaration(name, nameLine, nameColumn, propertyType)
+    }
+
+    // What a value with no type of its own IS, in the words the diagnostic uses, or null for a value
+    // that has a type. An already-unknown value reported its own error upstream and is left alone.
+    static func AnonymousPropertyUntypedValueDescription(value: Expression, valueType: TypeInfo): string? {
+        if value as LambdaExpression != null {
+            return "a lambda"
+        }
+
+        if BuiltInTypes.Is(valueType, BuiltInTypes.Null) {
+            return "'null'"
+        }
+
+        if BuiltInTypes.Is(valueType, BuiltInTypes.Void) {
+            return "a call that returns nothing"
+        }
+
+        if BuiltInTypes.Is(valueType, BuiltInTypes.Never) {
+            return "an expression that never produces a value"
+        }
+
+        if valueType as NSharpMethodGroupInfo != null || AnalyzerCallableReferenceFacts.IsMethodGroupReferenceType(valueType) {
+            return "a method name"
+        }
+
+        function := valueType as FunctionTypeInfo
+        if function != null && AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(function) {
+            return "a method name"
+        }
+
+        return null
+    }
+
+    static func AnonymousPropertyUntypedValueHint(untypedValue: string, name: string): string {
+        if untypedValue == "'null'" {
+            return "Give the value a type first, for example 'missing: string? = null', then write '" + name + ": missing'."
+        }
+
+        if untypedValue == "a lambda" || untypedValue == "a method name" {
+            return "Store it in a typed local first, for example 'handler: Func<int, int> = ...', then write '" + name + ": handler'."
+        }
+
+        return "Write a value that produces a result, or leave the property out."
     }
 
     // AN UNNAMED OR INDEXED ENTRY IS A COLLECTION/ARRAY ELEMENT, not a member write, so it is held to
@@ -1725,6 +1855,93 @@ class AnalyzerConstruction {
 
         state.ConstructedType = targetType
         state.ResultType = targetType
+        if ReportNonRecordWithTargetIfNeeded(node.Target, targetType) {
+            // This is a conclusive target-shape error. Stop before walking replacement members so
+            // their diagnostics cannot cascade from a `with` that has no record copy operation.
+            state.ConstructedType = BuiltInTypes.Unknown
+            state.ResultType = BuiltInTypes.Unknown
+            state.Phase = 99
+        }
+    }
+
+    // REFERENCE `with` REQUIRES A RECORD COPY CONTRACT. Source records have their own TypeInfo
+    // shape; a referenced N# record exposes its public `<Clone>$()` method in metadata. Ordinary
+    // classes and reflected reference types without that method are rejected here, before emission,
+    // so users see the actionable reason at the receiver instead of a generic backend decline.
+    func ReportNonRecordWithTargetIfNeeded(target: Expression, targetType: TypeInfo): bool {
+        if !IsKnownNonRecordWithReferenceType(targetType) {
+            return false
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(NonNullableType(targetType))
+        span := spansValue.GetExpressionDiagnosticSpan(target)
+        diagnosticsValue.Report(
+            ErrorCode.TypeMismatch,
+            "'" + TypeText(resolved) + "' is not a record: it has no '<Clone>$' copy method for 'with' to call",
+            span.Line,
+            span.Column,
+            "Use a record or record struct for this `with` expression, or construct a separate value with an object initializer.",
+            span.Length
+        )
+        return true
+    }
+
+    // This predicate is deliberately conservative for type shapes the analyzer cannot classify. A
+    // source class is known not to be a record, a source record keeps its dedicated model, and a
+    // reflected/generic reference type is a record for this emitter only when its public metadata
+    // supplies the same clone contract the emitter calls.
+    func IsKnownNonRecordWithReferenceType(candidate: TypeInfo): bool {
+        if candidate == null || BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(NonNullableType(candidate))
+        if resolved as RecordTypeInfo != null || resolved as StructTypeInfo != null {
+            return false
+        }
+
+        if resolved as ClassTypeInfo != null {
+            return true
+        }
+
+        generic := resolved as GenericTypeInfo
+        if generic != null {
+            if generic.GenericDefinition == null {
+                return false
+            }
+
+            return IsKnownNonRecordWithReferenceType(generic.GenericDefinition)
+        }
+
+        reflection := resolved as ReflectionTypeInfo
+        if reflection != null {
+            receiverType := reflection.Type
+            if receiverType == null || receiverType.IsValueType || receiverType.IsGenericParameter {
+                return false
+            }
+
+            for method in receiverType.GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+                if method.Name != "<Clone>$" || method.GetParameters().Length != 0 {
+                    continue
+                }
+
+                if method.ReturnType == receiverType {
+                    return false
+                }
+
+                if receiverType.IsGenericType && method.ReturnType.IsGenericType && method.ReturnType.GetGenericTypeDefinition() == receiverType.GetGenericTypeDefinition() {
+                    return false
+                }
+            }
+
+            return true
+        }
+
+        if BuiltInTypes.Is(resolved, BuiltInTypes.String) || BuiltInTypes.Is(resolved, BuiltInTypes.Object) {
+            return true
+        }
+
+        return false
     }
 
     func WithIndexAnswered(state: ConstructionState, indexType: TypeInfo) {
@@ -1761,7 +1978,10 @@ class AnalyzerConstruction {
                 nameColumn = property.NameColumn
             }
 
-            if !ReportSoaTableNamedInitializerIfNeeded(targetType, property.Name, nameLine, nameColumn) {
+            anonymousTarget := declarationContextValue.ResolveDeclaredAlias(NonNullableType(targetType)) as AnonymousObjectTypeInfo
+            if anonymousTarget != null {
+                state.PendingMemberType = ResolveAnonymousWithPropertyType(state, anonymousTarget, property, nameLine, nameColumn)
+            } else if !ReportSoaTableNamedInitializerIfNeeded(targetType, property.Name, nameLine, nameColumn) {
                 resolvedMemberType: TypeInfo = BuiltInTypes.Unknown
                 if TryResolveObjectInitializerMemberType(targetType, null, property.Name, nameLine, nameColumn, out resolvedMemberType) {
                     state.PendingMemberType = resolvedMemberType
@@ -1774,6 +1994,35 @@ class AnalyzerConstruction {
         }
 
         return new ConstructionRequest(2, property.Value, state.PendingMemberType)
+    }
+
+    // `anonymous with { Name: value }` — C#'s non-destructive copy of an anonymous object. Each named
+    // property must be one the object has, and may be named once; the copy is the same anonymous type,
+    // so the value is held to the property's own type. Null when the entry cannot be checked.
+    func ResolveAnonymousWithPropertyType(state: ConstructionState, anonymousTarget: AnonymousObjectTypeInfo, property: PropertyInitializer, nameLine: int, nameColumn: int): TypeInfo? {
+        name := property.Name ?? ""
+        node := state.With
+        if node != null {
+            for earlier in node.Properties {
+                if Object.ReferenceEquals(earlier, property) {
+                    break
+                }
+
+                if earlier.Name == name {
+                    diagnosticsValue.Report(ErrorCode.DuplicateDeclaration, "This `with` already sets '" + name + "'", nameLine, nameColumn, "Set each property once.", name.Length)
+                    return null
+                }
+            }
+        }
+
+        anonymousProperty := anonymousTarget.FindProperty(name)
+        if anonymousProperty == null {
+            memberAccessValue.ReportUndefinedMemberAt(anonymousTarget, name, nameLine, nameColumn, false, null)
+            return null
+        }
+
+        memberAccessValue.RecordAnonymousPropertyUse(anonymousTarget, anonymousProperty, nameLine, nameColumn)
+        return anonymousProperty.Type
     }
 
     // THE `with` VALUE HAS ANSWERED. Unlike the object-initializer form the mismatch is suppressed

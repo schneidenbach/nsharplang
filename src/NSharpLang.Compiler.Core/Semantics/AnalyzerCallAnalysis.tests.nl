@@ -148,7 +148,8 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
         context,
         postconditions,
         new AnalyzerTerminatingCalls(),
-        nullFlow
+        nullFlow,
+        extensionResolution
     )
     return new CallWalkHarness(owner, errors, scopes, ambient)
 }
@@ -1665,13 +1666,20 @@ func MemberFunctionAmbiguityCount(source: string): int {
 }
 
 test "a bare call of a `string` FIELD is NL413 at the name, not an emitter decline" {
-    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => Label()\n}\n"
-    AssertNotCallableReports(source, "NL413@6:28 `Label` is a field of type `string` on `Widget`, not something you can call\n")
+    source := "namespace Probe\n\nclass Widget {\n    label: string = \"field\"\n\n    func Show(): string => label()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:28 `label` is a field of type `string` on `Widget`, not something you can call\n")
 }
 
 test "the `this.` spelling of the same call is the same sentence" {
-    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => this.Label()\n}\n"
-    AssertNotCallableReports(source, "NL413@6:33 `Label` is a field of type `string` on `Widget`, not something you can call\n")
+    source := "namespace Probe\n\nclass Widget {\n    label: string = \"field\"\n\n    func Show(): string => this.label()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:33 `label` is a field of type `string` on `Widget`, not something you can call\n")
+}
+
+// A BARE PascalCase MEMBER OF A CLASS IS AN AUTO-PROPERTY (`MemberStorageRules`), and the sentence
+// names it as one — the same word reflection and hover use.
+test "a bare exported member of a class is named a property" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"auto\"\n\n    func Show(): string => Label()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:28 `Label` is a property of type `string` on `Widget`, not something you can call\n")
 }
 
 test "a PROPERTY is named a property through both spellings" {
@@ -1963,4 +1971,87 @@ test "a local whose value is of a class type is a VALUE callee, never NL415, eve
     for error in TypeCalleeErrors("namespace Probe\n\nclass Widget {\n}\n\nfunc Run(current: Widget) {\n    current()\n}\n") {
         assert error.Code != ErrorCode.TypeNotCallable
     }
+}
+
+// ---- `ref`/`out` of a property ----------------------------------------------------------------
+//
+// A BARE EXPORTED MEMBER OF A CLASS IS AN AUTO-PROPERTY (`MemberStorageRules`), and a property has no
+// storage to hand a callee — C#'s CS0206. Every spelling is refused with a sentence that names the
+// member as a property: the bare name inside its own type (which used to be "addressable" by
+// default), `this.`, an inherited member, and a receiver's. The repair names a field, because the
+// author can make one. A camelCase member is a field, and stays addressable.
+func RefOutPropertyHints(source: string): string {
+    text := ""
+    for error in NotCallableErrors(source) {
+        text = text + error.Line.ToString() + ":" + error.Column.ToString() + " " + error.Message + " | " + (error.Suggestion ?? "") + "\n"
+    }
+
+    return text
+}
+
+test "a ref or out of a bare auto-property is refused, by every spelling, as a property" {
+    source := "namespace Probe\n\nimport System.Threading\n\nclass Counter {\n    Count: int\n    count: int\n\n    func Bump() {\n        Interlocked.Increment(ref Count)\n        Interlocked.Increment(ref this.Count)\n        Interlocked.Increment(ref count)\n    }\n}\n\nclass Derived: Counter {\n    func Again() {\n        Interlocked.Increment(ref Count)\n    }\n}\n\nfunc Parse(counter: Counter): bool {\n    return int.TryParse(\"1\", out counter.Count)\n}\n"
+    repair := "If callers need its address — 'Interlocked', 'Volatile', a 'TryParse' out — keep the value in a field: a bare camelCase, 'private' or 'static' member is a field."
+    reports := RefOutPropertyHints(source)
+    assert reports == "10:35 'Count' is a property, so it has no storage to pass as the 'ref' argument | Copy it into a local, pass the local, and assign the result back to 'Count'. " + repair + "\n11:35 'Count' is a property, so it has no storage to pass as the 'ref' argument | Copy it into a local, pass the local, and assign the result back to 'Count'. " + repair + "\n18:35 'Count' is a property, so it has no storage to pass as the 'ref' argument | Copy it into a local, pass the local, and assign the result back to 'Count'. " + repair + "\n23:34 'Count' is a property, so it has no storage to pass as the 'out' argument | Copy it into a local, pass the local, and assign the result back to 'Count'. " + repair + "\n", reports
+}
+
+test "a ref of a struct's bare member is a field's address, and accepted" {
+    source := "namespace Probe\n\nimport System.Threading\n\nstruct Tally {\n    Count: int\n\n    func Bump() {\n        Interlocked.Increment(ref Count)\n    }\n}\n"
+    assert RefOutPropertyHints(source) == ""
+}
+
+test "one natural method group converts to either abstract delegate root" {
+    source := "namespace Probe\n\nimport System\n\nfunc Single(value: int): int => value\n\nfunc Run() {\n    handler: Delegate = Single\n    multicast: MulticastDelegate = Single\n    framework: Delegate = Guid.NewGuid\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 0, TypeCalleeReports(source)
+}
+
+test "NL411 rejects overloaded or unsupported groups assigned to a broad delegate at each name" {
+    source := "namespace Probe\n\nimport System\n\nfunc Overloaded(value: int): int => value\nfunc Overloaded(value: string): string => value\nfunc Generic<T>(value: T): T => value\nfunc ByRef(ref value: int): int => value\nfunc ByOut(out value: int): int {\n    value = 0\n    return value\n}\nfunc TooWide(a1: int, a2: int, a3: int, a4: int, a5: int, a6: int, a7: int, a8: int, a9: int, a10: int, a11: int, a12: int, a13: int, a14: int, a15: int, a16: int, a17: int): int => a1\nfunc Filtered(value: int): int => value\nfunc Filtered<T>(value: T): T => value\n\nfunc Run() {\n    first: Delegate = Overloaded\n    second: Delegate = Generic\n    third: Delegate = ByRef\n    fourth: Delegate = TooWide\n    fifth: Delegate = Filtered\n    sixth: Delegate = ByOut\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 6, TypeCalleeReports(source)
+    expectedNames := ["Overloaded", "Generic", "ByRef", "TooWide", "Filtered", "ByOut"]
+    expectedLines := [18, 19, 20, 21, 22, 23]
+    expectedColumns := [23, 24, 23, 24, 23, 23]
+    expectedLengths := [10, 7, 5, 7, 8, 5]
+    index := 0
+    while index < errors.Count {
+        assert errors[index].Code == ErrorCode.MethodGroupUsedAsValue, TypeCalleeReports(source)
+        assert errors[index].Line == expectedLines[index], TypeCalleeReports(source)
+        assert errors[index].Column == expectedColumns[index], TypeCalleeReports(source)
+        assert errors[index].Length == expectedLengths[index], TypeCalleeReports(source)
+        assert errors[index].Message.Contains(expectedNames[index]), TypeCalleeReports(source)
+        index += 1
+    }
+}
+
+test "an untyped lambda cannot invent a signature for a broad delegate" {
+    source := "namespace Probe\n\nimport System\n\nfunc Run() {\n    handler: Delegate = value => value\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 1, TypeCalleeReports(source)
+    assert errors[0].Code == ErrorCode.CannotInferType, TypeCalleeReports(source)
+    assert errors[0].Line == 6, TypeCalleeReports(source)
+    assert errors[0].Column == 25, TypeCalleeReports(source)
+    assert errors[0].Length == 5, TypeCalleeReports(source)
+}
+
+test "Delegate and MulticastDelegate remain invalid event handler types" {
+    source := "namespace Probe\n\nimport System\n\nclass Signal {\n    event Changed: Delegate\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 1, TypeCalleeReports(source)
+    assert errors[0].Code == ErrorCode.EventRequiresDelegateType, TypeCalleeReports(source)
+    assert errors[0].Line == 6, TypeCalleeReports(source)
+    assert errors[0].Column == 11, TypeCalleeReports(source)
+    assert errors[0].Length == 7, TypeCalleeReports(source)
+}
+
+test "a nested loop cannot shadow an enclosing counter name" {
+    source := "namespace Probe\n\nfunc Run() {\n    for i := 1; i < 3; i++ {\n        for i := 10; i < 20; i += 10 {\n        }\n    }\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 1, TypeCalleeReports(source)
+    assert errors[0].Code == ErrorCode.ShadowedDeclaration, TypeCalleeReports(source)
+    assert errors[0].Line == 5, TypeCalleeReports(source)
+    assert errors[0].Column == 13, TypeCalleeReports(source)
+    assert errors[0].Length == 1, TypeCalleeReports(source)
 }

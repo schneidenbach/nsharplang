@@ -171,8 +171,10 @@ static class TestCommandHost {
                 return CliError.Report(buildFailedMessage)
             }
 
+            // The build referenced these framework directories; the run has to bind against them too.
+            frameworkDirectories := CompilationReferenceResolver.ResolveFrameworkReferenceDirectories(projectRoot, resolvedConfig)
             runStarted := stopwatch.ElapsedMilliseconds
-            testRun := RunSelectedRunner(resolvedConfig, outputPath, filter, verbose, outputMode, timeoutMs)
+            testRun := RunSelectedRunner(resolvedConfig, outputPath, frameworkDirectories, filter, verbose, outputMode, timeoutMs)
             summary := TestCommandKernels.SummarizeNativeTestRun(testRun)
             runTimings := RequestedTimings(timings, buildMilliseconds, stopwatch.ElapsedMilliseconds - runStarted, stopwatch)
 
@@ -210,16 +212,17 @@ static class TestCommandHost {
     static func RunSelectedRunner(
         projectConfig: ProjectConfig,
         outputPath: string,
+        frameworkDirectories: IReadOnlyList<string>,
         filter: string?,
         verbose: bool,
         outputMode: int,
         timeoutMs: int?
     ): NativeTestRun {
         if CliInvocationContext.IsRemoteInvocation() {
-            return TestWorkerHost.RunIsolated(projectConfig.TestFramework, outputPath, filter, verbose, outputMode, timeoutMs)
+            return TestWorkerHost.RunIsolated(projectConfig.TestFramework, outputPath, frameworkDirectories, filter, verbose, outputMode, timeoutMs)
         }
 
-        return RunRunnerInProcess(projectConfig.TestFramework, outputPath, filter, verbose, outputMode, timeoutMs)
+        return RunRunnerInProcess(projectConfig.TestFramework, outputPath, frameworkDirectories, filter, verbose, outputMode, timeoutMs)
     }
 
     // WHICH RUNNER, AND WHOSE STDOUT. In JSON mode the document has to be alone on stdout, so the
@@ -234,6 +237,7 @@ static class TestCommandHost {
     static func RunRunnerInProcess(
         testFramework: string?,
         outputPath: string,
+        frameworkDirectories: IReadOnlyList<string>,
         filter: string?,
         verbose: bool,
         outputMode: int,
@@ -247,13 +251,32 @@ static class TestCommandHost {
         markerName := DaemonExecKernels.GetDaemonChildEnvironmentVariable()
         previousMarker := Environment.GetEnvironmentVariable(markerName)
         Environment.SetEnvironmentVariable(markerName, "1")
+        // A test output that hosts applications in-process (`WebApplicationFactory`) is run as `dotnet
+        // test` runs it: from its own directory, and with `AppContext.BaseDirectory` pointing there,
+        // which is where the factory looks for `<app>.deps.json` and `MvcTestingAppManifest.json`.
+        // BOTH ARE PROCESS-GLOBAL. That is safe because a process runs one test project at a time:
+        // `nlc test` is one project per process and the workspace server runs each request in its own
+        // test worker (`TestWorkerHost`), so nothing reads either value concurrently.
+        outputDirectory := Path.GetDirectoryName(outputPath) ?? ""
+        hostsApplications := TestCommandKernels.HostsApplications(outputDirectory)
+        previousDirectory := Directory.GetCurrentDirectory()
+        previousBaseDirectory := AppContext.GetData("APP_CONTEXT_BASE_DIRECTORY")
         try {
-            if TestCommandKernels.ShouldRunNUnit(testFramework) {
-                return ReflectionTestRunner.Run(outputPath, filter, verbose, timeoutMs)
+            if hostsApplications {
+                Directory.SetCurrentDirectory(outputDirectory)
+                AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", outputDirectory + Path.DirectorySeparatorChar.ToString())
             }
 
-            return XunitTestRunner.Run(outputPath, filter, verbose, timeoutMs)
+            if TestCommandKernels.ShouldRunNUnit(testFramework) {
+                return ReflectionTestRunner.Run(outputPath, frameworkDirectories, filter, verbose, timeoutMs)
+            }
+
+            return XunitTestRunner.Run(outputPath, frameworkDirectories, filter, verbose, timeoutMs)
         } finally {
+            if hostsApplications {
+                AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", previousBaseDirectory)
+                Directory.SetCurrentDirectory(previousDirectory)
+            }
             Environment.SetEnvironmentVariable(markerName, previousMarker)
             Console.SetOut(stdout)
         }

@@ -313,6 +313,13 @@ class ColumnarParserRecovery {
     // and the throw is reported; `x ?? (throw e)` is past it too, by the `(`. -1 admits nothing.
     ThrowExpressionValuePosition: int
 
+    // THE RESERVED WORDS ALREADY TOLD TO THE DEVELOPER AS NAMES, one entry per distinct word. A name
+    // that is a reserved word is one mistake however many times it is written, so the first use is
+    // reported (NL109) and every later use of the same word is read as that name without a second
+    // report. Without this `out := 5` reported once for the declaration and again for every later
+    // read of the variable.
+    ReportedReservedWordNames: List<string>
+
     constructor(source: string, fileName: string?) {
         Source = source
         FileName = fileName
@@ -326,6 +333,7 @@ class ColumnarParserRecovery {
         ExpressionNestingDepth = 0
         UsingBodyBraceIndex = -1
         ThrowExpressionValuePosition = -1
+        ReportedReservedWordNames = new List<string>()
         Errors = new List<CompilerError>()
         NamespaceNode = null
         ImportNodes = new List<ImportDirective>()
@@ -595,13 +603,61 @@ class ColumnarParserRecovery {
         return "<error>"
     }
 
+    // WHETHER A KEYWORD AT THE PRIMARY-EXPRESSION FALLBACK IS AN ATTEMPTED NAME. The lexer table is
+    // the source of reserved words; keyword-led expression forms have already claimed their tokens
+    // before this point, and argument modifiers such as `out value` are consumed before the value is
+    // parsed. The reserved token is consumed as an identifier so recovery can retain the rest of the
+    // expression instead of cascading from an unexpected-token error.
+    func ReservedWordStandsAsName(): bool {
+        if IsAtEnd() || !ParserTokenFacts.IsNameLikeReservedWord(Current().Type) {
+            return false
+        }
+        if IsTypeDeclarationHeadAtCurrent() || IsFunctionDeclarationHeadAtCurrent() {
+            return false
+        }
+        return true
+    }
+
+    // The reserved word as the identifier it was meant to be, reported once per word (see
+    // `ReportedReservedWordNames`). The name keeps the word's own text, so the rest of the statement
+    // is read as written and the parser reports nothing that follows from the refusal.
+    func ParseReservedWordAsName(): ExprResult {
+        token := Current()
+        ReportReservedWordUsedAsName(SpanFromToken(token))
+        Advance()
+        nameResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), true)
+        nameResult.Node = new IdentifierExpression(token.Value, token.Line, token.Column)
+        return nameResult
+    }
+
+    func ReportReservedWordUsedAsName(span: RecoverySpan) {
+        keyword := Current().Value
+        suggestions := new List<string>()
+        suggestions.Add("Rename it to '" + keyword + "Value' or '_" + keyword + "'")
+        suggestions.Add("Pick any name that isn't a reserved N# keyword")
+
+        ReportReservedNameOnce(keyword, "'" + keyword + "' is a reserved word; choose another name", "'" + keyword + "' is a reserved keyword in N#, so it can't be used as a variable name. N# reports it once; rename every use of it.", ReservedKeywordHint(keyword, false), suggestions, span)
+    }
+
     func ReportReservedKeywordAsName(contextMessage: string, span: RecoverySpan, isDotAccess: bool) {
         keyword := Current().Value
         suggestions := new List<string>()
         suggestions.Add("Rename it to '" + keyword + "Value' or '_" + keyword + "'")
         suggestions.Add("Pick any name that isn't a reserved N# keyword")
 
-        Report(ErrorCode.ReservedKeywordAsName, contextMessage + ". Got the reserved keyword '" + keyword + "'", span.Line, span.Column, "'" + keyword + "' is a reserved keyword in N#, so it can't be used as a name here.", ReservedKeywordHint(keyword, isDotAccess), suggestions, span.Length)
+        ReportReservedNameOnce(keyword, contextMessage + ". Got the reserved keyword '" + keyword + "'", "'" + keyword + "' is a reserved keyword in N#, so it can't be used as a name here.", ReservedKeywordHint(keyword, isDotAccess), suggestions, span)
+    }
+
+    // All parser paths that reject a reserved name come through this one per-file gate. Callers
+    // still consume and retain the token after a duplicate is suppressed, so the parse shape stays
+    // useful without repeating NL109 for the same spelling later in the file.
+    func ReportReservedNameOnce(keyword: string, message: string, explanation: string, hint: string, suggestions: List<string>, span: RecoverySpan) {
+        if ReportedReservedWordNames.Contains(keyword) {
+            return
+        }
+
+        ReportedReservedWordNames.Add(keyword)
+        Report(ErrorCode.ReservedKeywordAsName, message, span.Line, span.Column, explanation, hint, suggestions, span.Length)
     }
 
     func ReservedKeywordHint(keyword: string, isDotAccess: bool): string {
@@ -1534,19 +1590,19 @@ class ColumnarParserRecovery {
                         // `for x in xs` reading of the same token is untouched: that one is only ever
                         // met AFTER a loop variable, never at the head of a parameter.
                         modifier := ParameterModifier.None
-                        if Check(TokenType.Params) {
+                        if Check(TokenType.Params) && LookAhead(1).Type != TokenType.Colon {
                             modifier = ParameterModifier.Params
                             Advance()
                         } else {
-                            if Check(TokenType.Ref) {
+                            if Check(TokenType.Ref) && LookAhead(1).Type != TokenType.Colon {
                                 modifier = ParameterModifier.Ref
                                 Advance()
                             } else {
-                                if Check(TokenType.Out) {
+                                if Check(TokenType.Out) && LookAhead(1).Type != TokenType.Colon {
                                     modifier = ParameterModifier.Out
                                     Advance()
                                 } else {
-                                    if Check(TokenType.In) {
+                                    if Check(TokenType.In) && LookAhead(1).Type != TokenType.Colon {
                                         modifier = ParameterModifier.In
                                         Advance()
                                     }
@@ -1556,7 +1612,7 @@ class ColumnarParserRecovery {
 
                         // The `this` extension marker (Parser.cs :801).
                         isThis := false
-                        if Check(TokenType.This) {
+                        if Check(TokenType.This) && LookAhead(1).Type != TokenType.Colon {
                             isThis = true
                             Advance()
                         }
@@ -1671,9 +1727,10 @@ class ColumnarParserRecovery {
 
         if !IsAtEnd() {
             if Lexer.IsReservedKeyword(Current().Type) {
+                keyword := Current().Value
                 ReportReservedKeywordAsName(message, diagnosticSpan ?? SpanFromToken(Current()), isDotAccess)
                 Advance()
-                return "<error>"
+                return keyword
             }
         }
 
@@ -4575,6 +4632,11 @@ class ColumnarParserRecovery {
     // and attribute-led scans mirror Parser.cs's index walk; the corpus exercises the direct
     // type-declaration-keyword case (`class` mid-block).
     func IsBlockClosingDeclarationStart(): bool {
+        // A reserved word with an explicit binding shape is being used as a local name, even when
+        // it is also a type-declaration keyword such as `class` or `record`.
+        if IsReservedWordNameBindingStart() || IsReservedWordMemberAccessStart() {
+            return false
+        }
         if ParserTokenFacts.IsTypeDeclarationKeyword(Current().Type) {
             return true
         }
@@ -4637,6 +4699,71 @@ class ColumnarParserRecovery {
         return false
     }
 
+    // A function declaration head is a recovery boundary in expression positions: after an empty
+    // arrow body, `func next()` must remain available to the declaration parser instead of being
+    // consumed as a reserved-word identifier. Modifier-led local functions use the same prefix
+    // forms as ParseStatement; the name and opening parameter/generic-list tokens complete the head.
+    func IsFunctionDeclarationHeadAtCurrent(): bool {
+        offset := 0
+        if (Check(TokenType.Static) || Check(TokenType.Async)) && LookAhead(1).Type == TokenType.Func {
+            offset = 1
+        } else {
+            if Check(TokenType.Static) && LookAhead(1).Type == TokenType.Async && LookAhead(2).Type == TokenType.Func {
+                offset = 2
+            }
+        }
+
+        functionPosition := Position + offset
+        if functionPosition >= Tokens.Count || Tokens[functionPosition].Type != TokenType.Func || functionPosition + 2 >= Tokens.Count {
+            return false
+        }
+
+        nameType := Tokens[functionPosition + 1].Type
+        if nameType != TokenType.Identifier && !Lexer.IsReservedKeyword(nameType) {
+            return false
+        }
+
+        followingType := Tokens[functionPosition + 2].Type
+        return followingType == TokenType.LeftParen || followingType == TokenType.Less
+    }
+
+    // A type declaration is a boundary here only when its keyword has a following name. The block
+    // recovery predicate is intentionally broader (a bare `class` can indicate a missing brace),
+    // but a bare reserved word inside an expression still gets the name diagnostic.
+    func IsTypeDeclarationHeadAtCurrent(): bool {
+        if TypeAliasKeywordFacts.IsAliasDeclarationHead(Tokens, Position) || IsSoaRecordDeclarationStart() {
+            return true
+        }
+        if Check(TokenType.Test) && LookAhead(1).Type == TokenType.StringLiteral {
+            return true
+        }
+
+        offset := 0
+        while Position + offset < Tokens.Count && ParserTokenFacts.IsModifierKeyword(Tokens[Position + offset].Type) {
+            offset = offset + 1
+        }
+        typePosition := Position + offset
+        if typePosition >= Tokens.Count {
+            return false
+        }
+
+        typeKind := Tokens[typePosition].Type
+        if ParserTokenFacts.IsTypeDeclarationKeyword(typeKind) {
+            return typePosition + 1 < Tokens.Count && IsDeclarationNameToken(Tokens[typePosition + 1].Type)
+        }
+        if typeKind == TokenType.Ref && typePosition + 2 < Tokens.Count && Tokens[typePosition + 1].Type == TokenType.Struct {
+            return IsDeclarationNameToken(Tokens[typePosition + 2].Type)
+        }
+        if typeKind == TokenType.Duck && typePosition + 2 < Tokens.Count && Tokens[typePosition + 1].Type == TokenType.Interface {
+            return IsDeclarationNameToken(Tokens[typePosition + 2].Type)
+        }
+        return false
+    }
+
+    func IsDeclarationNameToken(tokenType: TokenType): bool {
+        return tokenType == TokenType.Identifier || Lexer.IsReservedKeyword(tokenType)
+    }
+
     // Parser.cs IsSoaRecordDeclarationStartAtOffset (:7028).
     func IsSoaRecordDeclarationStartAtOffset(offset: int): bool {
         if Position + offset + 1 >= Tokens.Count {
@@ -4667,6 +4794,27 @@ class ColumnarParserRecovery {
         }
     }
 
+    // A RESERVED WORD FOLLOWED BY A NAME-BINDING OPERATOR is unambiguously an attempted variable
+    // declaration/assignment, even when the word also starts a statement (`if := 1`, `return: int = 1`).
+    // The lookahead uses the lexer's keyword table and the shared type-start facts; the statement's
+    // own grammar gets priority for every other shape.
+    func IsReservedWordNameBindingStart(): bool {
+        if IsAtEnd() {
+            return false
+        }
+
+        return ParserTokenFacts.IsReservedWordNameBindingStart(Current().Type, LookAhead(1).Type)
+    }
+
+    func IsReservedWordMemberAccessStart(): bool {
+        if IsAtEnd() || !Lexer.IsReservedKeyword(Current().Type) {
+            return false
+        }
+
+        nextType := LookAhead(1).Type
+        return nextType == TokenType.Dot || nextType == TokenType.QuestionDot || nextType == TokenType.QuestionBracket
+    }
+
     // ---- statement dispatch (Parser.cs ParseStatement :2219) ----
     // Stage 6 carries the let/const/readonly, if, for, foreach, while, return, print, block, and
     // expression-statement kinds — the surface the migrated parser-error statement shapes reach
@@ -4687,6 +4835,10 @@ class ColumnarParserRecovery {
                 // Parser.cs :2235 `new EmptyStatement(ownerSpan.Line, ownerSpan.Column)`.
                 return new EmptyStatement(owner.Line, owner.Column)
             }
+        }
+
+        if IsReservedWordNameBindingStart() || IsReservedWordMemberAccessStart() {
+            return ParseExpressionStatement()
         }
 
         if Check(TokenType.Semicolon) {
@@ -4847,7 +4999,7 @@ class ColumnarParserRecovery {
 
         line := Current().Line
         column := Current().Column
-        name := ConsumeIdentifier("Expected variable name")
+        name := ConsumeNameWithSpan("Expected variable name", null)
 
         // Optional type annotation `: T` (Parser.cs :2550).
         declaredType: TypeReference? = null
@@ -5050,9 +5202,10 @@ class ColumnarParserRecovery {
         // C-style header begins `<keyword> in`, and none begins `<keyword> : <Type> in` either — the
         // annotated form is admitted under the SAME bounded scan the annotated identifier arm above
         // uses, so a C-style header whose initializer merely starts with a keyword still reaches its
-        // own diagnostics. The loop is then parsed to completion under the recovery name every other
-        // refused name gets, so the rest of the file is read as written.
+        // own diagnostics. The loop is then parsed to completion with the refused spelling retained,
+        // so later uses do not cascade from a placeholder name.
         if !IsAtEnd() && Lexer.IsReservedKeyword(Current().Type) && LookAhead(1).Type == TokenType.In {
+            keywordVariable := Current().Value
             ReportReservedKeywordAsName("Expected variable name", SpanFromToken(Current()), false)
             Advance()
             // the refused loop variable
@@ -5062,13 +5215,14 @@ class ColumnarParserRecovery {
             if keywordCollection == null || keywordBody == null {
                 return null
             }
-            return new ForStatement(null, null, null, new ForeachStatement("<error>", keywordCollection, keywordBody, line, column), line, column)
+            return new ForStatement(null, null, null, new ForeachStatement(keywordVariable, keywordCollection, keywordBody, line, column), line, column)
         }
 
         if !IsAtEnd() && Lexer.IsReservedKeyword(Current().Type) && LookAhead(1).Type == TokenType.Colon {
             ScanPosition = Position + 2
             ScanSplit = 0
             if ScanTypeReference() && ScanCurrentType() == TokenType.In {
+                keywordVariable := Current().Value
                 ReportReservedKeywordAsName("Expected variable name", SpanFromToken(Current()), false)
                 Advance()
                 // the refused loop variable
@@ -5081,7 +5235,7 @@ class ColumnarParserRecovery {
                 if keywordAnnotatedType == null || keywordAnnotatedCollection == null || keywordAnnotatedBody == null {
                     return null
                 }
-                return new ForStatement(null, null, null, new ForeachStatement("<error>", keywordAnnotatedCollection, keywordAnnotatedBody, line, column, keywordAnnotatedType), line, column)
+                return new ForStatement(null, null, null, new ForeachStatement(keywordVariable, keywordAnnotatedCollection, keywordAnnotatedBody, line, column, keywordAnnotatedType), line, column)
             }
         }
 
@@ -5195,7 +5349,7 @@ class ColumnarParserRecovery {
             hasParens = true
         }
         variableToken := Current()
-        variableName := ConsumeIdentifier("Expected variable name")
+        variableName := ConsumeNameWithSpan("Expected variable name", null)
         // The OPTIONAL `: Type` annotation on the loop variable, the same form the `for … in` arm
         // reads. It is taken unconditionally here: after a `foreach` variable name a `:` can begin
         // nothing else.
@@ -5394,7 +5548,7 @@ class ColumnarParserRecovery {
             hasParens = true
         }
         variableToken := Current()
-        variableName := ConsumeIdentifier("Expected variable name")
+        variableName := ConsumeNameWithSpan("Expected variable name", null)
         inToken := ConsumeInOrReportMissing(foreachToken, variableToken, "This await foreach statement")
         collection := ParseRequiredExpressionAfter(inToken, "a collection expression", "This await foreach statement", null)
         if hasParens {
@@ -6447,10 +6601,10 @@ class ColumnarParserRecovery {
         // `pair: (Item: string, Count: int) = …` fell through to the expression arm and reported
         // NL101 "Unexpected token ':' in expression" plus an NL301 for every name in the annotation,
         // while the same type in a parameter, a return and a generic argument parsed cleanly.
-        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon && (LookAhead(2).Type == TokenType.Identifier || LookAhead(2).Type == TokenType.LeftParen) {
+        if (Check(TokenType.Identifier) || Lexer.IsReservedKeyword(Current().Type)) && LookAhead(1).Type == TokenType.Colon && (LookAhead(2).Type == TokenType.Identifier || LookAhead(2).Type == TokenType.LeftParen) {
             saved := Position
-            name := Advance().Value
-            // the declared name
+            name := ConsumeNameWithSpan("Expected variable name", null)
+            // the declared name; a reserved spelling is retained after NL109 for later recovery uses.
             Advance()
             // consume ':'
             declaredType := ParseMaterializedTypeReference()
@@ -7423,6 +7577,12 @@ class ColumnarParserRecovery {
     // ParseUnaryOperandOrMissing (missing-operand report). The invalid-unary default (:4348) is an
     // unreachable dead arm (the switch handles every token the guard admits).
     func ParseUnary(): ExprResult {
+        // Binding punctuation makes a reserved prefix token an attempted name (`must := 1`) before
+        // the unary grammar can claim it as an operator.
+        if IsReservedWordNameBindingStart() {
+            return ParseReservedWordAsName()
+        }
+
         if Check(TokenType.Plus) {
             return ParseInvalidPrefixPlusExpression()
         }
@@ -8178,6 +8338,13 @@ class ColumnarParserRecovery {
         line := Current().Line
         column := Current().Column
 
+        // An assignment-shaped token sequence is an attempted binding even when the keyword normally
+        // owns a primary grammar (`new`, `true`, `typeof`, etc.). Preserve that grammar for every other
+        // lookahead and report the reserved spelling as a name here.
+        if IsReservedWordNameBindingStart() {
+            return ParseReservedWordAsName()
+        }
+
         // Leading member access with no receiver: `.Foo` (Parser.cs :4631).
         if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
             return ParseLeadingMemberAccessWithoutReceiver()
@@ -8470,6 +8637,11 @@ class ColumnarParserRecovery {
             identResult := new ExprResult(new RecoverySpan(line, column, MaxInt(1, name.Length)), true)
             identResult.Node = new IdentifierExpression(name, line, column)
             return identResult
+        }
+
+        // A RESERVED WORD WRITTEN AS A NAME (`out := 5`, `partial.Length`) is NL109, not an unexpected token.
+        if ReservedWordStandsAsName() {
+            return ParseReservedWordAsName()
         }
 
         // Terminal: an unexpected token where an expression was required (Parser.cs :4813).
@@ -8951,9 +9123,11 @@ class ColumnarParserRecovery {
         // them apart. The initializer carries its own `{`/`}` span. With no parens at all the two stay
         // equal, which reads as "single line" — correct for `new Foo` and `new Foo { … }` alike.
         constructorArgumentsEndLine := line
+        hasArgumentList := false
 
         if Check(TokenType.LeftParen) {
             // Target-typed new: `new(args)` (Parser.cs :5220).
+            hasArgumentList = true
             Advance()
             targetTypedArguments := ParseArgumentList()
             constructorArgumentsEndLine = Previous().Line
@@ -8984,6 +9158,7 @@ class ColumnarParserRecovery {
                 }
                 if Check(TokenType.LeftParen) {
                     // constructor args (Parser.cs :5248)
+                    hasArgumentList = true
                     Advance()
                     typedArguments := ParseArgumentList()
                     constructorArgumentsEndLine = Previous().Line
@@ -9044,10 +9219,12 @@ class ColumnarParserRecovery {
                             sizedInitializer.EndLine = sizedBraceEndLine
                             sizedNew := new NewExpression(newType, constructorArguments, sizedInitializer, line, column, arrayLength)
                             sizedNew.EndLine = constructorArgumentsEndLine
+                            sizedNew.HasArgumentList = hasArgumentList
                             sizedResult.Node = sizedNew
                         } else {
                             sizedNewBare := new NewExpression(newType, constructorArguments, null, line, column, arrayLength)
                             sizedNewBare.EndLine = constructorArgumentsEndLine
+                            sizedNewBare.HasArgumentList = hasArgumentList
                             sizedResult.Node = sizedNewBare
                         }
                     }
@@ -9086,10 +9263,12 @@ class ColumnarParserRecovery {
                 initializer.EndLine = initializerBraceEndLine
                 initializedNew := new NewExpression(newType, constructorArguments, initializer, line, column, null)
                 initializedNew.EndLine = constructorArgumentsEndLine
+                initializedNew.HasArgumentList = hasArgumentList
                 newResult.Node = initializedNew
             } else {
                 bareNew := new NewExpression(newType, constructorArguments, null, line, column, null)
                 bareNew.EndLine = constructorArgumentsEndLine
+                bareNew.HasArgumentList = hasArgumentList
                 newResult.Node = bareNew
             }
         }

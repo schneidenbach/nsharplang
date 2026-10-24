@@ -7,15 +7,20 @@ runtime, templates, compiler API and Core dependency, CLI/LSP toolset, and VS Co
 IL verification job remains required before publication.
 
 Successful same-repository PR builds publish GitHub prereleases named
-`unofficial-pr-<number>-<run-id>-<attempt>`. Main publishes
-`unofficial-main-<run-id>-<attempt>`. The unique tag identifies the exact source commit;
-these releases never become GitHub's latest stable release. Package versions remain
+`unofficial-pr-<number>-<run-id>-<attempt>`; they never become GitHub's latest release.
+Main publishes full (non-pre-release) releases named `unofficial-main-<run-id>-<attempt>`
+and marks each one latest, because the public installer (`scripts/install.sh`) downloads
+from `releases/latest/download/`. A main run whose commit is an ancestor of the current
+latest release's commit (an older run that reached publication late) publishes without
+taking latest. The unique tag identifies the exact source commit. Every release also
+carries a `SHA256SUMS` asset listing every other asset by name, which the installer
+verifies before installing anything. Package versions remain
 the project's versions; these are downloadable development snapshots, not NuGet feed
 publications. Fork PRs run the same build and upload the same downloadable Actions
 artifact without receiving release write permission. Artifacts expire after 14 days.
 
 Closing or merging a PR deletes every release and tag in that PR's exact namespace.
-Main builds and official `v*` releases remain. Cleanup uses `pull_request_target` with
+Main builds, including the latest release, and official `v*` releases remain. Cleanup uses `pull_request_target` with
 no checkout or execution of PR code; it shares a concurrency group with publication,
 which rechecks the PR state and head SHA before creating a release. The cleanup
 workflow can also be dispatched with a closed PR number to retry a failed deletion.

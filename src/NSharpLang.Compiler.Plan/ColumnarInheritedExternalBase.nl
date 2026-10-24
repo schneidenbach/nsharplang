@@ -66,7 +66,7 @@ class ColumnarInheritedExternalBase {
             return true
         }
 
-        externalProperty := externalBase.GetProperty(memberName, staticFlags)
+        externalProperty := ReflectedMemberLookup.FindProperty(externalBase, memberName, staticFlags)
         if externalProperty == null {
             return false
         }
@@ -120,7 +120,7 @@ class ColumnarInheritedExternalBase {
             return false
         }
 
-        openProperty := definitionType.GetProperty(memberName, staticFlags)
+        openProperty := ReflectedMemberLookup.FindProperty(definitionType, memberName, staticFlags)
         if openProperty == null {
             return false
         }

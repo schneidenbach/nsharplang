@@ -102,13 +102,13 @@ test "the emitted metadata carries a real `Nullable<T>` for every element" {
     assert NullableSurfaceElement(sumMoney.GetParameters()[0].ParameterType).Name == "Money"
     assert NullableSurfaceElement(sumMoney.GetParameters()[1].ParameterType).Name == "Money"
 
-    // A `?`-lifted source struct reaches a FIELD too.
-    heldField := typeof(Wallet).GetField("Held", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-    if heldField == null {
+    // A `?`-lifted source struct reaches a member too — `Wallet.Held`, a class's auto-property.
+    heldProperty := typeof(Wallet).GetProperty("Held", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+    if heldProperty == null {
         throw new InvalidOperationException("Wallet.Held was not found.")
     }
 
-    assert NullableSurfaceElement(heldField.FieldType).Name == "Money"
+    assert NullableSurfaceElement(heldProperty.PropertyType).Name == "Money"
 }
 
 // ── which of the two types a name binds on, when both declare it ────────────────────────────────

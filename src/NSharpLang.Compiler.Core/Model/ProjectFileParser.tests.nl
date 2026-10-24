@@ -138,7 +138,7 @@ test "a project.yml carrying nothing but a name carries every default with it" {
     // or not at all. A deserializer that wrote an empty string into one of these would have passed.
     assert config.TestFramework == "xunit"
     assert config.Sdk == "Microsoft.NET.Sdk"
-    assert config.Language.PooledAsync == false
+    assert config.Language.RemovedPooledAsync == null
     assert config.Language.Profile == "default"
     assert config.Language.Systems.Mode == "strict"
     assert config.Language.Systems.UnknownExternalCalls == "warn"
@@ -206,18 +206,35 @@ test "the SDK test exclusion setting is read from the project file" {
     Directory.Delete(directory, true)
 }
 
-test "the async default type and the pooled-async flag are read from the language section" {
+test "the async default type is read from the language section, and pooled async is refused" {
     directory := PfpTempDirectory("language")
     task := ProjectFileParser.Parse(PfpWrite(directory, "name: TaskProject\nlanguage:\n  asyncDefaultType: Task\n"))
     assert task.Language.AsyncDefaultType == "Task"
-    assert task.Language.PooledAsync == false
 
-    pooled := ProjectFileParser.Parse(PfpWrite(directory, "name: PooledProject\nlanguage:\n  asyncDefaultType: ValueTask\n  pooledAsync: true\n"))
-    assert pooled.Language.PooledAsync
-    assert pooled.Language.AsyncDefaultType == "ValueTask"
+    valueTask := ProjectFileParser.Parse(PfpWrite(directory, "name: ValueTaskProject\nlanguage:\n  asyncDefaultType: ValueTask\n"))
+    assert valueTask.Language.AsyncDefaultType == "ValueTask"
 
     unset := ProjectFileParser.Parse(PfpWrite(directory, "name: DefaultProject\n"))
-    assert unset.Language.PooledAsync == false
+    assert unset.Language.RemovedPooledAsync == null
+
+    // The spelling becomes the family the analyzer and the emitter both wrap with.
+    assert AsyncTaskFamilyFacts.ForLanguage(task.Language) == AsyncTaskFamily.Task
+    assert AsyncTaskFamilyFacts.ForLanguage(valueTask.Language) == AsyncTaskFamily.ValueTask
+    assert AsyncTaskFamilyFacts.ForLanguage(unset.Language) == AsyncTaskFamily.ValueTask
+
+    // `pooledAsync` never did anything: an async func completes before it returns, so its ValueTask
+    // allocates nothing and there is no state to pool. The key is refused by name, with that reason,
+    // whatever value it carries and whichever task family the project picks.
+    expectedPrefix := "InvalidOperationException|Invalid language.pooledAsync: '"
+    expectedReason := "'. N# has no pooled-async setting: an async func that returns ValueTask already completes without allocating, so there is nothing to pool. Remove 'pooledAsync' from the language section."
+    pooledValueTask := PfpOutcomeOf(directory, "name: PooledValueTask\nlanguage:\n  asyncDefaultType: ValueTask\n  pooledAsync: true\n")
+    assert pooledValueTask == expectedPrefix + "true" + expectedReason, pooledValueTask
+    pooledTask := PfpOutcomeOf(directory, "name: PooledTask\nlanguage:\n  asyncDefaultType: Task\n  pooledAsync: true\n")
+    assert pooledTask == expectedPrefix + "true" + expectedReason, pooledTask
+    pooledOff := PfpOutcomeOf(directory, "name: PooledOff\nlanguage:\n  pooledAsync: false\n")
+    assert pooledOff == expectedPrefix + "false" + expectedReason, pooledOff
+    pooledEmpty := PfpOutcomeOf(directory, "name: PooledEmpty\nlanguage:\n  pooledAsync:\n")
+    assert pooledEmpty == expectedPrefix + expectedReason, pooledEmpty
 
     removedNullabilitySwitch := PfpOutcomeOf(directory, "name: ReferencedNullability\nlanguage:\n  enforceReferencedNullability: true\n")
     assert removedNullabilitySwitch.StartsWith("YamlException|", StringComparison.Ordinal), removedNullabilitySwitch
@@ -301,6 +318,23 @@ test "EVERY VALIDATION REFUSES WITH ITS OWN SENTENCE, AND THE DELETED FILE REACH
     // The control: the same shapes with legal values are accepted, so the refusals above are
     // decided by the VALUE and not by the section being present at all.
     assert PfpOutcomeOf(directory, "name: GoodProject\noutputType: library\nlanguage:\n  profile: systems\n  systems:\n    mode: audit\n    unknownExternalCalls: error\n    aotTarget: coreclr\n    stackBudgetBytes: 8192\n") == "<parsed:GoodProject>"
+
+    Directory.Delete(directory, true)
+}
+
+test "a dependency entry with two kinds, an unknown key, a stray version or a nested value is refused" {
+    directory := PfpTempDirectory("malformed-dependency")
+    tail := ". Each entry names exactly one of nuget, framework, project or dll, and a nuget entry may also give a version."
+
+    assert PfpOutcomeOf(directory, "name: Bad\ndependencies:\n  - nuget: Serilog\n    dll: libs/Serilog.dll\n") == "InvalidOperationException|Invalid dependencies entry 1: it names more than one kind ('nuget' and 'dll')" + tail
+    // A typo is the row's ONLY key, so it carries no value; it is refused, not silently dropped.
+    assert PfpOutcomeOf(directory, "name: Bad\ndependencies:\n  - Newtonsoft.Json@13.0.3\n  - nugget: Serilog\n") == "InvalidOperationException|Invalid dependencies entry 2: 'nugget' is not a dependency key" + tail
+    assert PfpOutcomeOf(directory, "name: Bad\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n    version: 10.0.0\n") == "InvalidOperationException|Invalid dependencies entry 1: 'version' belongs only to a nuget entry" + tail
+    assert PfpOutcomeOf(directory, "name: Bad\ndependencies:\n  - nuget: Serilog\n    privateAssets:\n      - all\n") == "InvalidOperationException|Invalid dependencies entry 1: 'privateAssets' has a nested value, but it must be a single value" + tail
+    assert PfpOutcomeOf(directory, "name: Bad\ntestDependencies:\n  - nuget: xunit\n    Version: 2.9.2\n    include: all\n") == "InvalidOperationException|Invalid testDependencies entry 1: 'include' is not a dependency key" + tail
+
+    // The controls: keys are case-insensitive, and every well-formed spelling still parses.
+    assert PfpOutcomeOf(directory, "name: Good\ndependencies:\n  - Serilog@3.1.1\n  - nuget: Newtonsoft.Json@13.0.3\n  - NuGet: YamlDotNet\n    Version: 16.3.0\n  - framework: Microsoft.AspNetCore.App\n") == "<parsed:Good>"
 
     Directory.Delete(directory, true)
 }

@@ -111,6 +111,26 @@ test "ColumnarModifiedMemberReferenceRepair retains a marked method signature so
     assert plan.MethodModifiedSignatureSources[last] == null
 }
 
+test "a reused method pool slot clears the previous modified signature source" {
+    signatureMethod := typeof(string).GetMethod("GetHashCode", new Type[](0))
+    replacementMethod := typeof(string).GetMethod("ToString", new Type[](0))
+    if signatureMethod == null || replacementMethod == null {
+        throw new InvalidOperationException("The string methods used by the method-pool regression test must exist.")
+    }
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    markedIndex := plan.AddMethodWithSignature(signatureMethod, typeof(string), new Type[](0), typeof(int), false, false)
+    plan.MarkMethodForModifiedMemberReferenceRepair(markedIndex, signatureMethod)
+    assert plan.MethodModifiedSignatureSources[markedIndex] == signatureMethod
+
+    plan.PrepareV3()
+    reusedIndex := plan.AddMethod(replacementMethod)
+    assert reusedIndex == markedIndex
+    assert plan.Methods[reusedIndex] == replacementMethod
+    assert plan.MethodModifiedSignatureSources[reusedIndex] == null
+}
+
 test "ColumnarModifiedMemberReferenceRepair keeps unbaked VAR and MVAR identities distinct" {
     assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("ModifiedMemberGenericIdentity"), AssemblyBuilderAccess.Run)
     module := assembly.DefineDynamicModule("ModifiedMemberGenericIdentity")

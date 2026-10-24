@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Reflection.Emit
 import NSharpLang.Compiler.Ast
 
 
@@ -1117,6 +1118,60 @@ test "a GET-ONLY property is not a settable named member" {
     assert !AnalyzerAttributeValidator.TryGetSettableAttributeNamedMemberType(AttrObsolete(), "Message", out memberType)
 }
 
+func AvDefineSettableProperty(owner: TypeBuilder, name: string, propertyType: Type) {
+    field := owner.DefineField("_" + name, propertyType, FieldAttributes.Private)
+    getter := owner.DefineMethod("get_" + name, MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig, propertyType, Type.EmptyTypes)
+    getterIl := getter.GetILGenerator()
+    getterIl.Emit(OpCodes.Ldarg_0)
+    getterIl.Emit(OpCodes.Ldfld, field)
+    getterIl.Emit(OpCodes.Ret)
+
+    setter := owner.DefineMethod("set_" + name, MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig, typeof(void), [propertyType])
+    setterIl := setter.GetILGenerator()
+    setterIl.Emit(OpCodes.Ldarg_0)
+    setterIl.Emit(OpCodes.Ldarg_1)
+    setterIl.Emit(OpCodes.Stfld, field)
+    setterIl.Emit(OpCodes.Ret)
+
+    property := owner.DefineProperty(name, PropertyAttributes.None, propertyType, Type.EmptyTypes)
+    property.SetGetMethod(getter)
+    property.SetSetMethod(setter)
+}
+
+func AvHiddenAttributeType(): Type {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("AttributeValidatorHidden" + Guid.NewGuid().ToString("N")), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("Fixture")
+    baseBuilder := module.DefineType("BaseAttribute", TypeAttributes.Public | TypeAttributes.Class, typeof(Attribute))
+    baseBuilder.DefineDefaultConstructor(MethodAttributes.Public)
+    AvDefineSettableProperty(baseBuilder, "Marker", typeof(object))
+    baseType := baseBuilder.CreateType() ?? typeof(Attribute)
+    derivedBuilder := module.DefineType("DerivedAttribute", TypeAttributes.Public | TypeAttributes.Class, baseType)
+    derivedBuilder.DefineDefaultConstructor(MethodAttributes.Public)
+    AvDefineSettableProperty(derivedBuilder, "Marker", typeof(string))
+    return derivedBuilder.CreateType() ?? typeof(Attribute)
+}
+
+test "a named attribute argument resolves the most-derived hidden property and writes its runtime value" {
+    attributeType := AvHiddenAttributeType()
+    lookupOutcome := "no exception"
+    try {
+        attributeType.GetProperty("Marker", BindingFlags.Public | BindingFlags.Instance)
+    } catch ex: AmbiguousMatchException {
+        lookupOutcome = "ambiguous"
+    }
+    assert lookupOutcome == "ambiguous"
+
+    memberType := typeof(object)
+    assert AnalyzerAttributeValidator.TryGetSettableAttributeNamedMemberType(attributeType, "Marker", out memberType)
+    assert memberType == typeof(string)
+
+    instance := Activator.CreateInstance(attributeType)
+    property := ReflectedMemberLookup.FindProperty(attributeType, "Marker", BindingFlags.Public | BindingFlags.Instance)
+    assert property != null
+    property.SetValue(instance, "derived")
+    assert Convert.ToString(property.GetValue(instance)) == "derived"
+}
+
 test "the constructor question is answered by arity and by argument types" {
     positional := new List<AttributeArgumentValidationInfo>()
     positional.Add(new AttributeArgumentValidationInfo(new Argument(null, AttrString("gone"), ArgumentModifier.None), null, AttrString("gone"), typeof(string), false))
@@ -2129,4 +2184,48 @@ test "an element that is not an integer constant refuses the whole array argumen
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.NoMatchingOverload
+}
+
+// AN AUTO-PROPERTY IS TWO ROWS — the property and its backing field — so a bare exported member of a
+// class admits an attribute declared for EITHER (`MemberStorageRules`); one declared for neither is
+// refused under the name of the declaration the developer wrote. The class is walked first, which is
+// what tells each member's own visit that it is an auto-property; a camelCase member stays a field.
+func AutoPropertyClass(member: FieldDeclaration): ClassDeclaration {
+    members := new List<Declaration>()
+    members.Add(member)
+    return new ClassDeclaration("Box", null, null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), 1, 1)
+}
+
+func AutoPropertyAttributeErrorCount(targets: string): int {
+    harness := AttrUsageHarness(targets, false)
+    member := new FieldDeclaration("Value", null, null, Modifiers.None, PropertyModifier.None, AttrNodes(AttrNode("Marker", AttrArgs())), 2, 5)
+    harness.Validator.ValidateDeclarationAttributeArguments(AutoPropertyClass(member))
+    harness.Validator.ValidateDeclarationAttributeArguments(member)
+    return harness.Errors.Count
+}
+
+test "an auto-property admits an attribute declared for properties, and one declared for fields" {
+    assert AutoPropertyAttributeErrorCount("Property") == 0
+    assert AutoPropertyAttributeErrorCount("Field") == 0
+}
+
+test "an auto-property refuses an attribute declared for neither of its rows, naming an auto-property" {
+    harness := AttrUsageHarness("Method", false)
+    member := new FieldDeclaration("Value", null, null, Modifiers.None, PropertyModifier.None, AttrNodes(AttrNode("Marker", AttrArgs())), 2, 5)
+    harness.Validator.ValidateDeclarationAttributeArguments(AutoPropertyClass(member))
+    harness.Validator.ValidateDeclarationAttributeArguments(member)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeTargetInvalid
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' cannot be applied to an auto-property — it is declared for functions"
+}
+
+test "a camelCase member of a class is a field, and refuses a property-only attribute" {
+    harness := AttrUsageHarness("Property", false)
+    member := new FieldDeclaration("value", null, null, Modifiers.None, PropertyModifier.None, AttrNodes(AttrNode("Marker", AttrArgs())), 2, 5)
+    harness.Validator.ValidateDeclarationAttributeArguments(AutoPropertyClass(member))
+    harness.Validator.ValidateDeclarationAttributeArguments(member)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' cannot be applied to a field — it is declared for properties"
 }

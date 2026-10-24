@@ -1836,6 +1836,10 @@ func ParseDeclarationMemberFieldModifierWord(memberModifiers: ParserDeclarationR
     if (memberModifiers.Values[2] & 16384) != 0 {
         fieldModifierFlags = fieldModifierFlags + 8192
     }
+    // Bit 14 — `sealed`, which closes the slot a bare `override` member takes.
+    if (memberModifiers.Values[2] & 128) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 16384
+    }
 
     return fieldModifierFlags
 }

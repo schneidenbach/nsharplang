@@ -524,7 +524,7 @@ class AnalyzerMemberAccess {
 
         includeStaticMembers := IsStaticMemberAccessTarget(member.Object)
         invocationPosition := IsCallCalleePosition(member)
-        memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition, InheritsProtectedThrough(receiverType, member.Object))
+        memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition, InheritsProtectedThrough(receiverType, member.Object), invocationPosition ? ambientValue.WrittenCallTypeArgumentCount : 0)
         if !invocationPosition && ambientValue.WriteTargetExpressionTypes != null {
             memberType = ApplyReflectedPropertyInputNullability(receiverType, member, includeStaticMembers, memberType)
         }
@@ -602,7 +602,7 @@ class AnalyzerMemberAccess {
             flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy
         }
 
-        property := owner.GetProperty(member.MemberName, flags)
+        property := ReflectedMemberLookup.FindProperty(owner, member.MemberName, flags)
         if property == null {
             return memberType
         }
@@ -861,7 +861,7 @@ class AnalyzerMemberAccess {
         answering := AnalyzerReflectionTypeOverride.Direct(overrides, null)
         memberFlags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
 
-        property := definition.GetProperty(memberName, memberFlags)
+        property := ReflectedMemberLookup.FindProperty(definition, memberName, memberFlags)
         if property != null {
             memberType = NullabilityMetadataReflection.ConvertPropertyWithOverride(property, answering)
             return true
@@ -1441,6 +1441,26 @@ class AnalyzerMemberAccess {
         return false
     }
 
+    // AN ANONYMOUS PROPERTY IS DECLARED WHERE ITS NAME IS WRITTEN in the creation, so that is where
+    // go-to-definition lands, what hover calls a `property`, and the bucket find-references fills.
+    static func AnonymousPropertyDeclaration(owner: AnonymousObjectTypeInfo, property: AnonymousObjectPropertyInfo): SymbolDeclaration {
+        return new SymbolDeclaration(property.Name, owner.FilePath, property.Line, property.Column, "property")
+    }
+
+    // The creation's own name records the declaration and binds to it, so the name in
+    // `new { Name: ... }` answers hover and is the first of its references.
+    func RecordAnonymousPropertyDeclaration(name: string, line: int, column: int, propertyType: TypeInfo) {
+        declaration := new SymbolDeclaration(name, diagnosticsValue.CurrentFilePath, line, column, "property")
+        bindingsValue.RecordDeclaration(declaration)
+        bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, line, column, name.Length, declaration)
+        identifierResolutionValue.RecordNameType(line, column, propertyType)
+    }
+
+    // A name written against an existing anonymous property — a `with` entry — binds to it.
+    func RecordAnonymousPropertyUse(owner: AnonymousObjectTypeInfo, property: AnonymousObjectPropertyInfo, line: int, column: int) {
+        bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, line, column, property.Name.Length, AnonymousPropertyDeclaration(owner, property))
+    }
+
     func RecordMemberBinding(member: MemberAccessExpression, declaration: SymbolDeclaration) {
         memberColumn := spansValue.GetMemberNameColumn(member)
         bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, member.Line, memberColumn, member.MemberName.Length, declaration)
@@ -1451,6 +1471,15 @@ class AnalyzerMemberAccess {
     // go-to-definition work on `value.MyExtension()`, and its declaration is attributed to the
     // CURRENT file because an extension `func` is only visible from one that imported it.
     func TryFindMemberDeclaration(objectType: TypeInfo, memberName: string, out declaration: SymbolDeclaration?): bool {
+        anonymousOwner := declarationContextValue.ResolveDeclaredAlias(objectType) as AnonymousObjectTypeInfo
+        if anonymousOwner != null {
+            anonymousProperty := anonymousOwner.FindProperty(memberName)
+            if anonymousProperty != null {
+                declaration = AnonymousPropertyDeclaration(anonymousOwner, anonymousProperty)
+                return true
+            }
+        }
+
         if sourceMemberDeclarationsValue.TryFind(objectType, memberName, out declaration) {
             return true
         }
@@ -1592,6 +1621,13 @@ class AnalyzerMemberAccess {
 
         if resolved as ClassTypeInfo != null || resolved as StructTypeInfo != null || resolved as RecordTypeInfo != null || resolved as SoaRecordTypeInfo != null || resolved as SoaRowTypeInfo != null || resolved as InterfaceTypeInfo != null || resolved as EnumTypeInfo != null || resolved as UnionTypeInfo != null || resolved as NewtypeInfo != null || resolved as TupleTypeInfo != null {
             return true
+        }
+
+        // An anonymous object's member list is complete, but a property it DOES have may itself be
+        // typed `unknown` — its value already failed — and that read must not be reported as missing.
+        anonymousReceiver := resolved as AnonymousObjectTypeInfo
+        if anonymousReceiver != null {
+            return anonymousReceiver.FindProperty(memberName) == null
         }
 
         nullable := resolved as NullableTypeInfo
@@ -1863,6 +1899,25 @@ class AnalyzerMemberAccess {
         reflectionType := receiverType as ReflectionTypeInfo
         if reflectionType != null {
             return GetReflectionMemberNames(reflectionType.Type, includeStaticMembers)
+        }
+
+        // An anonymous object offers its properties, then `object`'s instance members.
+        anonymousObject := receiverType as AnonymousObjectTypeInfo
+        if anonymousObject != null {
+            anonymousMembers := new List<string>()
+            if includeStaticMembers {
+                return anonymousMembers
+            }
+
+            for property in anonymousObject.Properties {
+                anonymousMembers.Add(property.Name)
+            }
+
+            for objectMember in GetReflectionMemberNames(typeof(object), false) {
+                anonymousMembers.Add(objectMember)
+            }
+
+            return anonymousMembers
         }
 
         members := declarationContextValue.GetAvailableSourceMemberNames(receiverType, includeStaticMembers)

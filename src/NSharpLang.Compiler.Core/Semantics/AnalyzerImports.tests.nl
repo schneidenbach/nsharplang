@@ -146,6 +146,10 @@ func DriveImports(harness: ImportHarness, state: ImportWalkState): List<string> 
             loaded.Add(step.AssemblyNames[index])
             index = index + 1
         }
+        frameworkNamespace := step.FrameworkNamespace
+        if frameworkNamespace != null {
+            loaded.Add("framework:" + frameworkNamespace)
+        }
 
         harness.Owner.Supply(state)
         step = harness.Owner.NextStep(state)
@@ -230,45 +234,43 @@ func PathList(): List<string> {
 
 // ── THE MAPPING TABLE AND THE PROTOCOL ─────────────────────────────────────────
 
-test "the mapping table answers one assembly for the single-assembly namespaces" {
+test "a base-framework namespace is answered by the framework index, not by the table" {
     harness := ImportHarnessNew()
-    system := harness.Owner.MappedAssemblies("System")
+    assert harness.Owner.MappedAssemblies("System") == null
+    assert harness.Owner.MappedAssemblies("System.Linq") == null
+
+    // ISSUE #215: `System.IServiceProvider` is defined in `System.ComponentModel`, which the old
+    // table's `System -> System.Runtime` row never loaded.
+    system := harness.Owner.FrameworkAssemblies("System")
     assert system != null
-    assert system.Length == 1
-    assert system[0] == "System.Runtime"
+    assert Array.IndexOf(system, "System.ComponentModel") >= 0
+    assert Array.IndexOf(system, "System.Private.CoreLib") >= 0
 
-    linq := harness.Owner.MappedAssemblies("System.Linq")
+    claims := harness.Owner.FrameworkAssemblies("System.Security.Claims")
+    assert claims != null
+    assert claims.Length == 1
+    assert claims[0] == "System.Security.Claims"
+
+    linq := harness.Owner.FrameworkAssemblies("System.Linq")
     assert linq != null
-    assert linq.Length == 1
-    assert linq[0] == "System.Linq"
-
-    json := harness.Owner.MappedAssemblies("System.Text.Json")
-    assert json != null
-    assert json[0] == "System.Text.Json"
-
-    annotations := harness.Owner.MappedAssemblies("System.ComponentModel.DataAnnotations")
-    assert annotations != null
-    assert annotations[0] == "System.ComponentModel.Annotations"
+    assert Array.IndexOf(linq, "System.Linq") >= 0
 }
 
-test "three namespaces all map to System.Runtime, and the collections pair both map to System.Collections" {
+test "a framework namespace defined only behind a facade loads the assembly that defines it" {
     harness := ImportHarnessNew()
-    io := harness.Owner.MappedAssemblies("System.IO")
-    text := harness.Owner.MappedAssemblies("System.Text")
-    tasks := harness.Owner.MappedAssemblies("System.Threading.Tasks")
-    assert io != null
-    assert text != null
-    assert tasks != null
-    assert io[0] == "System.Runtime"
-    assert text[0] == "System.Runtime"
-    assert tasks[0] == "System.Runtime"
+    // `System.Xml.Linq` is a facade of forwarders at run time; the 23 types live in
+    // `System.Private.Xml.Linq`, and only a defining assembly makes the namespace visible to a
+    // metadata scan.
+    xmlLinq := harness.Owner.FrameworkAssemblies("System.Xml.Linq")
+    assert xmlLinq != null
+    assert Array.IndexOf(xmlLinq, "System.Private.Xml.Linq") >= 0
+    assert Array.IndexOf(xmlLinq, "System.Xml.Linq") < 0
 
-    generic := harness.Owner.MappedAssemblies("System.Collections.Generic")
-    plain := harness.Owner.MappedAssemblies("System.Collections")
-    assert generic != null
-    assert plain != null
-    assert generic[0] == "System.Collections"
-    assert plain[0] == "System.Collections"
+    // `ZipArchive` and `ZipFile` are defined in two assemblies, and both answer the namespace.
+    compression := harness.Owner.FrameworkAssemblies("System.IO.Compression")
+    assert compression != null
+    assert Array.IndexOf(compression, "System.IO.Compression") >= 0
+    assert Array.IndexOf(compression, "System.IO.Compression.ZipFile") >= 0
 }
 
 test "the two-assembly rows keep their load ORDER" {
@@ -303,48 +305,35 @@ test "the two-assembly rows keep their load ORDER" {
     assert ef != null
     assert ef[0] == "Microsoft.EntityFrameworkCore"
     assert ef[1] == "Microsoft.EntityFrameworkCore.Abstractions"
-
-    // LINQ-TO-XML IS A TWO-ASSEMBLY ROW FOR A MEASURED REASON, NOT FOR SYMMETRY. `System.Xml.Linq`
-    // is a pure facade of type forwarders, and a MetadataLoadContext does not follow those: asked
-    // for its exported types it answers ZERO, so a facade-only row would load an assembly and admit
-    // no namespace. The 23 types are exported by `System.Private.Xml.Linq`, the second name. The
-    // facade stays first because it is the assembly a project references.
-    xmlLinq := harness.Owner.MappedAssemblies("System.Xml.Linq")
-    assert xmlLinq != null
-    assert xmlLinq.Length == 2
-    assert xmlLinq[0] == "System.Xml.Linq"
-    assert xmlLinq[1] == "System.Private.Xml.Linq"
-
-    // ZIP ARCHIVES ARE A TWO-ASSEMBLY ROW FOR THE SAME KIND OF MEASURED REASON. `ZipArchive` and
-    // `ZipArchiveEntry` are exported by `System.IO.Compression`, but the entry points that OPEN one
-    // from a path -- `ZipFile` and `ZipFileExtensions` -- are exported by
-    // `System.IO.Compression.ZipFile`. A one-assembly row resolves the namespace and still leaves
-    // `ZipFile.OpenRead` unbound.
-    compression := harness.Owner.MappedAssemblies("System.IO.Compression")
-    assert compression != null
-    assert compression.Length == 2
-    assert compression[0] == "System.IO.Compression"
-    assert compression[1] == "System.IO.Compression.ZipFile"
 }
 
-test "a namespace the table does not name implies no assemblies at all" {
+test "a namespace neither the table nor the framework names implies no assemblies at all" {
     harness := ImportHarnessNew()
     assert harness.Owner.MappedAssemblies("Totally.Not.Real") == null
-    assert harness.Owner.MappedAssemblies("system") == null
-    assert harness.Owner.MappedAssemblies("System.Linq.Expressions") == null
+    assert harness.Owner.FrameworkAssemblies("Totally.Not.Real") == null
+    // Namespaces are case-sensitive in metadata, so a lower-cased spelling is no namespace.
+    assert harness.Owner.FrameworkAssemblies("system") == null
+    // `Internal` is carried only by `System.Private.CoreLib`, which is not on the compile surface.
+    assert harness.Owner.FrameworkAssemblies("Internal") == null
 }
 
 test "a mapped namespace import suspends exactly once, and the request carries the names" {
     harness := ImportHarnessNew()
+    loaded := DriveNamespaceImport(harness, "Microsoft.AspNetCore.Http", null, 2, 1)
+    assert string.Join("|", loaded) == "Microsoft.AspNetCore.Http|Microsoft.AspNetCore.Http.Abstractions"
+}
+
+test "a framework namespace import suspends exactly once, and the request carries the namespace" {
+    harness := ImportHarnessNew()
     loaded := DriveNamespaceImport(harness, "System.Linq", null, 2, 1)
     assert loaded.Count == 1
-    assert loaded[0] == "System.Linq"
+    assert loaded[0] == "framework:System.Linq"
 }
 
 test "an unmapped namespace import never suspends, and still registers" {
     harness := ImportHarnessNew()
     loaded := DriveNamespaceImport(harness, "System.Collections.Generic", null, 2, 1)
-    // System.Collections.Generic IS mapped; the unmapped case is the assertion below.
+    // System.Collections.Generic IS a framework namespace; the unmapped case is the assertion below.
     assert loaded.Count == 1
 
     other := ImportHarnessNew()
@@ -380,8 +369,8 @@ test "a namespace import written INSIDE the file-import list takes the same two 
     AddNamespaceImportStatement(statements, "System.Text.Json", "J", 4, 1)
     loaded := DriveFileImports(harness, statements)
     assert loaded.Count == 2
-    assert loaded[0] == "System.Linq"
-    assert loaded[1] == "System.Text.Json"
+    assert loaded[0] == "framework:System.Linq"
+    assert loaded[1] == "framework:System.Text.Json"
 }
 
 // ── WHAT A NAMESPACE IMPORT REGISTERS ──────────────────────────────────────────
