@@ -3181,6 +3181,19 @@ print $"Next year: {age + 1}"
 print $"Pi: {3.14159:F2}"             // Pi: 3.14
 ```
 
+A hole holds any expression, and it ends at its own matching `}`, as in C#. Braces inside it nest, so
+an [anonymous object](./types.md#anonymous-objects) or an initializer can sit directly in a hole, and
+its property colons are not mistaken for a format specifier. Braces, quotes and colons inside a string
+or character literal in the hole are just text.
+
+```n#
+c := '}'
+print $"point={new { X: 1, Y: 2 }}"                           // point={ X = 1, Y = 2 }
+print $"payload={JsonSerializer.Serialize(new { Ok: true })}" // payload={"Ok":true}
+print $"ratio={new { V: 0.256 }.V:F2}"                        // ratio=0.26
+print $"closing brace? {c == '}'}"                            // closing brace? True
+```
+
 ### Escape Sequences
 
 Inside a `"..."` or `$"..."` literal (and inside a character literal), a backslash begins an escape.

@@ -514,3 +514,70 @@ test "an unterminated literal inside a hole still declines the whole split" {
     quotedFormat := new List<ColumnarInterpolationPart>()
     assert !ColumnarInterpolationSplitter.TrySplit("$\"{value:\"X\"}\"", quotedFormat), "A quoted format specifier must not split."
 }
+
+// BRACE GROUPS NEST AND CHARACTER LITERALS ARE OPAQUE, the parser's own hole rule
+// (ParserLiteralFacts.FindInterpolationHoleClose). An anonymous object inside a hole used to end the
+// hole at its first `}`, so `$"x={new { A: 1 }}"` passed analysis and then refused to split.
+test "an anonymous object hole splits whole, with its property colon kept inside the hole" {
+    parts := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"x={new { A: 1 }} y\"", parts)
+    assert parts.Count == 3
+    assert parts[0].Text == "x="
+    assert parts[1].IsHole
+    assert parts[1].Text == "new { A: 1 }"
+    assert parts[1].Format == null
+    assert parts[2].Text == " y"
+}
+
+test "a call whose argument is an anonymous object splits as one hole" {
+    parts := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"payload={JsonSerializer.Serialize(new { Ok: true, Items: new { N: 1 } })}\"", parts)
+    assert parts.Count == 2
+    assert parts[1].IsHole
+    assert parts[1].Text == "JsonSerializer.Serialize(new { Ok: true, Items: new { N: 1 } })"
+    assert parts[1].Format == null
+}
+
+test "the format specifier after a brace group is the colon past the group" {
+    parts := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"{new { V: n }.V:F2}\"", parts)
+    assert parts.Count == 1
+    assert parts[0].IsHole
+    assert parts[0].Text == "new { V: n }.V"
+    assert parts[0].Format == "F2"
+}
+
+test "a brace, a quote or a colon written as a character literal stays inside its hole" {
+    parts := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"{c == '}'}|{c == '\"'}|{c == ':'}\"", parts)
+    assert parts.Count == 5
+    assert parts[0].Text == "c == '}'"
+    assert parts[2].Text == "c == '\"'"
+    assert parts[4].Text == "c == ':'"
+    assert parts[4].Format == null
+}
+
+test "an equality or coalesce inside a nested group is not the hole's top-level operator" {
+    left := ""
+    op := ""
+    right := ""
+    assert !ColumnarInterpolationSplitter.TrySplitEquality("new { Same: a == b }", out left, out op, out right), "An equality inside a brace group belongs to the group."
+    assert !ColumnarInterpolationSplitter.TrySplitEquality("Check(a == b)", out left, out op, out right), "An equality inside an argument list belongs to the call."
+    assert ColumnarInterpolationSplitter.TrySplitEquality("Count(a == b) == total", out left, out op, out right)
+    assert left == "Count(a == b)"
+    assert right == "total"
+    assert ColumnarInterpolationSplitter.TrySplitEquality("c == '='", out left, out op, out right)
+    assert right == "'='"
+
+    coalesceLeft := ""
+    coalesceRight := ""
+    assert !ColumnarInterpolationSplitter.TrySplitCoalesce("new { Name: a ?? b }", out coalesceLeft, out coalesceRight), "A coalesce inside a brace group belongs to the group."
+    assert ColumnarInterpolationSplitter.TrySplitCoalesce("Pick(a ?? b) ?? fallback", out coalesceLeft, out coalesceRight)
+    assert coalesceLeft == "Pick(a ?? b)"
+    assert coalesceRight == "fallback"
+}
+
+test "an unclosed brace group inside a hole still declines the whole split" {
+    unclosed := new List<ColumnarInterpolationPart>()
+    assert !ColumnarInterpolationSplitter.TrySplit("$\"{new { A: 1 }\"", unclosed), "A hole whose brace group never closes must not split."
+}

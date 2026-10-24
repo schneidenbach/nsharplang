@@ -4,6 +4,7 @@ import System
 import System.Linq
 import System.Reflection
 import System.Runtime.CompilerServices
+import System.Text.Json
 
 // WHAT AN ANONYMOUS OBJECT IS AT RUN TIME.
 //
@@ -23,6 +24,35 @@ test "ToString renders every property in written order, the way C# does" {
     assert person.ToString() == "{ Name = Alice, Age = 30 }"
     assert $"{person.Name} is {person.Age}" == "Alice is 30"
     assert $"person: {person}" == "person: { Name = Alice, Age = 30 }"
+}
+
+// An interpolation hole ends at its MATCHING brace, as in C#: the object's own braces nest inside the
+// hole, its property colons are not a format specifier, and the format after the group still applies.
+test "an anonymous object written inside an interpolation hole renders in place" {
+    assert $"x={new { A: 1 }}" == "x={ A = 1 }"
+    assert $"{new { A: 1, B: "two" }} and {new { }}" == "{ A = 1, B = two } and { }"
+    assert $"nested={new { Inner: new { X: 1 } }}" == "nested={ Inner = { X = 1 } }"
+    assert $"""raw={new { R: 2 }}""" == "raw={ R = 2 }"
+}
+
+test "a JSON payload serialized from an anonymous object interpolates as one hole" {
+    assert $"payload={JsonSerializer.Serialize(new { Ok: true })}" == "payload={\"Ok\":true}"
+    count := 3
+    assert $"payload={JsonSerializer.Serialize(new { Ok: true, Count: count })}!" == "payload={\"Ok\":true,\"Count\":3}!"
+}
+
+test "a format specifier after a brace group formats the value the group produced" {
+    ratio := 3.14159
+    assert $"v={new { V: ratio }.V:F2}" == "v=3.14"
+    assert $"n={new { N: 7 }.N:D3}|{new { N: 42 }.N:X}|" == "n=007|2A|"
+}
+
+test "a brace, a quote or a colon written as a character literal stays inside its hole" {
+    c := '}'
+    assert $"{c == '}'} {c == '\"'} {c == ':'} {':'}" == "True False False :"
+    first := 1
+    second := 1
+    assert $"same={new { Same: first == second }}" == "same={ Same = True }"
 }
 
 test "an anonymous object with no properties renders as empty braces" {

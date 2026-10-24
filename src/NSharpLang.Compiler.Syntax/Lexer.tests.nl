@@ -847,6 +847,29 @@ test "lexer keeps a nested literal inside an interpolation" {
     assert tokens[1].Type == TokenType.Eof
 }
 
+// The hole's literals are opaque and its braces nest, by the rule the parser draws holes with
+// (ParserLiteralFacts.FindInterpolationHoleClose): an anonymous object's braces and a quote written as a
+// character literal are content, so the whole interpolated string is still ONE token.
+test "lexer keeps a nested brace group and a quote character literal inside an interpolation" {
+    literal := "$\"{new { A: 1 }} {c == '\"'} {c == '}'}\""
+    tokens := LexerContractTokens(literal)
+
+    assert tokens.Count == 2
+    assert LexerContractNthValue(tokens, TokenType.StringLiteral, 0) == literal
+    assert LexerContractNthTerminated(tokens, TokenType.StringLiteral, 0)
+}
+
+// Outside a hole `{{` is an escaped brace, not two opened holes, so the quote after it closes the
+// literal rather than opening a string inside a hole that is not there.
+test "lexer reads an escaped brace outside a hole as text" {
+    tokens := LexerContractTokens("$\"{{\" + x")
+
+    assert tokens.Count == 4
+    assert LexerContractNthValue(tokens, TokenType.StringLiteral, 0) == "$\"{{\""
+    assert LexerContractNthTerminated(tokens, TokenType.StringLiteral, 0)
+    assert tokens[2].Type == TokenType.Identifier
+}
+
 // Successor to TestTripleQuoteString.
 test "lexer strips a triple quote string's delimiters" {
     tokens := LexerContractTokens("\"\"\"This is\na multi-line\nstring\"\"\"")

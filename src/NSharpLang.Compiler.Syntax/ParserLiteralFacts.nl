@@ -26,34 +26,121 @@ class ParserLiteralFacts {
         return bodyLength == 2 && value[1] == '\\'
     }
 
+    // WHERE AN INTERPOLATION HOLE'S TEXT STOPS BEING STRUCTURE.
+    //
+    // A hole is an ordinary expression, so the `{`, `}`, `:` and `,` written inside one of its string
+    // or character literals are CONTENT: `{name.Replace("}", "")}` and `{c == '}'}` each end at their
+    // last brace. This answers, for a quote at `start`, the index just PAST its closing quote, or -1
+    // when nothing closes it before `end`. A backslash escape consumes the character after it, so
+    // `"\""` and `'\''` are one literal each. Every scanner that decides a hole boundary -- the parser,
+    // the emitter's splitter -- skips literals through this one rule, so they cannot disagree on it.
+    static func InterpolationHoleQuotedLiteralEnd(text: string, start: int, end: int): int {
+        if !OpensInterpolationHoleLiteral(text, start, end) {
+            return -1
+        }
+
+        quote := text[start]
+        index := start + 1
+        while index < end {
+            ch := text[index]
+            if ch == '\\' {
+                index = index + 2
+                continue
+            }
+
+            if ch == quote {
+                return index + 1
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
+    // Whether the character at `index` opens a string or character literal. Every `"` does. An
+    // apostrophe does unless it begins a LIFETIME (`'a` in `Ref<'a, T>`): an identifier character
+    // after it that is not itself closed by a second apostrophe, a shape no character literal has
+    // -- `'a'` closes at once and `'\n'` starts with a backslash.
+    static func OpensInterpolationHoleLiteral(text: string, index: int, end: int): bool {
+        if index < 0 || index >= end {
+            return false
+        }
+
+        ch := text[index]
+        if ch == '"' {
+            return true
+        }
+
+        if ch != '\'' {
+            return false
+        }
+
+        if index + 1 < end && IdentifierText.IsStart(text[index + 1]) {
+            return index + 2 < end && text[index + 2] == '\''
+        }
+
+        return true
+    }
+
+    // The `}` that closes the hole whose content begins at `start`, or -1 when the hole is not closed
+    // before `end`. Braces NEST the way C#'s do: an anonymous object, an object initializer or a
+    // lambda body inside the hole -- `{new { A: 1 }}`, `{Serialize(new { Ok: true }):X}` -- opens a
+    // group the hole cannot end inside, and a brace inside a string or character literal is skipped
+    // with the literal. An unterminated literal leaves the hole unclosed.
+    static func FindInterpolationHoleClose(text: string, start: int, end: int): int {
+        depth := 0
+        index := start
+        while index < end {
+            ch := text[index]
+            if OpensInterpolationHoleLiteral(text, index, end) {
+                quotedEnd := InterpolationHoleQuotedLiteralEnd(text, index, end)
+                if quotedEnd < 0 {
+                    return -1
+                }
+
+                index = quotedEnd
+                continue
+            }
+
+            if ch == '{' {
+                depth = depth + 1
+            } else if ch == '}' {
+                if depth == 0 {
+                    return index
+                }
+
+                depth = depth - 1
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
     static func FindFormatSpecifierColon(expression: string): int {
         parenDepth := 0
         bracketDepth := 0
         braceDepth := 0
         ternaryDepth := 0
-        inString := false
 
         index := 0
         while index < expression.Length {
             ch := expression[index]
 
-            if inString {
-                if ch == '\\' && index + 1 < expression.Length {
-                    index = index + 2
-                    continue
+            // A literal's colon is content: `{c == ':'}` and `{Join(": ", parts)}` have no format.
+            if OpensInterpolationHoleLiteral(expression, index, expression.Length) {
+                quotedEnd := InterpolationHoleQuotedLiteralEnd(expression, index, expression.Length)
+                if quotedEnd < 0 {
+                    return -1
                 }
 
-                if ch == '"' {
-                    inString = false
-                }
-
-                index = index + 1
+                index = quotedEnd
                 continue
             }
 
-            if ch == '"' {
-                inString = true
-            } else if ch == '(' {
+            if ch == '(' {
                 parenDepth = parenDepth + 1
             } else if ch == ')' {
                 parenDepth = parenDepth - 1

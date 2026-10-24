@@ -625,7 +625,9 @@ class Lexer {
     func ReadString(startLine: int, startColumn: int, isInterpolated: bool = false): Token {
         builder := new StringBuilder()
         interpolationDepth := 0
-        nestedStringDepth := 0
+        // The quote that opened the string or character literal the scan is inside, within a hole;
+        // '\0' outside one. A literal is opaque, so its braces and quotes are content.
+        nestedQuote := '\0'
 
         if isInterpolated {
             builder.Append('$')
@@ -640,7 +642,7 @@ class Lexer {
             }
 
             if isInterpolated {
-                if nestedStringDepth > 0 {
+                if nestedQuote != '\0' {
                     if Peek() == '\\' {
                         builder.Append('\\')
                         Advance()
@@ -653,10 +655,19 @@ class Lexer {
                         continue
                     }
 
-                    if Peek() == '"' {
-                        nestedStringDepth = nestedStringDepth - 1
+                    if Peek() == nestedQuote {
+                        nestedQuote = '\0'
                     }
 
+                    builder.Append(Peek())
+                    Advance()
+                    continue
+                }
+
+                // Outside a hole `{{` and `}}` are escaped braces: text, opening and closing nothing.
+                if interpolationDepth == 0 && (Peek() == '{' || Peek() == '}') && PeekNext() == Peek() {
+                    builder.Append(Peek())
+                    Advance()
                     builder.Append(Peek())
                     Advance()
                     continue
@@ -676,8 +687,8 @@ class Lexer {
                     continue
                 }
 
-                if Peek() == '"' && interpolationDepth > 0 {
-                    nestedStringDepth = nestedStringDepth + 1
+                if interpolationDepth > 0 && ParserLiteralFacts.OpensInterpolationHoleLiteral(sourceText, position, sourceText.Length) {
+                    nestedQuote = Peek()
                     builder.Append(Peek())
                     Advance()
                     continue

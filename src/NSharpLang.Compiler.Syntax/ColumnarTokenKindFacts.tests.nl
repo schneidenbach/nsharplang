@@ -139,6 +139,34 @@ test "columnar indentation leaves arrow and operator continuations inside the ex
     }
 }
 
+// The columnar scanner keeps Lexer.ReadString's hole rule: nested brace groups, a quote written as a
+// character literal and an escaped `{{` all leave the interpolated string ONE token.
+test "columnar string scan keeps nested braces, character literals and escaped braces inside one literal" {
+    literal := "$\"{new { A: 1 }} {c == '\"'} {c == '}'} {{\""
+    source := "x := " + literal + "\n"
+    capacity := source.Length * 3 + 16
+    rawKinds := new int[](capacity)
+    rawStarts := new int[](capacity)
+    rawLengths := new int[](capacity)
+    kinds := new int[](capacity)
+    starts := new int[](capacity)
+    lengths := new int[](capacity)
+    counts := new int[](2)
+    count := TokenizeColumnarSourceInto(source, rawKinds, rawStarts, rawLengths, kinds, starts, lengths, counts)
+    assert count > 0
+
+    found := false
+    index := 0
+    while index < count {
+        if starts[index] == 5 {
+            assert lengths[index] == literal.Length
+            found = true
+        }
+        index = index + 1
+    }
+    assert found
+}
+
 test "`ref struct` is decided by TokenType.Ref, and by nothing beside it" {
     assert ColumnarTokenKindFacts.IsRefStructModifierKind(TokenKindFactsColumnarKindOf("ref"))
     assert ColumnarTokenKindFacts.IsRefStructModifierKind(Convert.ToInt32(TokenType.Ref))
